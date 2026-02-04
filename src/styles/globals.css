@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color: #f0f0f5;
+  background-color: #0d0d1a;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* スクロールバーのカスタマイズ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #141428;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3d3d5c;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5c5c7a;
+}
+
+/* 選択時のスタイル */
+::selection {
+  background: rgba(92, 156, 255, 0.3);
+  color: #f0f0f5;
+}
+
+/* ドラッグ無効化（画像など） */
+img {
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* フォーカスリング */
+:focus-visible {
+  outline: 2px solid #5c9cff;
+  outline-offset: 2px;
+}
+
+/* ボタン共通スタイル */
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded font-medium transition-colors duration-150;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-accent;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-bg-primary hover:bg-accent-hover;
+  }
+
+  .btn-secondary {
+    @apply bg-bg-tertiary text-text-primary hover:bg-bg-elevated;
+    @apply border border-text-muted/30;
+  }
+
+  .btn-danger {
+    @apply bg-error/20 text-error hover:bg-error/30;
+  }
+
+  /* パネル共通スタイル */
+  .panel {
+    @apply bg-bg-secondary rounded-lg border border-text-muted/10;
+  }
+
+  /* 入力フィールド共通スタイル */
+  .input {
+    @apply bg-bg-tertiary border border-text-muted/30 rounded px-3 py-2;
+    @apply text-text-primary placeholder-text-muted;
+    @apply focus:border-accent focus:outline-none;
+  }
+
+  /* バッジスタイル */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+  }
+
+  .badge-rgb {
+    @apply bg-success/20 text-success;
+  }
+
+  .badge-grayscale {
+    @apply bg-text-secondary/20 text-text-secondary;
+  }
+
+  .badge-cmyk {
+    @apply bg-cyan-500/20 text-cyan-400;
+  }
+
+  .badge-success {
+    @apply bg-success/20 text-success;
+  }
+
+  .badge-error {
+    @apply bg-error/20 text-error;
+  }
+
+  .badge-warning {
+    @apply bg-warning/20 text-warning;
+  }
+}
