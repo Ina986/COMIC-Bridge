@@ -1,54 +1,86 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { readDir } from "@tauri-apps/plugin-fs";
 import { usePsdLoader } from "../../hooks/usePsdLoader";
 
 export function DropZone() {
   const [isDragging, setIsDragging] = useState(false);
-  const { loadFiles } = usePsdLoader();
+  const { loadFiles, loadFolder } = usePsdLoader();
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  }, []);
+  // Tauri drag-drop event listener
+  useEffect(() => {
+    const currentWindow = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  }, []);
+    const setupListener = async () => {
+      unlisten = await currentWindow.onDragDropEvent(async (event) => {
+        if (event.payload.type === "over") {
+          setIsDragging(true);
+        } else if (event.payload.type === "leave" || event.payload.type === "cancel") {
+          setIsDragging(false);
+        } else if (event.payload.type === "drop") {
+          setIsDragging(false);
+          const paths = event.payload.paths;
 
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
+          if (paths && paths.length > 0) {
+            // Check if it's a folder or files
+            const psdFiles: string[] = [];
 
-      const items = e.dataTransfer.items;
-      if (!items || items.length === 0) return;
+            for (const path of paths) {
+              // Check if path is a directory
+              try {
+                const entries = await readDir(path);
+                // It's a directory - collect PSD files from it
+                for (const entry of entries) {
+                  if (entry.isFile && entry.name) {
+                    const name = entry.name.toLowerCase();
+                    if (name.endsWith(".psd") || name.endsWith(".psb")) {
+                      psdFiles.push(`${path}\\${entry.name}`);
+                    }
+                  }
+                }
+              } catch {
+                // Not a directory, check if it's a PSD file
+                const lowerPath = path.toLowerCase();
+                if (lowerPath.endsWith(".psd") || lowerPath.endsWith(".psb")) {
+                  psdFiles.push(path);
+                }
+              }
+            }
 
-      const paths: string[] = [];
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.kind === "file") {
-          const file = item.getAsFile();
-          if (file) {
-            // Get full path from webkitRelativePath or name
-            // In Tauri, we need to use the file path from the drop event
-            const path = (file as any).path || file.name;
-            if (path.toLowerCase().endsWith(".psd") || path.toLowerCase().endsWith(".psb")) {
-              paths.push(path);
+            if (psdFiles.length > 0) {
+              await loadFiles(psdFiles);
             }
           }
         }
-      }
+      });
+    };
 
-      if (paths.length > 0) {
-        await loadFiles(paths);
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
       }
-    },
-    [loadFiles]
-  );
+    };
+  }, [loadFiles, loadFolder]);
+
+  // Prevent default browser drag behavior
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Actual drop handling is done by Tauri's onDragDropEvent
+  };
 
   return (
     <div
