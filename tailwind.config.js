@@ -4,44 +4,50 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 基調色 - 柔らかいダーク
+        // 基調色 - 明るいクリーム系ライトテーマ
         bg: {
-          primary: "#1e1e2e",      // 深いパープルグレー
-          secondary: "#282838",    // 少し明るく
-          tertiary: "#313145",     // パネル
-          elevated: "#3c3c52",     // カード・浮き上がり
+          primary: "#faf8f5",      // クリームホワイト（メイン背景）
+          secondary: "#ffffff",    // 純白（パネル）
+          tertiary: "#f5f3f0",     // 柔らかいグレー（カード）
+          elevated: "#ffffff",     // 浮き上がり要素
         },
-        // テキスト
+        // テキスト - ダーク系
         text: {
-          primary: "#f5f3f0",      // オフホワイト
-          secondary: "#b8b5c8",    // 柔らかいグレー
-          muted: "#7a7890",        // くすんだ色
+          primary: "#2d2d3a",      // ダークパープル
+          secondary: "#5a5a6e",    // ミディアムグレー
+          muted: "#9090a0",        // ライトグレー
         },
-        // ポップなアクセント
+        // ポップなアクセント（鮮やか）
         accent: {
-          DEFAULT: "#ff6b9d",      // ビビッドピンク
-          hover: "#ff8bb5",
-          glow: "rgba(255, 107, 157, 0.3)",
+          DEFAULT: "#ff5a8a",      // ビビッドピンク
+          hover: "#ff7aa5",
+          glow: "rgba(255, 90, 138, 0.25)",
           secondary: "#7c5cff",    // パープル
-          tertiary: "#00d4aa",     // ミントグリーン
-          warm: "#ffb347",         // マンゴーオレンジ
+          tertiary: "#00c9a7",     // ミントグリーン
+          warm: "#ffb142",         // オレンジ
         },
-        // 漫画的装飾カラー
+        // 漫画的装飾カラー（パステル）
         manga: {
-          pink: "#ff9ed2",
-          mint: "#7fefbd",
-          lavender: "#b8a9ff",
-          peach: "#ffcab0",
-          sky: "#87ceeb",
+          pink: "#ffcce5",
+          mint: "#c5ffe0",
+          lavender: "#e0d5ff",
+          peach: "#ffe5d5",
+          sky: "#d5f0ff",
+          yellow: "#fff9c4",
         },
-        // ステータス
-        success: "#7dd87d",
-        warning: "#f0c674",
-        error: "#e07575",
+        // ステータス（明確に）
+        success: "#22c55e",        // 鮮やかな緑
+        warning: "#f59e0b",        // オレンジ
+        error: "#ef4444",          // 鮮やかな赤
         // ガイド線
         guide: {
-          h: "#ff8a8a",
-          v: "#8ad4c8",
+          h: "#ff7070",
+          v: "#50c8b0",
+        },
+        // ボーダー・区切り線
+        border: {
+          DEFAULT: "#e5e5ea",
+          light: "#f0f0f5",
         },
       },
       fontFamily: {
@@ -55,11 +61,14 @@ export default {
         '3xl': '2rem',
       },
       boxShadow: {
-        'glow-pink': '0 0 20px rgba(255, 107, 157, 0.3)',
-        'glow-purple': '0 0 20px rgba(124, 92, 255, 0.3)',
-        'glow-mint': '0 0 20px rgba(0, 212, 170, 0.3)',
-        'soft': '0 4px 20px rgba(0, 0, 0, 0.15)',
-        'card': '0 2px 12px rgba(0, 0, 0, 0.2)',
+        'soft': '0 2px 8px rgba(0, 0, 0, 0.08)',
+        'card': '0 4px 16px rgba(0, 0, 0, 0.06)',
+        'elevated': '0 8px 24px rgba(0, 0, 0, 0.1)',
+        'glow-pink': '0 0 20px rgba(255, 90, 138, 0.2)',
+        'glow-purple': '0 0 20px rgba(124, 92, 255, 0.2)',
+        'glow-mint': '0 0 20px rgba(0, 201, 167, 0.2)',
+        'glow-success': '0 0 16px rgba(34, 197, 94, 0.25)',
+        'glow-error': '0 0 16px rgba(239, 68, 68, 0.25)',
       },
       animation: {
         'bounce-soft': 'bounce-soft 0.4s ease-out',
@@ -97,10 +106,10 @@ export default {
         },
       },
       backgroundImage: {
-        'gradient-pop': 'linear-gradient(135deg, #ff6b9d, #7c5cff)',
-        'gradient-fresh': 'linear-gradient(135deg, #00d4aa, #7c5cff)',
-        'gradient-warm': 'linear-gradient(135deg, #ffb347, #ff6b9d)',
-        'gradient-card': 'linear-gradient(145deg, rgba(60, 60, 82, 0.8), rgba(49, 49, 69, 0.8))',
+        'gradient-pop': 'linear-gradient(135deg, #ff5a8a, #7c5cff)',
+        'gradient-fresh': 'linear-gradient(135deg, #00c9a7, #7c5cff)',
+        'gradient-warm': 'linear-gradient(135deg, #ffb142, #ff5a8a)',
+        'gradient-card': 'linear-gradient(145deg, #ffffff, #faf8f5)',
       },
     },
   },

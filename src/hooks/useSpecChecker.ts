@@ -1,14 +1,22 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { usePsdStore } from "../store/psdStore";
 import { useSpecStore } from "../store/specStore";
 import type { Specification, SpecCheckResult, SpecRule, PsdMetadata } from "../types";
 
 export function useSpecChecker() {
   const [isChecking, setIsChecking] = useState(false);
+  const prevActiveSpecIdRef = useRef<string | null>(null);
+  const prevFilesLengthRef = useRef<number>(0);
+  const prevFilesWithMetadataRef = useRef<number>(0);
 
   const files = usePsdStore((state) => state.files);
+
+  // メタデータを持つファイルの数を追跡（αチャンネル等の情報はメタデータに含まれる）
+  const filesWithMetadataCount = files.filter((f) => f.metadata).length;
   const setCheckResult = useSpecStore((state) => state.setCheckResult);
   const clearCheckResults = useSpecStore((state) => state.clearCheckResults);
+  const specifications = useSpecStore((state) => state.specifications);
+  const activeSpecId = useSpecStore((state) => state.activeSpecId);
 
   const checkFile = useCallback(
     (fileId: string, metadata: PsdMetadata, specs: Specification[]): SpecCheckResult => {
@@ -79,6 +87,25 @@ export function useSpecChecker() {
     },
     [files, checkFile, setCheckResult, clearCheckResults]
   );
+
+  // 自動チェック: 仕様変更時またはメタデータ追加時
+  useEffect(() => {
+    const specChanged = activeSpecId !== prevActiveSpecIdRef.current;
+    const metadataAdded = filesWithMetadataCount > prevFilesWithMetadataRef.current;
+
+    // 仕様が選択されていて、メタデータを持つファイルがある場合に自動チェック
+    // メタデータにはαチャンネル情報等が含まれるため、メタデータ追加時に再チェックが必要
+    if (activeSpecId && filesWithMetadataCount > 0 && (specChanged || metadataAdded)) {
+      const enabledSpecs = specifications.filter((s) => s.enabled);
+      if (enabledSpecs.length > 0) {
+        checkAllFiles(enabledSpecs);
+      }
+    }
+
+    prevActiveSpecIdRef.current = activeSpecId;
+    prevFilesLengthRef.current = files.length;
+    prevFilesWithMetadataRef.current = filesWithMetadataCount;
+  }, [activeSpecId, filesWithMetadataCount, specifications, checkAllFiles, files.length]);
 
   return {
     checkFile,

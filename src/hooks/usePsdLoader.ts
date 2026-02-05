@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { readDir, readFile } from "@tauri-apps/plugin-fs";
 import { usePsdStore } from "../store/psdStore";
+import { useSpecStore } from "../store/specStore";
 import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
 import type { PsdFile } from "../types";
 
@@ -10,6 +11,10 @@ export function usePsdLoader() {
   const setLoadingStatus = usePsdStore((state) => state.setLoadingStatus);
   const setCurrentFolderPath = usePsdStore((state) => state.setCurrentFolderPath);
   const setErrorMessage = usePsdStore((state) => state.setErrorMessage);
+
+  // 仕様選択モーダル関連
+  const openSpecSelectionModal = useSpecStore((state) => state.openSpecSelectionModal);
+  const selectSpecAndCheck = useSpecStore((state) => state.selectSpecAndCheck);
 
   const loadFolder = useCallback(
     async (folderPath: string) => {
@@ -148,8 +153,19 @@ export function usePsdLoader() {
           }
         }
       }
+
+      // 仕様選択: 自動チェックが有効で前回選択があれば自動選択、なければモーダル表示
+      const { autoCheckEnabled: autoEnabled, lastSelectedSpecId: lastSpec } =
+        useSpecStore.getState();
+      if (autoEnabled && lastSpec) {
+        // 自動で前回の仕様を選択してチェック開始
+        selectSpecAndCheck(lastSpec);
+      } else {
+        // モーダルを表示
+        openSpecSelectionModal(initialFiles.length);
+      }
     },
-    [setFiles, updateFile, setLoadingStatus]
+    [setFiles, updateFile, setLoadingStatus, openSpecSelectionModal, selectSpecAndCheck]
   );
 
   return { loadFolder, loadFiles };

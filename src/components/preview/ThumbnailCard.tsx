@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { PsdFile } from "../../types";
 import { useSpecStore } from "../../store/specStore";
 
@@ -9,6 +10,15 @@ interface ThumbnailCardProps {
   onClick: (e: React.MouseEvent) => void;
 }
 
+// ルールタイプの日本語表示
+const ruleTypeLabels: Record<string, string> = {
+  colorMode: "カラーモード",
+  dpi: "解像度",
+  bitsPerChannel: "ビット深度",
+  hasAlphaChannels: "αチャンネル",
+  hasGuides: "ガイド",
+};
+
 export function ThumbnailCard({
   file,
   size: _size,
@@ -16,26 +26,37 @@ export function ThumbnailCard({
   isActive,
   onClick,
 }: ThumbnailCardProps) {
+  const [isHovered, setIsHovered] = useState(false);
   const checkResults = useSpecStore((state) => state.checkResults);
   const checkResult = checkResults.get(file.id);
   const hasError = checkResult && !checkResult.passed;
+  const isChecked = checkResult !== undefined;
+  const isPassed = checkResult?.passed;
+
+  // NG項目のルールタイプを取得
+  const failedRuleTypes = checkResult?.results
+    .filter((r) => !r.passed)
+    .map((r) => r.rule.type) || [];
 
   return (
     <div
       className={`
         group relative bg-bg-tertiary rounded-2xl overflow-hidden cursor-pointer
-        transition-all duration-200
-        hover:-translate-y-1 hover:shadow-lg
+        transition-all duration-200 shadow-card border border-border
+        hover:-translate-y-1 hover:shadow-elevated
         ${isActive
           ? "ring-2 ring-accent shadow-glow-pink"
           : isSelected
           ? "ring-2 ring-accent/50 shadow-md"
           : "hover:ring-1 hover:ring-accent/30"
         }
-        ${hasError ? "ring-2 ring-error" : ""}
+        ${hasError ? "ring-2 ring-error shadow-glow-error" : ""}
+        ${isPassed && isChecked ? "ring-1 ring-success/30" : ""}
       `}
       style={{ aspectRatio: "1 / 1.4142" }} // A4/B5 aspect ratio
       onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {/* Thumbnail Image */}
       <div className="absolute inset-0 flex items-center justify-center bg-bg-elevated">
@@ -84,7 +105,9 @@ export function ThumbnailCard({
           <div className="flex items-center gap-1.5 flex-wrap">
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${
-                file.metadata.colorMode === "RGB"
+                failedRuleTypes.includes("colorMode")
+                  ? "bg-error/30 text-error"
+                  : file.metadata.colorMode === "RGB"
                   ? "bg-accent-tertiary/30 text-accent-tertiary"
                   : file.metadata.colorMode === "Grayscale"
                   ? "bg-white/20 text-white/80"
@@ -93,12 +116,23 @@ export function ThumbnailCard({
             >
               {file.metadata.colorMode}
             </span>
-            <span className="text-[10px] text-white/70 bg-white/10 px-1.5 py-0.5 rounded-md">
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                failedRuleTypes.includes("dpi")
+                  ? "bg-error/30 text-error font-medium"
+                  : "text-white/70 bg-white/10"
+              }`}
+            >
               {file.metadata.dpi}dpi
             </span>
             {file.metadata.hasGuides && (
               <span className="text-[10px] text-guide-v bg-guide-v/20 px-1.5 py-0.5 rounded-md">
                 Guide
+              </span>
+            )}
+            {file.metadata.hasAlphaChannels && failedRuleTypes.includes("hasAlphaChannels") && (
+              <span className="text-[10px] bg-error/30 text-error px-1.5 py-0.5 rounded-md font-medium">
+                α
               </span>
             )}
           </div>
@@ -124,9 +158,47 @@ export function ThumbnailCard({
       </div>
 
       {/* Spec Check Indicator */}
-      {hasError && (
-        <div className="absolute top-3 right-3 w-6 h-6 bg-error rounded-lg flex items-center justify-center shadow-lg animate-pulse">
-          <span className="text-white text-xs font-bold">!</span>
+      {isChecked && (
+        hasError ? (
+          <div className="absolute top-3 right-3 w-6 h-6 bg-error rounded-lg flex items-center justify-center shadow-lg animate-pulse">
+            <span className="text-white text-xs font-bold">!</span>
+          </div>
+        ) : isPassed ? (
+          <div className="absolute top-3 right-3 w-6 h-6 bg-success rounded-lg flex items-center justify-center shadow-lg">
+            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          </div>
+        ) : null
+      )}
+
+      {/* NG Reason Overlay on Hover */}
+      {hasError && isHovered && checkResult && (
+        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center p-4 rounded-2xl z-10">
+          <div className="text-error font-bold text-lg mb-3">NG</div>
+          <div className="space-y-2 text-center">
+            {checkResult.results
+              .filter((r) => !r.passed)
+              .map((r, i) => (
+                <div key={i} className="text-sm">
+                  <span className="text-text-secondary">
+                    {ruleTypeLabels[r.rule.type] || r.rule.type}:
+                  </span>
+                  <span className="text-error ml-1">
+                    {String(r.actualValue)}
+                  </span>
+                  <span className="text-text-muted mx-1">→</span>
+                  <span className="text-success">
+                    {String(r.rule.value)}
+                  </span>
+                </div>
+              ))}
+          </div>
+          {checkResult.matchedSpec && (
+            <div className="mt-3 text-xs text-text-muted">
+              仕様: {checkResult.matchedSpec}
+            </div>
+          )}
         </div>
       )}
 

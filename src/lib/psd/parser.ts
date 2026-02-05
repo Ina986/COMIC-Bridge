@@ -113,21 +113,6 @@ export function extractMetadata(psd: Psd): PsdMetadata {
  * カラーモードに応じた標準チャンネル数を超えるチャンネルがαチャンネル
  */
 function extractAlphaChannelInfo(psd: Psd): { count: number; names: string[] } {
-  // カラーモードごとの標準チャンネル数
-  const standardChannelCount: Record<number, number> = {
-    0: 1,  // Bitmap
-    1: 1,  // Grayscale
-    2: 1,  // Indexed
-    3: 3,  // RGB
-    4: 4,  // CMYK
-    7: 3,  // Multichannel (varies, but usually treated as 3)
-    8: 1,  // Duotone
-    9: 3,  // Lab
-  };
-
-  const colorMode = psd.colorMode || 3;
-  const standard = standardChannelCount[colorMode] || 3;
-
   // αチャンネル名はimageResourcesに格納されている
   const alphaNames = psd.imageResources?.alphaChannelNames || [];
 

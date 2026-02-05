@@ -16,7 +16,7 @@ export function DropZone() {
       unlisten = await currentWindow.onDragDropEvent(async (event) => {
         if (event.payload.type === "over") {
           setIsDragging(true);
-        } else if (event.payload.type === "leave" || event.payload.type === "cancel") {
+        } else if (event.payload.type === "leave") {
           setIsDragging(false);
         } else if (event.payload.type === "drop") {
           setIsDragging(false);

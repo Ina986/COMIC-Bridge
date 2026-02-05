@@ -89,6 +89,12 @@ interface SpecStore {
   checkResults: Map<string, SpecCheckResult>;
   activeSpecId: string | null;
 
+  // 自動チェック関連
+  autoCheckEnabled: boolean;
+  lastSelectedSpecId: string | null;
+  showSpecSelectionModal: boolean;
+  pendingFilesCount: number; // モーダル表示時の読み込み待ちファイル数
+
   // 変換関連
   conversionSettings: ConversionSettings;
   isConverting: boolean;
@@ -101,6 +107,13 @@ interface SpecStore {
   removeSpecification: (id: string) => void;
   toggleSpecification: (id: string) => void;
   setActiveSpec: (id: string | null) => void;
+
+  // 自動チェック関連
+  setAutoCheckEnabled: (enabled: boolean) => void;
+  setLastSelectedSpecId: (specId: string | null) => void;
+  openSpecSelectionModal: (pendingFilesCount: number) => void;
+  closeSpecSelectionModal: () => void;
+  selectSpecAndCheck: (specId: string) => void;
 
   // Check results
   setCheckResult: (fileId: string, result: SpecCheckResult) => void;
@@ -121,10 +134,32 @@ const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
   removeHiddenLayers: false,
 };
 
+// localStorage から前回選択を復元
+const getStoredLastSpecId = (): string | null => {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("lastSelectedSpecId");
+  }
+  return null;
+};
+
+const getStoredAutoCheckEnabled = (): boolean => {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("autoCheckEnabled") === "true";
+  }
+  return false;
+};
+
 export const useSpecStore = create<SpecStore>((set, get) => ({
   specifications: DEFAULT_SPECIFICATIONS,
   checkResults: new Map(),
   activeSpecId: null,
+
+  // 自動チェック関連
+  autoCheckEnabled: getStoredAutoCheckEnabled(),
+  lastSelectedSpecId: getStoredLastSpecId(),
+  showSpecSelectionModal: false,
+  pendingFilesCount: 0,
+
   conversionSettings: DEFAULT_CONVERSION_SETTINGS,
   isConverting: false,
   conversionResults: [],
@@ -157,6 +192,47 @@ export const useSpecStore = create<SpecStore>((set, get) => ({
     })),
 
   setActiveSpec: (activeSpecId) => set({ activeSpecId }),
+
+  // 自動チェック関連
+  setAutoCheckEnabled: (enabled) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("autoCheckEnabled", String(enabled));
+    }
+    set({ autoCheckEnabled: enabled });
+  },
+
+  setLastSelectedSpecId: (specId) => {
+    if (typeof window !== "undefined") {
+      if (specId) {
+        localStorage.setItem("lastSelectedSpecId", specId);
+      } else {
+        localStorage.removeItem("lastSelectedSpecId");
+      }
+    }
+    set({ lastSelectedSpecId: specId });
+  },
+
+  openSpecSelectionModal: (pendingFilesCount) =>
+    set({ showSpecSelectionModal: true, pendingFilesCount }),
+
+  closeSpecSelectionModal: () =>
+    set({ showSpecSelectionModal: false, pendingFilesCount: 0 }),
+
+  selectSpecAndCheck: (specId) => {
+    const { specifications, setLastSelectedSpecId } = get();
+    // 選択した仕様のみを有効化、他は無効化
+    const updatedSpecs = specifications.map((s) => ({
+      ...s,
+      enabled: s.id === specId,
+    }));
+    setLastSelectedSpecId(specId);
+    set({
+      specifications: updatedSpecs,
+      activeSpecId: specId,
+      showSpecSelectionModal: false,
+      pendingFilesCount: 0,
+    });
+  },
 
   setCheckResult: (fileId, result) =>
     set((state) => {

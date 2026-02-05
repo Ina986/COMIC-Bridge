@@ -62,7 +62,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
         onClick={onClose}
       >
         {/* オーバーレイ */}
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
         {/* モーダル本体 */}
         <div
@@ -70,8 +70,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
           className={`
             relative w-full ${sizeStyles[size]}
             bg-bg-secondary rounded-3xl
-            border border-white/10
-            shadow-2xl
+            border border-border
+            shadow-elevated
             animate-slide-up
             ${className}
           `}
@@ -80,7 +80,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
         >
           {/* ヘッダー */}
           {(title || showCloseButton) && (
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               {title && (
                 <h2 className="text-lg font-display font-medium text-text-primary">
                   {title}

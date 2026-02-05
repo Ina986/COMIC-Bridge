@@ -2,10 +2,15 @@ import { Sidebar } from "./Sidebar";
 import { MainView } from "./MainView";
 import { DetailPanel } from "./DetailPanel";
 import { GuideEditorModal } from "../guide-editor/GuideEditorModal";
+import { SpecSelectionModal } from "../spec-checker/SpecSelectionModal";
 import { useGuideStore } from "../../store/guideStore";
+import { useSpecChecker } from "../../hooks/useSpecChecker";
 
 export function AppLayout() {
   const isEditorOpen = useGuideStore((state) => state.isEditorOpen);
+
+  // 自動チェック機能を有効化（useEffectが発火するようにする）
+  useSpecChecker();
 
   return (
     <div className="flex h-screen bg-bg-primary overflow-hidden">
@@ -23,6 +28,9 @@ export function AppLayout() {
 
       {/* Guide Editor Modal */}
       {isEditorOpen && <GuideEditorModal />}
+
+      {/* Spec Selection Modal */}
+      <SpecSelectionModal />
     </div>
   );
 }

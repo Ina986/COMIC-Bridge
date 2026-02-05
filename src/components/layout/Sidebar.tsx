@@ -8,9 +8,9 @@ export function Sidebar() {
   const [activeTab, setActiveTab] = useState<"files" | "spec" | "layers" | "split">("files");
 
   return (
-    <aside className="w-72 flex-shrink-0 bg-bg-secondary border-r border-white/5 flex flex-col relative z-10">
+    <aside className="w-72 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col relative z-10 shadow-soft">
       {/* ロゴ・タイトルエリア */}
-      <div className="px-4 py-4 border-b border-white/5">
+      <div className="px-4 py-4 border-b border-border">
         <div className="flex items-center gap-3">
           {/* ロゴアイコン */}
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-secondary flex items-center justify-center shadow-glow-pink">
@@ -38,7 +38,7 @@ export function Sidebar() {
       </div>
 
       {/* Tab Header */}
-      <div className="flex p-2 gap-1 border-b border-white/5">
+      <div className="flex p-2 gap-1 border-b border-border">
         <button
           className={`flex-1 px-3 py-2 text-xs font-medium rounded-xl transition-all duration-200 ${
             activeTab === "files"

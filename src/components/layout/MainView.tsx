@@ -27,7 +27,7 @@ export function MainView() {
 
       {/* Bottom Action Bar */}
       {hasFiles && (
-        <div className="px-4 py-3 bg-bg-secondary/80 backdrop-blur-sm border-t border-white/5 flex items-center justify-between relative z-10">
+        <div className="px-4 py-3 bg-bg-secondary shadow-soft border-t border-border flex items-center justify-between relative z-10">
           <div className="flex items-center gap-3">
             {/* ファイル数バッジ */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-bg-tertiary rounded-full">
@@ -53,8 +53,8 @@ export function MainView() {
               className="
                 px-4 py-2 text-sm font-medium rounded-xl
                 bg-bg-tertiary text-text-primary
-                border border-white/10 hover:border-accent/30
-                hover:bg-bg-elevated
+                border border-border hover:border-accent/30
+                hover:bg-bg-elevated shadow-soft
                 transition-all duration-200
                 disabled:opacity-50 disabled:cursor-not-allowed
                 flex items-center gap-2

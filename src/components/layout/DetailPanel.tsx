@@ -1,13 +1,20 @@
 import { usePsdStore } from "../../store/psdStore";
+import { useSpecStore } from "../../store/specStore";
 import { MetadataPanel } from "../metadata/MetadataPanel";
+import { FixGuidePanel } from "../spec-checker/FixGuidePanel";
 
 export function DetailPanel() {
   const activeFile = usePsdStore((state) => state.getActiveFile());
+  const checkResults = useSpecStore((state) => state.checkResults);
+
+  // アクティブファイルのチェック結果
+  const checkResult = activeFile ? checkResults.get(activeFile.id) : undefined;
+  const hasError = checkResult && !checkResult.passed;
 
   return (
-    <aside className="w-80 flex-shrink-0 bg-bg-secondary border-l border-white/5 flex flex-col overflow-hidden relative z-10">
+    <aside className="w-80 flex-shrink-0 bg-bg-secondary border-l border-border flex flex-col overflow-hidden relative z-10 shadow-soft">
       {/* Header */}
-      <div className="px-4 py-4 border-b border-white/5">
+      <div className="px-4 py-4 border-b border-border">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-accent-secondary/20 flex items-center justify-center">
             <svg
@@ -33,7 +40,16 @@ export function DetailPanel() {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {activeFile ? (
-          <MetadataPanel file={activeFile} />
+          <div className="flex flex-col">
+            {/* NG時の修正ガイド */}
+            {hasError && checkResult && (
+              <div className="p-4 border-b border-border">
+                <FixGuidePanel checkResult={checkResult} />
+              </div>
+            )}
+            {/* メタデータ */}
+            <MetadataPanel file={activeFile} />
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center p-6">
             {/* かわいいイラスト風アイコン */}
