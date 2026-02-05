@@ -9,6 +9,9 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen bg-bg-primary overflow-hidden">
+      {/* 背景のトーンパターン */}
+      <div className="fixed inset-0 bg-tone pointer-events-none" />
+
       {/* Sidebar - File Browser */}
       <Sidebar />
 

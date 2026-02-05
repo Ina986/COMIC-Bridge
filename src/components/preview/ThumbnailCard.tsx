@@ -23,29 +23,35 @@ export function ThumbnailCard({
   return (
     <div
       className={`
-        group relative bg-bg-secondary rounded-lg overflow-hidden cursor-pointer
-        transition-all duration-150
+        group relative bg-bg-tertiary rounded-2xl overflow-hidden cursor-pointer
+        transition-all duration-200
+        hover:-translate-y-1 hover:shadow-lg
         ${isActive
-          ? "ring-2 ring-accent shadow-lg shadow-accent/20"
+          ? "ring-2 ring-accent shadow-glow-pink"
           : isSelected
-          ? "ring-1 ring-accent/50"
-          : "hover:ring-1 hover:ring-text-muted/30"
+          ? "ring-2 ring-accent/50 shadow-md"
+          : "hover:ring-1 hover:ring-accent/30"
         }
-        ${hasError ? "ring-1 ring-error" : ""}
+        ${hasError ? "ring-2 ring-error" : ""}
       `}
       style={{ aspectRatio: "1 / 1.4142" }} // A4/B5 aspect ratio
       onClick={onClick}
     >
       {/* Thumbnail Image */}
-      <div className="absolute inset-0 flex items-center justify-center bg-bg-tertiary">
+      <div className="absolute inset-0 flex items-center justify-center bg-bg-elevated">
         {file.thumbnailStatus === "loading" && (
-          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-10 h-10 rounded-full border-3 border-accent/30 border-t-accent animate-spin" />
+            <span className="text-xs text-text-muted">読み込み中...</span>
+          </div>
         )}
         {file.thumbnailStatus === "error" && (
-          <div className="text-error text-xs text-center p-2">
-            <svg className="w-8 h-8 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
+          <div className="text-error text-xs text-center p-4">
+            <div className="w-12 h-12 mx-auto mb-2 rounded-xl bg-error/20 flex items-center justify-center">
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
             読込エラー
           </div>
         )}
@@ -58,33 +64,42 @@ export function ThumbnailCard({
           />
         )}
         {file.thumbnailStatus === "pending" && (
-          <div className="text-text-muted text-xs">待機中...</div>
+          <div className="text-text-muted text-xs flex flex-col items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-bg-tertiary flex items-center justify-center">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            待機中
+          </div>
         )}
       </div>
 
       {/* Overlay with file info */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-        <p className="text-xs text-white truncate" title={file.fileName}>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-8">
+        <p className="text-xs text-white font-medium truncate mb-1.5" title={file.fileName}>
           {file.fileName}
         </p>
         {file.metadata && (
-          <div className="flex items-center gap-1 mt-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span
-              className={`text-[9px] px-1 py-0.5 rounded ${
+              className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${
                 file.metadata.colorMode === "RGB"
-                  ? "bg-success/30 text-success"
+                  ? "bg-accent-tertiary/30 text-accent-tertiary"
                   : file.metadata.colorMode === "Grayscale"
                   ? "bg-white/20 text-white/80"
-                  : "bg-cyan-500/30 text-cyan-300"
+                  : "bg-manga-sky/30 text-manga-sky"
               }`}
             >
               {file.metadata.colorMode}
             </span>
-            <span className="text-[9px] text-white/60">
+            <span className="text-[10px] text-white/70 bg-white/10 px-1.5 py-0.5 rounded-md">
               {file.metadata.dpi}dpi
             </span>
             {file.metadata.hasGuides && (
-              <span className="text-[9px] text-guide-v">G</span>
+              <span className="text-[10px] text-guide-v bg-guide-v/20 px-1.5 py-0.5 rounded-md">
+                Guide
+              </span>
             )}
           </div>
         )}
@@ -93,15 +108,16 @@ export function ThumbnailCard({
       {/* Selection Checkbox */}
       <div
         className={`
-          absolute top-2 left-2 w-5 h-5 rounded border-2 transition-all
+          absolute top-3 left-3 w-6 h-6 rounded-lg transition-all duration-200
+          flex items-center justify-center
           ${isSelected
-            ? "bg-accent border-accent"
-            : "border-white/50 bg-black/30 opacity-0 group-hover:opacity-100"
+            ? "bg-gradient-to-br from-accent to-accent-secondary shadow-glow-pink"
+            : "border-2 border-white/40 bg-black/40 opacity-0 group-hover:opacity-100"
           }
         `}
       >
         {isSelected && (
-          <svg className="w-full h-full text-white" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
         )}
@@ -109,9 +125,14 @@ export function ThumbnailCard({
 
       {/* Spec Check Indicator */}
       {hasError && (
-        <div className="absolute top-2 right-2 w-5 h-5 bg-error rounded-full flex items-center justify-center">
+        <div className="absolute top-3 right-3 w-6 h-6 bg-error rounded-lg flex items-center justify-center shadow-lg animate-pulse">
           <span className="text-white text-xs font-bold">!</span>
         </div>
+      )}
+
+      {/* Active indicator glow */}
+      {isActive && (
+        <div className="absolute inset-0 pointer-events-none border-2 border-accent rounded-2xl" />
       )}
     </div>
   );

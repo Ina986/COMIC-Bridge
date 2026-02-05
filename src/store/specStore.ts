@@ -26,6 +26,12 @@ const DEFAULT_SPECIFICATIONS: Specification[] = [
         value: 8,
         message: "ビット深度が8bitではありません",
       },
+      {
+        type: "hasAlphaChannels",
+        operator: "equals",
+        value: false,
+        message: "不要なαチャンネルがあります",
+      },
     ],
   },
   {
@@ -51,14 +57,42 @@ const DEFAULT_SPECIFICATIONS: Specification[] = [
         value: 8,
         message: "ビット深度が8bitではありません",
       },
+      {
+        type: "hasAlphaChannels",
+        operator: "equals",
+        value: false,
+        message: "不要なαチャンネルがあります",
+      },
     ],
   },
 ];
+
+// 変換設定
+export interface ConversionSettings {
+  targetColorMode: "RGB" | "Grayscale" | null;
+  targetDpi: number | null;
+  targetBitDepth: 8 | 16 | null;
+  removeHiddenLayers: boolean;
+}
+
+// 変換結果
+export interface ConversionResult {
+  fileId: string;
+  fileName: string;
+  success: boolean;
+  changes: string[];
+  error?: string;
+}
 
 interface SpecStore {
   specifications: Specification[];
   checkResults: Map<string, SpecCheckResult>;
   activeSpecId: string | null;
+
+  // 変換関連
+  conversionSettings: ConversionSettings;
+  isConverting: boolean;
+  conversionResults: ConversionResult[];
 
   // Actions
   setSpecifications: (specs: Specification[]) => void;
@@ -72,12 +106,28 @@ interface SpecStore {
   setCheckResult: (fileId: string, result: SpecCheckResult) => void;
   clearCheckResults: () => void;
   getCheckResult: (fileId: string) => SpecCheckResult | undefined;
+
+  // 変換関連
+  setConversionSettings: (settings: Partial<ConversionSettings>) => void;
+  setIsConverting: (converting: boolean) => void;
+  addConversionResult: (result: ConversionResult) => void;
+  clearConversionResults: () => void;
 }
+
+const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
+  targetColorMode: null,
+  targetDpi: null,
+  targetBitDepth: null,
+  removeHiddenLayers: false,
+};
 
 export const useSpecStore = create<SpecStore>((set, get) => ({
   specifications: DEFAULT_SPECIFICATIONS,
   checkResults: new Map(),
   activeSpecId: null,
+  conversionSettings: DEFAULT_CONVERSION_SETTINGS,
+  isConverting: false,
+  conversionResults: [],
 
   setSpecifications: (specifications) => set({ specifications }),
 
@@ -118,4 +168,19 @@ export const useSpecStore = create<SpecStore>((set, get) => ({
   clearCheckResults: () => set({ checkResults: new Map() }),
 
   getCheckResult: (fileId) => get().checkResults.get(fileId),
+
+  // 変換関連
+  setConversionSettings: (settings) =>
+    set((state) => ({
+      conversionSettings: { ...state.conversionSettings, ...settings },
+    })),
+
+  setIsConverting: (isConverting) => set({ isConverting }),
+
+  addConversionResult: (result) =>
+    set((state) => ({
+      conversionResults: [...state.conversionResults, result],
+    })),
+
+  clearConversionResults: () => set({ conversionResults: [] }),
 }));

@@ -11,16 +11,16 @@ export function Toolbar() {
   const clearSelection = usePsdStore((state) => state.clearSelection);
 
   return (
-    <div className="px-4 py-2 bg-bg-secondary border-b border-text-muted/10 flex items-center justify-between">
+    <div className="px-4 py-3 bg-bg-secondary/80 backdrop-blur-sm border-b border-white/5 flex items-center justify-between relative z-10">
       {/* Left: View Controls */}
       <div className="flex items-center gap-4">
         {/* View Mode Toggle */}
-        <div className="flex items-center gap-1 bg-bg-tertiary rounded p-0.5">
+        <div className="flex items-center gap-1 bg-bg-tertiary rounded-xl p-1">
           <button
-            className={`p-1.5 rounded transition-colors ${
+            className={`p-2 rounded-lg transition-all duration-200 ${
               viewMode === "grid"
-                ? "bg-accent text-bg-primary"
-                : "text-text-secondary hover:text-text-primary"
+                ? "bg-gradient-to-r from-accent to-accent-secondary text-white shadow-sm"
+                : "text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
             }`}
             onClick={() => setViewMode("grid")}
             title="グリッド表示"
@@ -30,10 +30,10 @@ export function Toolbar() {
             </svg>
           </button>
           <button
-            className={`p-1.5 rounded transition-colors ${
+            className={`p-2 rounded-lg transition-all duration-200 ${
               viewMode === "list"
-                ? "bg-accent text-bg-primary"
-                : "text-text-secondary hover:text-text-primary"
+                ? "bg-gradient-to-r from-accent to-accent-secondary text-white shadow-sm"
+                : "text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
             }`}
             onClick={() => setViewMode("list")}
             title="リスト表示"
@@ -49,7 +49,7 @@ export function Toolbar() {
           <div className="flex items-center gap-2">
             <span className="text-xs text-text-muted">サイズ:</span>
             <select
-              className="input text-xs py-1 px-2"
+              className="bg-bg-tertiary border border-white/10 rounded-lg text-xs py-1.5 px-3 text-text-primary focus:border-accent focus:outline-none transition-colors"
               value={thumbnailSize}
               onChange={(e) => setThumbnailSize(e.target.value as ThumbnailSize)}
             >
@@ -64,18 +64,18 @@ export function Toolbar() {
       </div>
 
       {/* Right: Selection Controls */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         {files.length > 0 && (
           <>
             <button
-              className="text-xs text-text-secondary hover:text-text-primary"
+              className="text-xs text-text-secondary hover:text-accent transition-colors"
               onClick={selectAll}
             >
               すべて選択
             </button>
-            <span className="text-text-muted">|</span>
+            <span className="w-px h-4 bg-white/10" />
             <button
-              className="text-xs text-text-secondary hover:text-text-primary"
+              className="text-xs text-text-secondary hover:text-accent transition-colors"
               onClick={clearSelection}
             >
               選択解除

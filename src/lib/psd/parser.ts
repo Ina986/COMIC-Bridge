@@ -23,6 +23,30 @@ export interface ParseResult {
   compositeData?: string; // base64 data URL
 }
 
+/**
+ * 高速版: メタデータと埋め込みサムネイルのみ読み込み
+ * 合成画像データはスキップするため高速
+ */
+export async function parsePsdBufferFast(buffer: ArrayBuffer): Promise<ParseResult> {
+  const psd = readPsd(buffer, {
+    skipCompositeImageData: true,  // 合成画像をスキップ（高速化）
+    skipLayerImageData: true,
+    skipThumbnail: false,          // 埋め込みサムネイルは読み込む
+    useImageData: false,
+  });
+
+  const metadata = extractMetadata(psd);
+  const thumbnailData = await extractEmbeddedThumbnail(psd);
+
+  return {
+    metadata,
+    thumbnailData,
+  };
+}
+
+/**
+ * フル版: 合成画像も含めて読み込み（サムネイルがない場合のフォールバック用）
+ */
 export async function parsePsdBuffer(buffer: ArrayBuffer): Promise<ParseResult> {
   const psd = readPsd(buffer, {
     skipCompositeImageData: false,
@@ -40,10 +64,33 @@ export async function parsePsdBuffer(buffer: ArrayBuffer): Promise<ParseResult> 
   };
 }
 
+/**
+ * 埋め込みサムネイルのみ抽出（高速）
+ */
+async function extractEmbeddedThumbnail(psd: Psd): Promise<string | undefined> {
+  try {
+    const thumbResource = psd.imageResources?.thumbnail;
+    if (thumbResource) {
+      const thumbData = thumbResource as any;
+      if (thumbData.canvas) {
+        return thumbData.canvas.toDataURL("image/jpeg", 0.8);
+      }
+      if (thumbData.data && thumbData.data instanceof Uint8Array) {
+        const blob = new Blob([thumbData.data], { type: "image/jpeg" });
+        return await blobToDataUrl(blob);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to extract thumbnail:", error);
+  }
+  return undefined;
+}
+
 export function extractMetadata(psd: Psd): PsdMetadata {
   const dpi = extractDpi(psd);
   const guides = extractGuides(psd);
   const layerTree = extractLayerTree(psd.children || []);
+  const alphaChannelInfo = extractAlphaChannelInfo(psd);
 
   return {
     width: psd.width,
@@ -55,6 +102,43 @@ export function extractMetadata(psd: Psd): PsdMetadata {
     guides,
     layerCount: countLayers(psd.children || []),
     layerTree,
+    hasAlphaChannels: alphaChannelInfo.count > 0,
+    alphaChannelCount: alphaChannelInfo.count,
+    alphaChannelNames: alphaChannelInfo.names,
+  };
+}
+
+/**
+ * αチャンネル情報を抽出
+ * カラーモードに応じた標準チャンネル数を超えるチャンネルがαチャンネル
+ */
+function extractAlphaChannelInfo(psd: Psd): { count: number; names: string[] } {
+  // カラーモードごとの標準チャンネル数
+  const standardChannelCount: Record<number, number> = {
+    0: 1,  // Bitmap
+    1: 1,  // Grayscale
+    2: 1,  // Indexed
+    3: 3,  // RGB
+    4: 4,  // CMYK
+    7: 3,  // Multichannel (varies, but usually treated as 3)
+    8: 1,  // Duotone
+    9: 3,  // Lab
+  };
+
+  const colorMode = psd.colorMode || 3;
+  const standard = standardChannelCount[colorMode] || 3;
+
+  // αチャンネル名はimageResourcesに格納されている
+  const alphaNames = psd.imageResources?.alphaChannelNames || [];
+
+  // チャンネル数から計算（psd.channelsがある場合）
+  // ag-psdでは、channelsの長さがチャンネル総数
+  // または、alphaChannelNamesの長さがαチャンネル数
+  const alphaCount = alphaNames.length;
+
+  return {
+    count: alphaCount,
+    names: alphaNames,
   };
 }
 

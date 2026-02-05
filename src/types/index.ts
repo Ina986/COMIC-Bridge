@@ -21,6 +21,9 @@ export interface PsdMetadata {
   guides: Guide[];
   layerCount: number;
   layerTree: LayerNode[];
+  hasAlphaChannels: boolean;
+  alphaChannelCount: number;
+  alphaChannelNames: string[];
 }
 
 export type ColorMode =
@@ -57,7 +60,7 @@ export interface Specification {
 }
 
 export interface SpecRule {
-  type: "colorMode" | "resolution" | "dimensions" | "dpi" | "hasGuides" | "bitsPerChannel";
+  type: "colorMode" | "resolution" | "dimensions" | "dpi" | "hasGuides" | "bitsPerChannel" | "hasAlphaChannels";
   operator: "equals" | "greaterThan" | "lessThan" | "between" | "includes";
   value: string | number | boolean | number[];
   message: string;
@@ -71,6 +74,7 @@ export interface SpecCheckResult {
     passed: boolean;
     actualValue: string | number | boolean;
   }[];
+  matchedSpec?: string; // どの仕様にマッチしたか（または最も近い仕様）
 }
 
 // UI Types

@@ -12,23 +12,52 @@ export function useSpecChecker() {
 
   const checkFile = useCallback(
     (fileId: string, metadata: PsdMetadata, specs: Specification[]): SpecCheckResult => {
-      const results: SpecCheckResult["results"] = [];
+      // 各仕様ごとにチェックし、いずれか1つに合格すればOK
+      let bestMatch: { spec: Specification; results: SpecCheckResult["results"]; allPassed: boolean } | null = null;
 
       for (const spec of specs) {
         if (!spec.enabled) continue;
 
+        const specResults: SpecCheckResult["results"] = [];
         for (const rule of spec.rules) {
           const result = checkRule(metadata, rule);
-          results.push(result);
+          specResults.push(result);
+        }
+
+        const allPassed = specResults.every((r) => r.passed);
+
+        // この仕様に完全合格した場合
+        if (allPassed) {
+          return {
+            fileId,
+            passed: true,
+            results: specResults,
+            matchedSpec: spec.name,
+          };
+        }
+
+        // 最も合格数が多い仕様を記録（NGの場合に表示用）
+        const passedCount = specResults.filter((r) => r.passed).length;
+        if (!bestMatch || passedCount > bestMatch.results.filter((r) => r.passed).length) {
+          bestMatch = { spec, results: specResults, allPassed };
         }
       }
 
-      const passed = results.every((r) => r.passed);
+      // どの仕様にも合格しなかった場合、最も近い仕様の結果を返す
+      if (bestMatch) {
+        return {
+          fileId,
+          passed: false,
+          results: bestMatch.results,
+          matchedSpec: bestMatch.spec.name,
+        };
+      }
 
+      // 有効な仕様がない場合
       return {
         fileId,
-        passed,
-        results,
+        passed: true,
+        results: [],
       };
     },
     []
@@ -83,6 +112,11 @@ function checkRule(
 
     case "hasGuides":
       actualValue = metadata.hasGuides;
+      passed = evaluateCondition(actualValue, rule.operator, rule.value);
+      break;
+
+    case "hasAlphaChannels":
+      actualValue = metadata.hasAlphaChannels;
       passed = evaluateCondition(actualValue, rule.operator, rule.value);
       break;
 
