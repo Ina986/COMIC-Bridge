@@ -62,9 +62,12 @@
   - αチャンネル削除
 
 ### 5. ガイド線管理
-- ガイド線の表示・編集
+- 高解像度プレビュー（Rust側でmaxSize 1600のプレビュー生成）
+- Photoshop風Canvas定規（グラデーション、ズーム対応目盛り）
+- 定規からドラッグでガイド作成
+- ズーム/パン操作（Ctrl+/-/0、Space+ドラッグ）
 - プリセット（B5同人誌、A4商業誌等）
-- 複数ファイルへの一括適用
+- 複数ファイルへの一括適用（ag-psdで直接書き込み）
 
 ### 6. レイヤー制御（計画中）
 - レイヤー表示/非表示の切り替え
@@ -117,13 +120,17 @@ src/
 │   │   ├── SpecSelectionModal.tsx  # 仕様選択モーダル
 │   │   └── FixGuidePanel.tsx       # NG時の修正ガイド
 │   ├── guide-editor/     # ガイド線編集
+│   │   ├── GuideEditorModal.tsx  # ガイドエディタモーダル
+│   │   ├── GuideCanvas.tsx       # ガイド編集キャンバス
+│   │   └── CanvasRuler.tsx       # Photoshop風Canvas定規
 │   └── ui/               # 共通UIコンポーネント
 │       ├── Modal.tsx
 │       └── PopButton.tsx
 ├── hooks/
 │   ├── usePsdLoader.ts         # PSD読み込み・モーダル表示トリガー
 │   ├── useSpecChecker.ts       # 仕様チェックロジック（自動チェック含む）
-│   └── usePhotoshopConverter.ts # Photoshop連携
+│   ├── usePhotoshopConverter.ts # Photoshop連携
+│   └── useHighResPreview.ts    # 高解像度プレビュー（ガイドエディタ用）
 ├── lib/
 │   └── psd/
 │       └── parser.ts     # ag-psdラッパー、メタデータ抽出
@@ -214,6 +221,24 @@ useEffect(() => {
 4. **JSON処理**: ExtendScriptにはネイティブJSONがないため自作パーサーを使用
 5. **DPIリサンプリング**: `ResampleMethod.BICUBIC` で実際のピクセル処理
 
+## 高速PSD読み込み（Rust側）
+
+tachimi_standaloneから移植した高速PSD読み込み機能:
+
+1. **直接Image Data読み込み**: レイヤー解析をスキップして合成画像のみ取得
+2. **RLE/PackBits圧縮デコード**: PSD独自の圧縮形式を直接デコード
+3. **PSDキャッシュ**: `OnceLock<Mutex<HashMap>>` で最大10エントリをキャッシュ
+4. **非同期処理**: `tokio::task::spawn_blocking` でUIフリーズ防止
+5. **高速リサイズ**: `FilterType::CatmullRom`（Lanczos3より高速）
+6. **asset://プロトコル**: `convertFileSrc()` でファイルパスをURLに変換
+
+```rust
+// commands.rs - 高速PSD読み込みの流れ
+load_psd_fast(path)
+  → load_psd_composite(path)  // 直接Image Dataセクション読み込み
+  → 失敗時: psd crateにフォールバック
+```
+
 ## デフォルト仕様
 
 ### モノクロ原稿
@@ -285,3 +310,17 @@ npm run dev
 autoCheckEnabled: boolean     // 自動チェック有効/無効
 lastSelectedSpecId: string    // 前回選択した仕様ID
 ```
+
+## ガイドエディタのショートカット
+
+| 操作 | キー |
+|------|------|
+| ズームイン | Ctrl + (+/=) |
+| ズームアウト | Ctrl + (-) |
+| ズームリセット | Ctrl + 0 |
+| パン | Space + ドラッグ |
+| ガイド削除 | Delete / Backspace |
+
+- 水平定規からドラッグ → 水平ガイド（Y軸位置）
+- 垂直定規からドラッグ → 垂直ガイド（X軸位置）
+- ガイドクリックで選択 → 選択中はハイライト表示
