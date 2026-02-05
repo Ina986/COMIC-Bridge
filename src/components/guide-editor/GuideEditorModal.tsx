@@ -5,6 +5,7 @@ import { GuideCanvas } from "./GuideCanvas";
 import { GuideList } from "./GuideList";
 import { GuidePresets } from "./GuidePresets";
 import { useBatchProcessor } from "../../hooks/useBatchProcessor";
+import { useHighResPreview } from "../../hooks/useHighResPreview";
 
 export function GuideEditorModal() {
   const closeEditor = useGuideStore((state) => state.closeEditor);
@@ -23,6 +24,13 @@ export function GuideEditorModal() {
 
   const [applyTarget, setApplyTarget] = useState<"selected" | "all">("all");
 
+  // Get high-resolution preview for the active file
+  const activeFilePath = activeFile?.filePath || files[0]?.filePath;
+  const { imageUrl: highResImageUrl, originalSize, isLoading: isPreviewLoading } = useHighResPreview(
+    activeFilePath,
+    { maxSize: 1600 } // Higher resolution for better guide placement
+  );
+
   const handleApply = async () => {
     const targetFileIds =
       applyTarget === "selected" && selectedFileIds.length > 0
@@ -36,14 +44,17 @@ export function GuideEditorModal() {
     closeEditor();
   };
 
-  // Use first file's dimensions for canvas if no active file
-  const canvasSize = activeFile?.metadata
+  // Use original size from high-res preview, or fall back to metadata
+  const canvasSize = originalSize
+    ? { width: originalSize.width, height: originalSize.height }
+    : activeFile?.metadata
     ? { width: activeFile.metadata.width, height: activeFile.metadata.height }
     : files[0]?.metadata
     ? { width: files[0].metadata.width, height: files[0].metadata.height }
     : { width: 1920, height: 2716 }; // Default B5 at 350dpi
 
-  const imageData = activeFile?.thumbnailUrl || files[0]?.thumbnailUrl;
+  // Use high-res preview if available, otherwise fall back to thumbnail
+  const imageUrl = highResImageUrl || activeFile?.thumbnailUrl || files[0]?.thumbnailUrl;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
@@ -89,7 +100,11 @@ export function GuideEditorModal() {
         <div className="flex-1 flex overflow-hidden">
           {/* Canvas Area */}
           <div className="flex-1 p-4 overflow-hidden">
-            <GuideCanvas imageData={imageData} imageSize={canvasSize} />
+            <GuideCanvas
+              imageUrl={imageUrl}
+              imageSize={canvasSize}
+              isLoading={isPreviewLoading}
+            />
           </div>
 
           {/* Right Panel */}

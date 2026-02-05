@@ -1,10 +1,68 @@
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, imageops::FilterType};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage, imageops::FilterType};
 use psd::Psd;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use tauri::Manager;
 use thiserror::Error;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+// ============================================
+// PSD Cache (for faster repeated access)
+// ============================================
+
+/// PSD画像キャッシュ（プレビュー用）
+/// キー: ファイルパス、値: (画像データ, 幅, 高さ)
+static PSD_CACHE: OnceLock<Mutex<HashMap<String, (Vec<u8>, u32, u32)>>> = OnceLock::new();
+
+/// PSDキャッシュの最大エントリ数
+const MAX_PSD_CACHE_ENTRIES: usize = 10;
+
+/// PSDキャッシュのハンドルを取得
+fn get_psd_cache() -> &'static Mutex<HashMap<String, (Vec<u8>, u32, u32)>> {
+    PSD_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// PSDキャッシュをクリア
+#[tauri::command]
+pub async fn clear_psd_cache() {
+    if let Ok(mut cache) = get_psd_cache().lock() {
+        cache.clear();
+    }
+}
+
+/// PSDキャッシュから画像を取得、またはキャッシュに追加
+fn get_or_cache_psd(path: &Path) -> Result<DynamicImage, String> {
+    let path_str = path.to_string_lossy().to_string();
+
+    // キャッシュをチェック
+    if let Ok(cache) = get_psd_cache().lock() {
+        if let Some((rgba_data, width, height)) = cache.get(&path_str) {
+            if let Some(img) = ImageBuffer::from_raw(*width, *height, rgba_data.clone()) {
+                return Ok(DynamicImage::ImageRgba8(img));
+            }
+        }
+    }
+
+    // キャッシュになければ読み込み
+    let img = load_psd_fast(path)?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+
+    // キャッシュに追加
+    if let Ok(mut cache) = get_psd_cache().lock() {
+        // メモリ制限: エントリ数を制限
+        if cache.len() >= MAX_PSD_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(path_str, (rgba.as_raw().clone(), width, height));
+    }
+
+    Ok(img)
+}
 
 #[derive(Error, Debug)]
 pub enum ImageProcessError {
@@ -578,4 +636,372 @@ pub async fn run_photoshop_conversion(
     } else {
         Err("Photoshop did not produce output file. Script may have failed. Check if Photoshop opened and ran the script.".to_string())
     }
+}
+
+// ============================================
+// Fast PSD Loading (from tachimi_standalone)
+// ============================================
+
+/// PSDファイルを高速読み込み
+/// まずフラット化画像を試し、失敗したらpsd crateにフォールバック
+fn load_psd_fast(path: &Path) -> Result<DynamicImage, String> {
+    match load_psd_composite(path) {
+        Ok(img) => Ok(img),
+        Err(_) => {
+            // フォールバック: psd crateでレイヤー合成（遅いが確実）
+            let bytes = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
+            let psd = Psd::from_bytes(&bytes).map_err(|e| format!("Failed to parse PSD: {}", e))?;
+            let width = psd.width();
+            let height = psd.height();
+            let rgba = psd.rgba();
+            let img: RgbaImage = ImageBuffer::from_raw(width, height, rgba)
+                .ok_or_else(|| "Failed to create image buffer".to_string())?;
+            Ok(DynamicImage::ImageRgba8(img))
+        }
+    }
+}
+
+/// PSDファイルのImage Dataセクションを直接読み込む（高速版）
+/// Photoshopの「互換性を最大に」で保存されたPSDには合成済み画像が含まれている
+fn load_psd_composite(path: &Path) -> Result<DynamicImage, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let mut file = BufReader::with_capacity(64 * 1024, file);
+    let mut buf4 = [0u8; 4];
+    let mut buf2 = [0u8; 2];
+
+    // === Header (26 bytes) ===
+    file.read_exact(&mut buf4).map_err(|e| format!("PSD read error: {}", e))?;
+    if &buf4 != b"8BPS" {
+        return Err("Invalid PSD file".to_string());
+    }
+
+    // Version
+    file.read_exact(&mut buf2).map_err(|e| format!("PSD read error: {}", e))?;
+    let version = u16::from_be_bytes(buf2);
+    if version != 1 && version != 2 {
+        return Err("Unsupported PSD version".to_string());
+    }
+
+    // Reserved (6 bytes)
+    file.seek(SeekFrom::Current(6)).map_err(|e| format!("Seek error: {}", e))?;
+
+    // Channels
+    file.read_exact(&mut buf2).map_err(|e| format!("PSD read error: {}", e))?;
+    let channels = u16::from_be_bytes(buf2) as usize;
+
+    // Height
+    file.read_exact(&mut buf4).map_err(|e| format!("PSD read error: {}", e))?;
+    let height = u32::from_be_bytes(buf4);
+
+    // Width
+    file.read_exact(&mut buf4).map_err(|e| format!("PSD read error: {}", e))?;
+    let width = u32::from_be_bytes(buf4);
+
+    // Depth
+    file.read_exact(&mut buf2).map_err(|e| format!("PSD read error: {}", e))?;
+    let depth = u16::from_be_bytes(buf2);
+    if depth != 8 {
+        return Err(format!("Unsupported bit depth: {}", depth));
+    }
+
+    // Color Mode
+    file.read_exact(&mut buf2).map_err(|e| format!("PSD read error: {}", e))?;
+    let color_mode = u16::from_be_bytes(buf2);
+    if color_mode != 3 && color_mode != 1 {
+        return Err(format!("Unsupported color mode: {} (RGB/Grayscale only)", color_mode));
+    }
+
+    // === Color Mode Data Section ===
+    file.read_exact(&mut buf4).map_err(|e| format!("PSD read error: {}", e))?;
+    let color_mode_len = u32::from_be_bytes(buf4);
+    file.seek(SeekFrom::Current(color_mode_len as i64)).map_err(|e| format!("Seek error: {}", e))?;
+
+    // === Image Resources Section ===
+    file.read_exact(&mut buf4).map_err(|e| format!("PSD read error: {}", e))?;
+    let resources_len = u32::from_be_bytes(buf4);
+    file.seek(SeekFrom::Current(resources_len as i64)).map_err(|e| format!("Seek error: {}", e))?;
+
+    // === Layer and Mask Information Section ===
+    if version == 2 {
+        let mut buf8 = [0u8; 8];
+        file.read_exact(&mut buf8).map_err(|e| format!("PSD read error: {}", e))?;
+        let layer_len = u64::from_be_bytes(buf8);
+        file.seek(SeekFrom::Current(layer_len as i64)).map_err(|e| format!("Seek error: {}", e))?;
+    } else {
+        file.read_exact(&mut buf4).map_err(|e| format!("PSD read error: {}", e))?;
+        let layer_len = u32::from_be_bytes(buf4);
+        file.seek(SeekFrom::Current(layer_len as i64)).map_err(|e| format!("Seek error: {}", e))?;
+    }
+
+    // === Image Data Section ===
+    file.read_exact(&mut buf2).map_err(|e| format!("PSD read error: {}", e))?;
+    let compression = u16::from_be_bytes(buf2);
+
+    let pixels = (width as usize) * (height as usize);
+    let num_channels = channels.min(4);
+
+    match compression {
+        0 => {
+            // Raw (uncompressed)
+            let mut channel_data = vec![vec![0u8; pixels]; num_channels];
+            for ch in 0..num_channels {
+                file.read_exact(&mut channel_data[ch]).map_err(|e| format!("Image data read error: {}", e))?;
+            }
+            channels_to_rgba(channel_data, width, height, color_mode)
+        }
+        1 => {
+            // RLE compressed
+            decode_rle_image(&mut file, width, height, num_channels, color_mode, version)
+        }
+        _ => {
+            Err(format!("Unsupported compression: {}", compression))
+        }
+    }
+}
+
+/// RLE圧縮された画像データをデコード
+fn decode_rle_image<R: Read>(
+    file: &mut R,
+    width: u32,
+    height: u32,
+    num_channels: usize,
+    color_mode: u16,
+    version: u16,
+) -> Result<DynamicImage, String> {
+    let rows = height as usize;
+    let pixels = (width as usize) * rows;
+
+    // 各チャンネルの各行のバイト数を読み取る
+    let total_rows = rows * num_channels;
+    let mut row_lengths = vec![0u16; total_rows];
+
+    if version == 2 {
+        let mut buf4 = [0u8; 4];
+        for i in 0..total_rows {
+            file.read_exact(&mut buf4).map_err(|e| format!("Row length read error: {}", e))?;
+            row_lengths[i] = u32::from_be_bytes(buf4) as u16;
+        }
+    } else {
+        let mut buf2 = [0u8; 2];
+        for i in 0..total_rows {
+            file.read_exact(&mut buf2).map_err(|e| format!("Row length read error: {}", e))?;
+            row_lengths[i] = u16::from_be_bytes(buf2);
+        }
+    }
+
+    // 各チャンネルをデコード
+    let mut channel_data = vec![vec![0u8; pixels]; num_channels];
+
+    for ch in 0..num_channels {
+        for row in 0..rows {
+            let row_idx = ch * rows + row;
+            let row_len = row_lengths[row_idx] as usize;
+
+            let mut compressed = vec![0u8; row_len];
+            file.read_exact(&mut compressed).map_err(|e| format!("RLE data read error: {}", e))?;
+
+            let row_start = row * width as usize;
+            let row_data = &mut channel_data[ch][row_start..row_start + width as usize];
+            decode_packbits(&compressed, row_data);
+        }
+    }
+
+    channels_to_rgba(channel_data, width, height, color_mode)
+}
+
+/// PackBits RLEデコード
+fn decode_packbits(input: &[u8], output: &mut [u8]) {
+    let mut i = 0;
+    let mut o = 0;
+
+    while i < input.len() && o < output.len() {
+        let n = input[i] as i8;
+        i += 1;
+
+        if n >= 0 {
+            // Literal: copy n+1 bytes
+            let count = (n as usize) + 1;
+            let end = (o + count).min(output.len());
+            let src_end = (i + count).min(input.len());
+            let copy_len = (end - o).min(src_end - i);
+            output[o..o + copy_len].copy_from_slice(&input[i..i + copy_len]);
+            i += count;
+            o += count;
+        } else if n > -128 {
+            // Repeat: repeat next byte (-n+1) times
+            let count = (-n as usize) + 1;
+            if i < input.len() {
+                let val = input[i];
+                i += 1;
+                let end = (o + count).min(output.len());
+                for j in o..end {
+                    output[j] = val;
+                }
+                o += count;
+            }
+        }
+    }
+}
+
+/// チャンネルデータをRGBA画像に変換
+fn channels_to_rgba(channel_data: Vec<Vec<u8>>, width: u32, height: u32, color_mode: u16) -> Result<DynamicImage, String> {
+    let pixels = (width as usize) * (height as usize);
+    let mut rgba = vec![255u8; pixels * 4];
+
+    match color_mode {
+        3 => {
+            // RGB
+            for i in 0..pixels {
+                rgba[i * 4] = channel_data.get(0).map(|c| c[i]).unwrap_or(0);
+                rgba[i * 4 + 1] = channel_data.get(1).map(|c| c[i]).unwrap_or(0);
+                rgba[i * 4 + 2] = channel_data.get(2).map(|c| c[i]).unwrap_or(0);
+                rgba[i * 4 + 3] = channel_data.get(3).map(|c| c[i]).unwrap_or(255);
+            }
+        }
+        1 => {
+            // Grayscale
+            for i in 0..pixels {
+                let gray = channel_data.get(0).map(|c| c[i]).unwrap_or(0);
+                rgba[i * 4] = gray;
+                rgba[i * 4 + 1] = gray;
+                rgba[i * 4 + 2] = gray;
+                rgba[i * 4 + 3] = channel_data.get(1).map(|c| c[i]).unwrap_or(255);
+            }
+        }
+        _ => {}
+    }
+
+    let img: RgbaImage = ImageBuffer::from_raw(width, height, rgba)
+        .ok_or_else(|| format!("Failed to create RGBA image ({}x{})", width, height))?;
+    Ok(DynamicImage::ImageRgba8(img))
+}
+
+// ============================================
+// High Resolution Preview for Guide Editor
+// ============================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HighResPreviewResult {
+    pub file_path: String,
+    pub original_width: u32,
+    pub original_height: u32,
+    pub preview_width: u32,
+    pub preview_height: u32,
+}
+
+/// Generate a high-resolution preview image for the guide editor
+/// Returns the path to a temporary JPEG file that can be loaded via asset:// protocol
+#[tauri::command]
+pub async fn get_high_res_preview(
+    file_path: String,
+    max_size: u32,
+) -> Result<HighResPreviewResult, String> {
+    // Run blocking operations in a separate thread to prevent UI freeze
+    tokio::task::spawn_blocking(move || {
+        get_high_res_preview_sync(&file_path, max_size)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+/// Synchronous version of get_high_res_preview (runs in blocking thread)
+fn get_high_res_preview_sync(file_path: &str, max_size: u32) -> Result<HighResPreviewResult, String> {
+    let path = Path::new(file_path);
+
+    // Check if it's a PSD file
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let is_psd = extension.eq_ignore_ascii_case("psd") || extension.eq_ignore_ascii_case("psb");
+
+    let (img, original_width, original_height) = if is_psd {
+        // Use cached PSD loading for faster repeated access
+        let img = get_or_cache_psd(path)?;
+        let (width, height) = img.dimensions();
+        (img, width, height)
+    } else {
+        // Handle regular image files
+        let file_bytes = fs::read(path)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let img = image::load_from_memory(&file_bytes)
+            .map_err(|e| format!("Failed to load image: {}", e))?;
+
+        let (width, height) = img.dimensions();
+        (img, width, height)
+    };
+
+    // Calculate resize dimensions while maintaining aspect ratio
+    let (preview_width, preview_height) = if original_width > max_size || original_height > max_size {
+        let scale = if original_width > original_height {
+            max_size as f64 / original_width as f64
+        } else {
+            max_size as f64 / original_height as f64
+        };
+        (
+            (original_width as f64 * scale).round() as u32,
+            (original_height as f64 * scale).round() as u32,
+        )
+    } else {
+        (original_width, original_height)
+    };
+
+    // Resize the image using Triangle (Bilinear) filter for faster processing
+    // (CatmullRom or Lanczos3 are higher quality but slower)
+    let resized = img.resize_exact(preview_width, preview_height, FilterType::CatmullRom);
+
+    // Generate unique filename using timestamp and original filename
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
+    let original_name = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("preview");
+
+    // Create temp file path
+    let temp_dir = std::env::temp_dir();
+    let preview_filename = format!("manga_psd_preview_{}_{}.jpg", original_name, timestamp);
+    let preview_path = temp_dir.join(&preview_filename);
+
+    // Save as JPEG with high quality
+    resized.save(&preview_path)
+        .map_err(|e| format!("Failed to save preview: {}", e))?;
+
+    Ok(HighResPreviewResult {
+        file_path: preview_path.to_string_lossy().to_string(),
+        original_width,
+        original_height,
+        preview_width,
+        preview_height,
+    })
+}
+
+/// Clean up old preview files from temp directory
+#[tauri::command]
+pub async fn cleanup_preview_files() -> Result<u32, String> {
+    let temp_dir = std::env::temp_dir();
+    let mut cleaned_count = 0u32;
+
+    if let Ok(entries) = fs::read_dir(&temp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                if filename.starts_with("manga_psd_preview_") && filename.ends_with(".jpg") {
+                    // Check if file is older than 1 hour
+                    if let Ok(metadata) = fs::metadata(&path) {
+                        if let Ok(modified) = metadata.modified() {
+                            if let Ok(age) = SystemTime::now().duration_since(modified) {
+                                if age.as_secs() > 3600 {
+                                    if fs::remove_file(&path).is_ok() {
+                                        cleaned_count += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(cleaned_count)
 }
