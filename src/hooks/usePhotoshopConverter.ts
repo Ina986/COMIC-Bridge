@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { usePsdStore } from "../store/psdStore";
 import { useSpecStore, type ConversionResult } from "../store/specStore";
+import { parsePsdBufferFast } from "../lib/psd/parser";
+import { useSpecChecker } from "./useSpecChecker";
 
 // Rust command types
 interface PhotoshopConversionOptions {
@@ -48,8 +51,11 @@ export function usePhotoshopConverter() {
 
   const checkResults = useSpecStore((state) => state.checkResults);
   const conversionSettings = useSpecStore((state) => state.conversionSettings);
+  const specifications = useSpecStore((state) => state.specifications);
   const addConversionResult = useSpecStore((state) => state.addConversionResult);
   const clearConversionResults = useSpecStore((state) => state.clearConversionResults);
+
+  const { checkAllFiles } = useSpecChecker();
 
   // Check if Photoshop is installed on mount
   useEffect(() => {
@@ -122,7 +128,9 @@ export function usePhotoshopConverter() {
         settings,
       });
 
-      // Process results
+      // Process results and collect successfully converted files
+      const successfulFiles: { id: string; filePath: string }[] = [];
+
       for (const result of results) {
         // Find the file
         const file = ngFiles.find((f) => f.filePath === result.filePath);
@@ -138,36 +146,41 @@ export function usePhotoshopConverter() {
 
         addConversionResult(conversionResult);
 
-        // Update file metadata if successful
+        // Track successfully converted files for reload
         if (result.success && result.changes.length > 0 && !result.changes.includes("No changes needed")) {
-          if (file.metadata) {
-            const updates: Record<string, unknown> = {};
+          successfulFiles.push({ id: file.id, filePath: file.filePath });
+        }
+      }
 
-            if (conversionSettings.targetBitDepth !== null) {
-              updates.bitsPerChannel = conversionSettings.targetBitDepth;
-            }
-            if (conversionSettings.targetColorMode !== null) {
-              updates.colorMode = conversionSettings.targetColorMode;
-            }
-            if (conversionSettings.targetDpi !== null) {
-              updates.dpi = conversionSettings.targetDpi;
-            }
+      // Reload converted files from disk to get actual metadata
+      if (successfulFiles.length > 0) {
+        console.log(`Reloading ${successfulFiles.length} converted files...`);
 
-            // αチャンネル削除された場合
-            if (result.changes.some((c) => c.includes("alpha") || c.includes("チャンネル"))) {
-              updates.hasAlphaChannels = false;
-              updates.alphaChannelCount = 0;
-              updates.alphaChannelNames = [];
-            }
+        for (const { id, filePath } of successfulFiles) {
+          try {
+            const buffer = await readFile(filePath);
+            const arrayBuffer = buffer.buffer.slice(
+              buffer.byteOffset,
+              buffer.byteOffset + buffer.byteLength
+            );
 
-            updateFile(file.id, {
-              metadata: {
-                ...file.metadata,
-                ...updates,
-              },
+            const parseResult = await parsePsdBufferFast(arrayBuffer);
+
+            updateFile(id, {
+              metadata: parseResult.metadata,
+              thumbnailUrl: parseResult.thumbnailData,
+              thumbnailStatus: parseResult.thumbnailData ? "ready" : "pending",
             });
+          } catch (reloadError) {
+            console.error(`Failed to reload ${filePath}:`, reloadError);
           }
         }
+
+        // Re-run spec check with updated metadata
+        console.log("Re-running spec check...");
+        // Small delay to ensure state is updated
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        checkAllFiles(specifications);
       }
     } catch (error) {
       console.error("Photoshop conversion failed:", error);
@@ -189,9 +202,11 @@ export function usePhotoshopConverter() {
     files,
     checkResults,
     conversionSettings,
+    specifications,
     clearConversionResults,
     addConversionResult,
     updateFile,
+    checkAllFiles,
   ]);
 
   return {
