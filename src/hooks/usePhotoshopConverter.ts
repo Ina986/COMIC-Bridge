@@ -54,6 +54,7 @@ export function usePhotoshopConverter() {
   const specifications = useSpecStore((state) => state.specifications);
   const addConversionResult = useSpecStore((state) => state.addConversionResult);
   const clearConversionResults = useSpecStore((state) => state.clearConversionResults);
+  const setStoreIsConverting = useSpecStore((state) => state.setIsConverting);
 
   const { checkAllFiles } = useSpecChecker();
 
@@ -73,14 +74,16 @@ export function usePhotoshopConverter() {
   }, []);
 
   // Convert NG files using Photoshop
-  const convertWithPhotoshop = useCallback(async () => {
+  // If fileIds is provided, only convert those specific files (that are also NG)
+  const convertWithPhotoshop = useCallback(async (fileIds?: string[]) => {
     if (!isPhotoshopInstalled) {
       console.error("Photoshop is not installed");
       return;
     }
 
-    // Get NG files
+    // Get NG files, optionally filtered by specific IDs
     const ngFiles = files.filter((file) => {
+      if (fileIds && !fileIds.includes(file.id)) return false;
       const result = checkResults.get(file.id);
       return result && !result.passed;
     });
@@ -91,6 +94,7 @@ export function usePhotoshopConverter() {
     }
 
     setIsConverting(true);
+    setStoreIsConverting(true);
     clearConversionResults();
 
     try {
@@ -132,8 +136,11 @@ export function usePhotoshopConverter() {
       const successfulFiles: { id: string; filePath: string }[] = [];
 
       for (const result of results) {
-        // Find the file
-        const file = ngFiles.find((f) => f.filePath === result.filePath);
+        // Find the file (normalize path separators - JSX returns forward slashes)
+        const normalizedPath = result.filePath.replace(/\//g, "\\");
+        const file = ngFiles.find(
+          (f) => f.filePath === result.filePath || f.filePath === normalizedPath
+        );
         if (!file) continue;
 
         const conversionResult: ConversionResult = {
@@ -196,6 +203,7 @@ export function usePhotoshopConverter() {
       }
     } finally {
       setIsConverting(false);
+      setStoreIsConverting(false);
     }
   }, [
     isPhotoshopInstalled,
@@ -205,6 +213,7 @@ export function usePhotoshopConverter() {
     specifications,
     clearConversionResults,
     addConversionResult,
+    setStoreIsConverting,
     updateFile,
     checkAllFiles,
   ]);

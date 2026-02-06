@@ -1,4 +1,5 @@
 import type { SpecCheckResult } from "../../types";
+import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
 import { usePhotoshopConverter } from "../../hooks/usePhotoshopConverter";
 import { PopButton } from "../ui/PopButton";
@@ -25,6 +26,7 @@ const fixDescriptions: Record<string, string> = {
 };
 
 export function FixGuidePanel({ checkResult }: FixGuidePanelProps) {
+  const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
   const checkResults = useSpecStore((state) => state.checkResults);
   const isConverting = useSpecStore((state) => state.isConverting);
   const { convertWithPhotoshop, isPhotoshopInstalled } = usePhotoshopConverter();
@@ -35,10 +37,15 @@ export function FixGuidePanel({ checkResult }: FixGuidePanelProps) {
   // 全NGファイル数を計算
   const ngFileCount = Array.from(checkResults.values()).filter((r) => !r.passed).length;
 
-  // 単一ファイル変換
-  const handleConvertSingle = async () => {
-    // TODO: 単一ファイル変換の実装
-    await convertWithPhotoshop();
+  // 選択中のNGファイル数を計算
+  const selectedNgCount = selectedFileIds.filter((id) => {
+    const result = checkResults.get(id);
+    return result && !result.passed;
+  }).length;
+
+  // 選択中のファイルのみ変換
+  const handleConvertSelected = async () => {
+    await convertWithPhotoshop(selectedFileIds);
   };
 
   // 全NGファイル変換
@@ -127,11 +134,11 @@ export function FixGuidePanel({ checkResult }: FixGuidePanelProps) {
         <PopButton
           variant="primary"
           className="w-full"
-          onClick={handleConvertSingle}
-          disabled={!isPhotoshopInstalled || isConverting}
+          onClick={handleConvertSelected}
+          disabled={!isPhotoshopInstalled || isConverting || selectedNgCount === 0}
           loading={isConverting}
         >
-          この1件を変換
+          {selectedNgCount <= 1 ? "この1件を変換" : `選択中の${selectedNgCount}件を変換`}
         </PopButton>
         {ngFileCount > 1 && (
           <PopButton

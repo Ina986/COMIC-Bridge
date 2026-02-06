@@ -151,6 +151,7 @@ function extractLayerTree(children: Psd["children"]): LayerNode[] {
   if (!children) return [];
 
   return children.map((child, index) => {
+    const childAny = child as any;
     const node: LayerNode = {
       id: `layer-${index}-${Date.now()}`,
       name: child.name || "Unnamed Layer",
@@ -158,6 +159,9 @@ function extractLayerTree(children: Psd["children"]): LayerNode[] {
       visible: !child.hidden,
       opacity: Math.round((child.opacity || 255) / 255 * 100),
       blendMode: child.blendMode || "normal",
+      hasMask: !!(childAny.mask || childAny.realMask),
+      hasVectorMask: !!childAny.vectorMask,
+      clipping: !!childAny.clipping,
     };
 
     if (child.children && child.children.length > 0) {
@@ -173,6 +177,7 @@ function getLayerType(layer: any): LayerNode["type"] {
   if (layer.text) return "text";
   if (layer.adjustment) return "adjustment";
   if (layer.placedLayer) return "smartObject";
+  if (layer.vectorFill || layer.vectorStroke) return "shape";
   return "layer";
 }
 

@@ -672,8 +672,17 @@ pub async fn run_photoshop_conversion(
         let _ = fs::remove_file(&settings_path);
         let _ = fs::remove_file(&output_path);
 
+        // Bring app window to foreground
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
         Ok(results)
     } else {
+        // Bring app window to foreground even on failure
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
         Err("Photoshop did not produce output file. Script may have failed. Check if Photoshop opened and ran the script.".to_string())
     }
 }

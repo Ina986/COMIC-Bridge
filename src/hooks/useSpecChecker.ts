@@ -76,7 +76,9 @@ export function useSpecChecker() {
       setIsChecking(true);
       clearCheckResults();
 
-      for (const file of files) {
+      // Always read latest files from store to avoid stale closure
+      const currentFiles = usePsdStore.getState().files;
+      for (const file of currentFiles) {
         if (!file.metadata) continue;
 
         const result = checkFile(file.id, file.metadata, specs);
@@ -85,7 +87,7 @@ export function useSpecChecker() {
 
       setIsChecking(false);
     },
-    [files, checkFile, setCheckResult, clearCheckResults]
+    [checkFile, setCheckResult, clearCheckResults]
   );
 
   // 自動チェック: 仕様変更時またはメタデータ追加時

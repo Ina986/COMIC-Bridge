@@ -36,26 +36,32 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         );
       case "text":
         return (
-          <svg className={`${iconClass} text-manga-pink`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+          <svg className={`${iconClass} text-manga-pink`} viewBox="0 0 20 20" fill="currentColor">
+            <path d="M5 4h10v2.5h-1.2V5.5H10.6V14h1.5v1.5h-4.2V14h1.5V5.5H6.2v1H5V4z" />
           </svg>
         );
       case "adjustment":
         return (
-          <svg className={`${iconClass} text-accent-warm`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+          <svg className={`${iconClass} text-accent-warm`} viewBox="0 0 20 20" fill="currentColor">
+            <path d="M10 2a8 8 0 100 16 8 8 0 000-16zM4 10a6 6 0 0112 0H4z" />
           </svg>
         );
       case "smartObject":
         return (
-          <svg className={`${iconClass} text-accent-tertiary`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+          <svg className={`${iconClass} text-accent-tertiary`} viewBox="0 0 20 20" fill="currentColor">
+            <path d="M10 2L3 6v8l7 4 7-4V6l-7-4zm0 2.24L14.5 7 10 9.76 5.5 7 10 4.24z" />
+          </svg>
+        );
+      case "shape":
+        return (
+          <svg className={`${iconClass} text-[#59a8f8]`} viewBox="0 0 20 20" fill="currentColor">
+            <path d="M3 3h14v14H3V3zm2 2v10h10V5H5z" />
           </svg>
         );
       default:
         return (
-          <svg className={`${iconClass} text-manga-sky`} fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+          <svg className={`${iconClass} text-manga-sky`} viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm2 0v6.586l3.293-3.293a1 1 0 011.414 0L13 12.586l1.293-1.293a1 1 0 011.414 0L16 11.586V5H4zm0 10v-1l3.293-3.293L12 15.414V15H4zm12 0v-1.586l-2-2-1.293 1.293L15.414 15H16zM13.5 8a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
           </svg>
         );
     }
@@ -66,7 +72,8 @@ function LayerItem({ layer, depth }: LayerItemProps) {
       case "group": return "グループ";
       case "text": return "テキスト";
       case "adjustment": return "調整";
-      case "smartObject": return "スマート";
+      case "smartObject": return "スマートオブジェクト";
+      case "shape": return "シェイプ";
       default: return "レイヤー";
     }
   };
@@ -147,6 +154,25 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         >
           {layer.name}
         </span>
+
+        {/* Mask Badges */}
+        {layer.clipping && (
+          <span className="text-[9px] px-1 py-0.5 rounded bg-accent/15 text-accent flex-shrink-0" title="クリッピングマスク">
+            clip
+          </span>
+        )}
+        {layer.hasMask && (
+          <svg className="w-3 h-3 text-text-muted flex-shrink-0" viewBox="0 0 16 16" fill="currentColor" title="レイヤーマスク">
+            <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            <circle cx="8" cy="8" r="4" />
+          </svg>
+        )}
+        {layer.hasVectorMask && (
+          <svg className="w-3 h-3 text-[#59a8f8] flex-shrink-0" viewBox="0 0 16 16" fill="currentColor" title="ベクトルマスク">
+            <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M4 12L8 4l4 8H4z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        )}
 
         {/* Opacity Badge */}
         {layer.opacity < 100 && (

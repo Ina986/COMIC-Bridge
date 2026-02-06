@@ -44,10 +44,13 @@ export interface Guide {
 export interface LayerNode {
   id: string;
   name: string;
-  type: "layer" | "group" | "text" | "adjustment" | "smartObject";
+  type: "layer" | "group" | "text" | "adjustment" | "smartObject" | "shape";
   visible: boolean;
   opacity: number;
   blendMode: string;
+  hasMask?: boolean;
+  hasVectorMask?: boolean;
+  clipping?: boolean;
   children?: LayerNode[];
 }
 
