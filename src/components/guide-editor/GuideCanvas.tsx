@@ -149,8 +149,8 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
   // Keyboard events (Photoshop/tachimi-style shortcuts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Delete selected guide
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedGuideIndex !== null) {
+      // Delete selected guide (Backspace only)
+      if (e.key === "Backspace" && selectedGuideIndex !== null) {
         removeGuide(selectedGuideIndex);
       }
 
@@ -237,6 +237,10 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
   // Determine if scrollbars should be shown
   const showScrollbars = zoom > 1;
 
+  // Guide overflow to extend beyond image to fill ruler area
+  const guideOverflowX = showScrollbars ? 0 : offsetX;
+  const guideOverflowY = showScrollbars ? 0 : offsetY;
+
   return (
     <div
       ref={containerRef}
@@ -252,20 +256,16 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
         }}
       >
         {/* Ruler Corner */}
-        <div
-          className="bg-[#535353]"
-          style={{
-            background: "linear-gradient(135deg, #6a6a6a 0%, #535353 50%, #3a3a3a 100%)",
-          }}
-        />
+        <div className="bg-bg-tertiary border-r border-b border-[#e0dcd8]" />
 
         {/* Horizontal Ruler (creates vertical guides) */}
         <div className="overflow-hidden">
           <CanvasRuler
             direction="horizontal"
-            canvasWidth={scaledWidth}
-            canvasHeight={RULER_SIZE}
+            length={previewAreaWidth}
             imageSize={imageSize}
+            scaledImageSize={scaledWidth}
+            offset={offsetX}
             zoom={zoom}
             onDragStart={handleRulerDragStart}
           />
@@ -275,9 +275,10 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
         <div className="overflow-hidden">
           <CanvasRuler
             direction="vertical"
-            canvasWidth={RULER_SIZE}
-            canvasHeight={scaledHeight}
+            length={previewAreaHeight}
             imageSize={imageSize}
+            scaledImageSize={scaledHeight}
+            offset={offsetY}
             zoom={zoom}
             onDragStart={handleRulerDragStart}
           />
@@ -316,20 +317,8 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
               style={{
                 width: scaledWidth,
                 height: scaledHeight,
-                marginLeft: showScrollbars ? 0 : offsetX,
-                marginTop: showScrollbars ? 0 : offsetY,
               }}
             >
-              {/* Loading State */}
-              {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-bg-elevated z-10">
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm text-text-muted">読み込み中...</span>
-                  </div>
-                </div>
-              )}
-
               {/* Image */}
               {imageUrl ? (
                 <img
@@ -338,6 +327,13 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                   className="w-full h-full object-fill pointer-events-none"
                   draggable={false}
                 />
+              ) : isLoading ? (
+                <div className="w-full h-full bg-bg-elevated flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                    <span className="text-sm text-text-muted">読み込み中...</span>
+                  </div>
+                </div>
               ) : (
                 <div className="w-full h-full bg-bg-elevated flex items-center justify-center text-text-muted">
                   プレビューなし
@@ -355,11 +351,13 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                 return guide.direction === "horizontal" ? (
                   <div
                     key={index}
-                    className={`absolute left-0 right-0 cursor-pointer transition-all group ${
+                    className={`absolute cursor-pointer transition-all group ${
                       isSelected ? "z-20" : "z-10"
                     }`}
                     style={{
                       top: screenPos,
+                      left: -guideOverflowX,
+                      right: -guideOverflowX,
                       height: isSelected ? 3 : 1,
                       marginTop: isSelected ? -1 : 0,
                       background: isSelected
@@ -371,7 +369,6 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                     }}
                     onClick={(e) => handleGuideClick(index, e)}
                   >
-                    {/* Selection handle */}
                     {isSelected && (
                       <div
                         className="absolute -left-1 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full"
@@ -385,29 +382,30 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                 ) : (
                   <div
                     key={index}
-                    className={`absolute top-0 bottom-0 cursor-pointer transition-all group ${
+                    className={`absolute cursor-pointer transition-all group ${
                       isSelected ? "z-20" : "z-10"
                     }`}
                     style={{
                       left: screenPos,
+                      top: -guideOverflowY,
+                      bottom: -guideOverflowY,
                       width: isSelected ? 3 : 1,
                       marginLeft: isSelected ? -1 : 0,
                       background: isSelected
-                        ? "linear-gradient(180deg, #ff4081, #e91e63, #ff4081)"
-                        : "linear-gradient(180deg, #ff408199, #e91e6399, #ff408199)",
+                        ? "linear-gradient(180deg, #00e5ff, #00bcd4, #00e5ff)"
+                        : "linear-gradient(180deg, #00e5ff99, #00bcd499, #00e5ff99)",
                       boxShadow: isSelected
-                        ? "0 0 8px rgba(233, 30, 99, 0.8)"
-                        : "0 0 4px rgba(233, 30, 99, 0.4)",
+                        ? "0 0 8px rgba(0, 229, 255, 0.8)"
+                        : "0 0 4px rgba(0, 229, 255, 0.4)",
                     }}
                     onClick={(e) => handleGuideClick(index, e)}
                   >
-                    {/* Selection handle */}
                     {isSelected && (
                       <div
                         className="absolute top-1/2 -translate-y-1/2 -left-1 w-3 h-3 rounded-full"
                         style={{
-                          background: "linear-gradient(135deg, #ff4081, #e91e63)",
-                          boxShadow: "0 0 4px rgba(233, 30, 99, 0.8)",
+                          background: "linear-gradient(135deg, #00e5ff, #00bcd4)",
+                          boxShadow: "0 0 4px rgba(0, 229, 255, 0.8)",
                         }}
                       />
                     )}
@@ -419,9 +417,11 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
               {isDragging && previewPosition !== null && (
                 dragDirection === "horizontal" ? (
                   <div
-                    className="absolute left-0 right-0 pointer-events-none z-30"
+                    className="absolute pointer-events-none z-30"
                     style={{
                       top: previewPosition * scale,
+                      left: -guideOverflowX,
+                      right: -guideOverflowX,
                       height: 2,
                       background: "linear-gradient(90deg, #00e5ff, #00bcd4, #00e5ff)",
                       opacity: 0.8,
@@ -430,13 +430,15 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                   />
                 ) : (
                   <div
-                    className="absolute top-0 bottom-0 pointer-events-none z-30"
+                    className="absolute pointer-events-none z-30"
                     style={{
                       left: previewPosition * scale,
+                      top: -guideOverflowY,
+                      bottom: -guideOverflowY,
                       width: 2,
-                      background: "linear-gradient(180deg, #ff4081, #e91e63, #ff4081)",
+                      background: "linear-gradient(180deg, #00e5ff, #00bcd4, #00e5ff)",
                       opacity: 0.8,
-                      boxShadow: "0 0 8px rgba(233, 30, 99, 0.6)",
+                      boxShadow: "0 0 8px rgba(0, 229, 255, 0.6)",
                     }}
                   />
                 )
@@ -447,13 +449,13 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
       </div>
 
       {/* Zoom indicator */}
-      <div className="absolute bottom-2 right-2 bg-bg-secondary/90 px-3 py-1.5 rounded-md text-xs text-text-muted backdrop-blur-sm border border-text-muted/10">
+      <div className="absolute bottom-2 right-2 z-40 bg-bg-secondary/90 px-3 py-1.5 rounded-md text-xs text-text-muted backdrop-blur-sm border border-text-muted/10">
         {Math.round(zoom * 100)}%
       </div>
 
       {/* Instructions */}
-      <div className="absolute bottom-2 left-2 bg-bg-secondary/90 px-3 py-1.5 rounded-md text-xs text-text-muted backdrop-blur-sm border border-text-muted/10">
-        定規からドラッグでガイド作成 | Ctrl+/-/0 でズーム | Space+ドラッグでパン | Delete で削除
+      <div className="absolute bottom-2 left-2 z-40 bg-bg-secondary/90 px-3 py-1.5 rounded-md text-xs text-text-muted backdrop-blur-sm border border-text-muted/10">
+        定規からドラッグでガイド作成 | Ctrl+/-/0 でズーム | Space+ドラッグでパン | BackSpace で削除
       </div>
     </div>
   );

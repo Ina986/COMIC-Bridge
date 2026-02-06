@@ -1,15 +1,11 @@
 import { create } from "zustand";
-import type { Guide, GuidePreset } from "../types";
-import { DEFAULT_GUIDE_PRESETS } from "../types";
+import type { Guide } from "../types";
 
 interface GuideStore {
   // Editor state
   guides: Guide[];
   isEditorOpen: boolean;
   selectedGuideIndex: number | null;
-
-  // Presets
-  presets: GuidePreset[];
 
   // Undo/Redo
   history: Guide[][];
@@ -27,10 +23,6 @@ interface GuideStore {
   closeEditor: () => void;
   setSelectedGuideIndex: (index: number | null) => void;
 
-  // Preset actions
-  loadPreset: (presetId: string) => void;
-  saveAsPreset: (name: string) => void;
-
   // History actions
   undo: () => void;
   redo: () => void;
@@ -42,7 +34,6 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
   guides: [],
   isEditorOpen: false,
   selectedGuideIndex: null,
-  presets: DEFAULT_GUIDE_PRESETS,
   history: [],
   future: [],
 
@@ -87,22 +78,6 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
   openEditor: () => set({ isEditorOpen: true }),
   closeEditor: () => set({ isEditorOpen: false, selectedGuideIndex: null }),
   setSelectedGuideIndex: (selectedGuideIndex) => set({ selectedGuideIndex }),
-
-  // Preset actions
-  loadPreset: (presetId) => {
-    const preset = get().presets.find((p) => p.id === presetId);
-    if (preset) {
-      get().pushHistory();
-      set({ guides: [...preset.guides], future: [] });
-    }
-  },
-
-  saveAsPreset: (name) => {
-    const id = `custom-${Date.now()}`;
-    set((state) => ({
-      presets: [...state.presets, { id, name, guides: [...state.guides] }],
-    }));
-  },
 
   // History actions
   pushHistory: () => {

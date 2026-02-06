@@ -27,9 +27,25 @@ thiserror = "1.0"
 # Async runtime
 tokio = { version = "1", features = ["rt", "sync"] }
 
+# 開発ビルドでも画像処理を高速化
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.psd]
+opt-level = 3
+
+[profile.dev.package.flate2]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
 lto = true
-opt-level = "s"
+opt-level = 3
 strip = true

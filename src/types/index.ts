@@ -88,33 +88,3 @@ export const THUMBNAIL_SIZES: Record<ThumbnailSize, { value: number; label: stri
   xlarge: { value: 240, label: "特大" },
 };
 
-// Guide Editor Types
-export interface GuidePreset {
-  id: string;
-  name: string;
-  guides: Guide[];
-}
-
-// Default Presets (漫画原稿規格)
-export const DEFAULT_GUIDE_PRESETS: GuidePreset[] = [
-  {
-    id: "b5-doujin",
-    name: "B5 同人誌",
-    guides: [
-      { direction: "vertical", position: 60 },
-      { direction: "vertical", position: 1740 },
-      { direction: "horizontal", position: 60 },
-      { direction: "horizontal", position: 2490 },
-    ],
-  },
-  {
-    id: "a4-commercial",
-    name: "A4 商業誌",
-    guides: [
-      { direction: "vertical", position: 70 },
-      { direction: "vertical", position: 2410 },
-      { direction: "horizontal", position: 70 },
-      { direction: "horizontal", position: 3438 },
-    ],
-  },
-];

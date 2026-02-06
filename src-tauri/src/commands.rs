@@ -1158,30 +1158,16 @@ fn get_high_res_preview_sync(file_path: &str, max_size: u32) -> Result<HighResPr
         (img, width, height)
     };
 
-    // アスペクト比を維持してリサイズ寸法を計算
-    let (preview_width, preview_height) = if original_width > max_size || original_height > max_size {
-        let scale = if original_width > original_height {
-            max_size as f64 / original_width as f64
-        } else {
-            max_size as f64 / original_height as f64
-        };
-        (
-            (original_width as f64 * scale).round() as u32,
-            (original_height as f64 * scale).round() as u32,
-        )
-    } else {
-        (original_width, original_height)
-    };
+    // Triangleフィルタでリサイズ（高速、ガイド配置には十分な品質）
+    let resized = img.resize(max_size, max_size, FilterType::Triangle);
+    let (preview_width, preview_height) = resized.dimensions();
 
-    // CatmullRomフィルタでリサイズ（トンボ等の細線を保持）
-    let resized = img.resize_exact(preview_width, preview_height, FilterType::CatmullRom);
-
-    // JPEG品質92で保存（マンガの細線に適したバランス）
+    // JPEG品質85で保存（速度と品質のバランス）
     use image::codecs::jpeg::JpegEncoder;
     let file = File::create(&preview_path)
         .map_err(|e| format!("Failed to create preview file: {}", e))?;
     let mut writer = std::io::BufWriter::new(file);
-    let encoder = JpegEncoder::new_with_quality(&mut writer, 92);
+    let encoder = JpegEncoder::new_with_quality(&mut writer, 85);
     resized.write_with_encoder(encoder)
         .map_err(|e| format!("Failed to encode preview JPEG: {}", e))?;
 

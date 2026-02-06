@@ -2,41 +2,27 @@ import { useRef, useEffect, useCallback } from "react";
 
 interface CanvasRulerProps {
   direction: "horizontal" | "vertical";
-  canvasWidth: number;
-  canvasHeight: number;
+  length: number;
   imageSize: { width: number; height: number };
+  scaledImageSize: number;
+  offset: number;
   zoom: number;
   onDragStart: (direction: "horizontal" | "vertical", e: React.MouseEvent) => void;
 }
 
-// Photoshop-style ruler colors
-const COLORS = {
-  background: "#535353",
-  backgroundLight: "#606060",
-  backgroundDark: "#404040",
-  tick: "#1a1a1a",
-  text: "#1a1a1a",
-  highlight: "#6a6a6a",
-  shadow: "#3a3a3a",
-};
+const RULER_SIZE = 22;
 
-const RULER_SIZE = 22; // Fixed ruler thickness in pixels
-
-/**
- * Canvas-based ruler component with Photoshop-style appearance.
- * Supports dynamic tick intervals based on zoom level.
- */
 export function CanvasRuler({
   direction,
-  canvasWidth,
-  canvasHeight,
+  length,
   imageSize,
+  scaledImageSize,
+  offset,
   zoom,
   onDragStart,
 }: CanvasRulerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Calculate the appropriate tick interval based on zoom level
   const getTickIntervals = useCallback((pixelsPerUnit: number) => {
     if (pixelsPerUnit > 2) {
       return { major: 100, minor: 10 };
@@ -47,7 +33,6 @@ export function CanvasRuler({
     }
   }, []);
 
-  // Draw the ruler
   const drawRuler = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -55,112 +40,90 @@ export function CanvasRuler({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const dpr = window.devicePixelRatio || 1;
     const isHorizontal = direction === "horizontal";
 
-    // Set canvas dimensions
+    const displayW = isHorizontal ? length : RULER_SIZE;
+    const displayH = isHorizontal ? RULER_SIZE : length;
+
+    canvas.width = displayW * dpr;
+    canvas.height = displayH * dpr;
+    canvas.style.width = `${displayW}px`;
+    canvas.style.height = `${displayH}px`;
+
+    ctx.scale(dpr, dpr);
+
+    // Background
+    ctx.fillStyle = "#f8f6f3";
+    ctx.fillRect(0, 0, displayW, displayH);
+
+    // Image area background (slightly different)
+    ctx.fillStyle = "#f0eeeb";
     if (isHorizontal) {
-      canvas.width = canvasWidth;
-      canvas.height = RULER_SIZE;
+      ctx.fillRect(offset, 0, scaledImageSize, RULER_SIZE);
     } else {
-      canvas.width = RULER_SIZE;
-      canvas.height = canvasHeight;
+      ctx.fillRect(0, offset, RULER_SIZE, scaledImageSize);
     }
 
-    // Calculate scale factor
-    const scale = isHorizontal
-      ? imageSize.width / canvasWidth
-      : imageSize.height / canvasHeight;
-
-    const pixelsPerUnit = 1 / scale;
+    const imgDim = isHorizontal ? imageSize.width : imageSize.height;
+    const scale = scaledImageSize / imgDim;
+    const pixelsPerUnit = scale;
     const { major: majorStep, minor: minorStep } = getTickIntervals(pixelsPerUnit);
 
-    // Draw gradient background
-    const grad = isHorizontal
-      ? ctx.createLinearGradient(0, 0, 0, RULER_SIZE)
-      : ctx.createLinearGradient(0, 0, RULER_SIZE, 0);
-
-    grad.addColorStop(0, COLORS.highlight);
-    grad.addColorStop(0.1, COLORS.backgroundLight);
-    grad.addColorStop(0.9, COLORS.background);
-    grad.addColorStop(1, COLORS.shadow);
-
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Configure text style
-    ctx.fillStyle = COLORS.tick;
-    ctx.strokeStyle = COLORS.tick;
-    ctx.font = "bold 9px Arial, sans-serif";
-
     if (isHorizontal) {
-      ctx.textBaseline = "top";
+      for (let unit = 0; unit <= imgDim; unit += minorStep) {
+        const px = offset + unit * scale;
+        if (px < 0 || px > length) continue;
 
-      // Draw ticks
-      const minorStepPx = minorStep / scale;
-      for (let px = 0; px < canvasWidth; px += minorStepPx) {
-        const realPx = Math.round(px * scale);
-        const isMajor = realPx % majorStep === 0;
-        const isMedium = realPx % (majorStep / 2) === 0;
+        const isMajor = unit % majorStep === 0;
+        const isMedium = unit % (majorStep / 2) === 0;
 
         if (isMajor) {
-          // Major tick with number
-          ctx.fillRect(Math.floor(px), 2, 1, RULER_SIZE - 3);
-          ctx.fillText(realPx.toString(), Math.floor(px) + 3, 3);
+          ctx.fillStyle = "#4a4a58";
+          ctx.fillRect(Math.round(px), 0, 1, RULER_SIZE);
         } else if (isMedium) {
-          // Medium tick
-          ctx.fillRect(Math.floor(px), RULER_SIZE - 10, 1, 9);
+          ctx.fillStyle = "#8a8a98";
+          ctx.fillRect(Math.round(px), RULER_SIZE - 11, 1, 11);
         } else {
-          // Minor tick
-          ctx.fillRect(Math.floor(px), RULER_SIZE - 6, 1, 5);
+          ctx.fillStyle = "#a8a8b4";
+          ctx.fillRect(Math.round(px), RULER_SIZE - 6, 1, 6);
         }
       }
 
-      // Bottom edge line
-      ctx.fillStyle = COLORS.shadow;
-      ctx.fillRect(0, RULER_SIZE - 1, canvasWidth, 1);
+      // Bottom edge
+      ctx.fillStyle = "#ddd8d3";
+      ctx.fillRect(0, RULER_SIZE - 1, length, 1);
     } else {
-      ctx.textBaseline = "middle";
+      for (let unit = 0; unit <= imgDim; unit += minorStep) {
+        const py = offset + unit * scale;
+        if (py < 0 || py > length) continue;
 
-      // Draw ticks
-      const minorStepPx = minorStep / scale;
-      for (let py = 0; py < canvasHeight; py += minorStepPx) {
-        const realPy = Math.round(py * scale);
-        const isMajor = realPy % majorStep === 0;
-        const isMedium = realPy % (majorStep / 2) === 0;
+        const isMajor = unit % majorStep === 0;
+        const isMedium = unit % (majorStep / 2) === 0;
 
         if (isMajor) {
-          // Major tick with rotated number
-          ctx.fillRect(2, Math.floor(py), RULER_SIZE - 3, 1);
-          ctx.save();
-          ctx.translate(10, Math.floor(py) + 3);
-          ctx.rotate(-Math.PI / 2);
-          ctx.textBaseline = "middle";
-          ctx.fillText(realPy.toString(), 0, 0);
-          ctx.restore();
+          ctx.fillStyle = "#4a4a58";
+          ctx.fillRect(0, Math.round(py), RULER_SIZE, 1);
         } else if (isMedium) {
-          // Medium tick
-          ctx.fillRect(RULER_SIZE - 10, Math.floor(py), 9, 1);
+          ctx.fillStyle = "#8a8a98";
+          ctx.fillRect(RULER_SIZE - 11, Math.round(py), 11, 1);
         } else {
-          // Minor tick
-          ctx.fillRect(RULER_SIZE - 6, Math.floor(py), 5, 1);
+          ctx.fillStyle = "#a8a8b4";
+          ctx.fillRect(RULER_SIZE - 6, Math.round(py), 6, 1);
         }
       }
 
-      // Right edge line
-      ctx.fillStyle = COLORS.shadow;
-      ctx.fillRect(RULER_SIZE - 1, 0, 1, canvasHeight);
+      // Right edge
+      ctx.fillStyle = "#ddd8d3";
+      ctx.fillRect(RULER_SIZE - 1, 0, 1, length);
     }
-  }, [direction, canvasWidth, canvasHeight, imageSize, getTickIntervals]);
+  }, [direction, length, imageSize, scaledImageSize, offset, getTickIntervals]);
 
-  // Redraw when dependencies change
   useEffect(() => {
     drawRuler();
   }, [drawRuler, zoom]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Horizontal ruler creates horizontal guides (Y position)
-    // Vertical ruler creates vertical guides (X position)
-    // This matches Photoshop/tachimi behavior
     onDragStart(direction, e);
   };
 
@@ -169,7 +132,6 @@ export function CanvasRuler({
   return (
     <canvas
       ref={canvasRef}
-      className={`ruler ruler-${direction}`}
       style={{
         cursor: cursorStyle,
         display: "block",

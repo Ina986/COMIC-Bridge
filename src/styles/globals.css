@@ -40,25 +40,27 @@ body,
   overflow: hidden;
 }
 
-/* ===== スクロールバー（ポップ版）===== */
+/* ===== スクロールバー（上品ポップ）===== */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #282838;
-  border-radius: 5px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #ff6b9d, #7c5cff);
-  border-radius: 5px;
-  border: 2px solid #282838;
+  background: linear-gradient(180deg, #e0c4d4, #cfc0e8);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #ff8bb5, #9580ff);
+  background: linear-gradient(180deg, #d4a8c0, #bea8e0);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 /* ===== 選択時のスタイル ===== */
