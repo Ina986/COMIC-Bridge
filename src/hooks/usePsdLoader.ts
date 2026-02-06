@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { readDir, readFile } from "@tauri-apps/plugin-fs";
 import { usePsdStore } from "../store/psdStore";
 import { useSpecStore } from "../store/specStore";
+import { useReplaceStore } from "../store/replaceStore";
 import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
 import type { PsdFile } from "../types";
 
@@ -69,6 +70,9 @@ export function usePsdLoader() {
 
   const loadFilesInternal = useCallback(
     async (filePaths: string[]) => {
+      // replace タブ時はスキップ（ReplaceDropZone が独自に処理する）
+      if (useReplaceStore.getState().sidebarTab === "replace") return;
+
       // Create initial file entries
       const initialFiles: PsdFile[] = filePaths.map((filePath, index) => {
         const fileName = filePath.split(/[/\\]/).pop() || "unknown.psd";

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { usePsdLoader } from "../../hooks/usePsdLoader";
+import { useReplaceStore } from "../../store/replaceStore";
 
 export function DropZone() {
   const [isDragging, setIsDragging] = useState(false);
@@ -11,9 +12,13 @@ export function DropZone() {
   useEffect(() => {
     const currentWindow = getCurrentWindow();
     let unlisten: (() => void) | undefined;
+    let mounted = true;
 
     const setupListener = async () => {
-      unlisten = await currentWindow.onDragDropEvent(async (event) => {
+      const fn = await currentWindow.onDragDropEvent(async (event) => {
+        // replace タブ時はスキップ（ReplaceDropZone が処理する）
+        if (useReplaceStore.getState().sidebarTab === "replace") return;
+
         if (event.payload.type === "over") {
           setIsDragging(true);
         } else if (event.payload.type === "leave") {
@@ -54,11 +59,19 @@ export function DropZone() {
           }
         }
       });
+
+      // 非同期セットアップ中にアンマウントされた場合、即座にクリーンアップ
+      if (mounted) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
     };
 
     setupListener();
 
     return () => {
+      mounted = false;
       if (unlisten) {
         unlisten();
       }

@@ -5,7 +5,7 @@ interface ModalProps extends HTMLAttributes<HTMLDivElement> {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
   showCloseButton?: boolean;
 }
 
@@ -14,6 +14,8 @@ const sizeStyles = {
   md: 'max-w-md',
   lg: 'max-w-lg',
   xl: 'max-w-xl',
+  '2xl': 'max-w-3xl',
+  '3xl': 'max-w-4xl',
 };
 
 export const Modal = forwardRef<HTMLDivElement, ModalProps>(

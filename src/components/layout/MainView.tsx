@@ -1,32 +1,38 @@
 import { usePsdStore } from "../../store/psdStore";
 import { useGuideStore } from "../../store/guideStore";
+import { useReplaceStore } from "../../store/replaceStore";
 import { PreviewGrid } from "../preview/PreviewGrid";
 import { Toolbar } from "./Toolbar";
 import { DropZone } from "../file-browser/DropZone";
+import { ReplaceDropZone } from "../replace/ReplaceDropZone";
 
 export function MainView() {
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
   const openEditor = useGuideStore((state) => state.openEditor);
+  const sidebarTab = useReplaceStore((state) => state.sidebarTab);
 
   const hasFiles = files.length > 0;
+  const isReplaceMode = sidebarTab === "replace";
 
   return (
     <main className="flex-1 flex flex-col overflow-hidden bg-bg-primary relative">
-      {/* Toolbar */}
-      <Toolbar />
+      {/* Toolbar (非表示: replace タブ時) */}
+      {!isReplaceMode && <Toolbar />}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden relative">
-        {hasFiles ? (
+        {isReplaceMode ? (
+          <ReplaceDropZone />
+        ) : hasFiles ? (
           <PreviewGrid />
         ) : (
           <DropZone />
         )}
       </div>
 
-      {/* Bottom Action Bar */}
-      {hasFiles && (
+      {/* Bottom Action Bar (非表示: replace タブ時) */}
+      {!isReplaceMode && hasFiles && (
         <div className="px-4 py-3 bg-bg-secondary shadow-soft border-t border-border flex items-center justify-between relative z-10">
           <div className="flex items-center gap-3">
             {/* ファイル数バッジ */}

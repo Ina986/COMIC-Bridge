@@ -1515,3 +1515,311 @@ pub async fn cleanup_preview_files() -> Result<u32, String> {
 
     Ok(cleaned_count)
 }
+
+// ============================================
+// Layer Replacement (差替え)
+// ============================================
+
+/// 自然順ソート用のキー生成
+fn natural_sort_key(s: &str) -> Vec<(bool, String)> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut in_digit = false;
+
+    for ch in s.chars() {
+        let is_digit = ch.is_ascii_digit();
+        if is_digit != in_digit && !current.is_empty() {
+            if in_digit {
+                // 数字部分はゼロ埋め20桁で統一
+                result.push((true, format!("{:0>20}", current)));
+            } else {
+                result.push((false, current.to_lowercase()));
+            }
+            current.clear();
+        }
+        in_digit = is_digit;
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        if in_digit {
+            result.push((true, format!("{:0>20}", current)));
+        } else {
+            result.push((false, current.to_lowercase()));
+        }
+    }
+    result
+}
+
+/// List files in a folder with PSD/PSB/TIF/TIFF extension filter and natural sort
+#[tauri::command]
+pub async fn list_folder_files(
+    folder_path: String,
+    recursive: bool,
+) -> Result<Vec<String>, String> {
+    let folder = Path::new(&folder_path);
+    if !folder.exists() || !folder.is_dir() {
+        return Err(format!("Folder not found: {}", folder_path));
+    }
+
+    let mut files = Vec::new();
+    collect_files(folder, recursive, &mut files)?;
+
+    // 自然順ソート
+    files.sort_by(|a, b| {
+        let key_a = natural_sort_key(
+            Path::new(a)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(""),
+        );
+        let key_b = natural_sort_key(
+            Path::new(b)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(""),
+        );
+        key_a.cmp(&key_b)
+    });
+
+    Ok(files)
+}
+
+/// Recursively collect PSD/PSB/TIF/TIFF files
+fn collect_files(dir: &Path, recursive: bool, files: &mut Vec<String>) -> Result<(), String> {
+    let entries = fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read dir {}: {}", dir.display(), e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Entry error: {}", e))?;
+        let path = entry.path();
+
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                let ext_lower = ext.to_lowercase();
+                if ext_lower == "psd" || ext_lower == "psb" || ext_lower == "tif" || ext_lower == "tiff" {
+                    files.push(path.to_string_lossy().to_string());
+                }
+            }
+        } else if recursive && path.is_dir() {
+            collect_files(&path, recursive, files)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// List subfolders in a directory
+#[tauri::command]
+pub async fn list_subfolders(
+    folder_path: String,
+) -> Result<Vec<String>, String> {
+    let folder = Path::new(&folder_path);
+    if !folder.exists() || !folder.is_dir() {
+        return Err(format!("Folder not found: {}", folder_path));
+    }
+
+    let mut subfolders = Vec::new();
+    let entries = fs::read_dir(folder)
+        .map_err(|e| format!("Failed to read dir: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Entry error: {}", e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            subfolders.push(path.to_string_lossy().to_string());
+        }
+    }
+
+    // 自然順ソート
+    subfolders.sort_by(|a, b| {
+        let key_a = natural_sort_key(
+            Path::new(a).file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        );
+        let key_b = natural_sort_key(
+            Path::new(b).file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        );
+        key_a.cmp(&key_b)
+    });
+
+    Ok(subfolders)
+}
+
+// --- Replace Job Settings for JSX ---
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReplaceTextSettings {
+    #[serde(rename = "subMode")]
+    pub sub_mode: String,
+    #[serde(rename = "groupName")]
+    pub group_name: String,
+    #[serde(rename = "partialMatch")]
+    pub partial_match: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReplaceImageSettings {
+    #[serde(rename = "replaceBackground")]
+    pub replace_background: bool,
+    #[serde(rename = "replaceSpecialLayer")]
+    pub replace_special_layer: bool,
+    #[serde(rename = "specialLayerName")]
+    pub special_layer_name: String,
+    #[serde(rename = "specialLayerPartialMatch")]
+    pub special_layer_partial_match: bool,
+    #[serde(rename = "replaceNamedGroup")]
+    pub replace_named_group: bool,
+    #[serde(rename = "namedGroupName")]
+    pub named_group_name: String,
+    #[serde(rename = "namedGroupPartialMatch")]
+    pub named_group_partial_match: bool,
+    #[serde(rename = "placeFromBottom")]
+    pub place_from_bottom: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReplaceGeneralSettings {
+    #[serde(rename = "skipResize")]
+    pub skip_resize: bool,
+    #[serde(rename = "roundFontSize")]
+    pub round_font_size: bool,
+    #[serde(rename = "saveFileName")]
+    pub save_file_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReplacePairEntry {
+    #[serde(rename = "sourceFile")]
+    pub source_file: String,
+    #[serde(rename = "targetFile")]
+    pub target_file: String,
+    #[serde(rename = "outputDir")]
+    pub output_dir: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReplaceJobSettings {
+    pub mode: String,
+    pub pairs: Vec<ReplacePairEntry>,
+    #[serde(rename = "textSettings")]
+    pub text_settings: ReplaceTextSettings,
+    #[serde(rename = "imageSettings")]
+    pub image_settings: ReplaceImageSettings,
+    #[serde(rename = "generalSettings")]
+    pub general_settings: ReplaceGeneralSettings,
+    #[serde(rename = "outputPath")]
+    pub output_path: String,
+}
+
+/// Run Photoshop to replace layers between paired PSD files
+#[tauri::command]
+pub async fn run_photoshop_replace(
+    app_handle: tauri::AppHandle,
+    jobs: ReplaceJobSettings,
+) -> Result<Vec<PhotoshopResult>, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found. Please install Adobe Photoshop.".to_string())?;
+
+    // Resolve script path
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let script_path = resource_path.join("scripts").join("replace_layers.jsx");
+
+    let script_path_str = if script_path.exists() {
+        script_path.to_string_lossy().to_string()
+    } else {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("replace_layers.jsx");
+        if dev_script.exists() {
+            dev_script.to_string_lossy().to_string()
+        } else {
+            return Err("Replace script not found".to_string());
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let settings_path = temp_dir.join("psd_replace_settings.json");
+    let output_path = temp_dir.join("psd_replace_results.json");
+
+    let _ = fs::remove_file(&output_path);
+
+    // Update settings with output path and normalize paths
+    let mut jobs_normalized = jobs;
+    jobs_normalized.output_path = output_path.to_string_lossy().to_string().replace("\\", "/");
+    for pair in &mut jobs_normalized.pairs {
+        pair.source_file = pair.source_file.replace("\\", "/");
+        pair.target_file = pair.target_file.replace("\\", "/");
+        pair.output_dir = pair.output_dir.replace("\\", "/");
+    }
+
+    let settings_json = serde_json::to_string_pretty(&jobs_normalized)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+
+    let mut settings_file = fs::File::create(&settings_path)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    // UTF-8 BOM for Japanese support
+    settings_file.write_all(&[0xEF, 0xBB, 0xBF])
+        .map_err(|e| format!("Failed to write BOM: {}", e))?;
+    settings_file.write_all(settings_json.as_bytes())
+        .map_err(|e| format!("Failed to write settings: {}", e))?;
+
+    eprintln!("Replace - Photoshop: {}", ps_path);
+    eprintln!("Replace - Script: {}", script_path_str);
+    eprintln!("Replace - Pairs: {}", jobs_normalized.pairs.len());
+    eprintln!("Replace - Mode: {}", jobs_normalized.mode);
+
+    let _output = Command::new(&ps_path)
+        .arg("-r")
+        .arg(&script_path_str)
+        .output()
+        .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    // Poll for results (replacement is slow: 2 files per pair)
+    let max_wait_secs = 600; // 10 minutes
+    let poll_interval_ms = 500;
+    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+
+    for poll in 0..max_polls {
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                if content.trim().starts_with('[') && content.trim().ends_with(']') {
+                    eprintln!("Replace output ready after {} polls", poll);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+
+        if poll > 0 && poll % 20 == 0 {
+            eprintln!("Still waiting for Photoshop replace... ({} seconds)", poll * poll_interval_ms / 1000);
+        }
+    }
+
+    if output_path.exists() {
+        let results_json = fs::read_to_string(&output_path)
+            .map_err(|e| format!("Failed to read results: {}", e))?;
+
+        let results: Vec<PhotoshopResult> = serde_json::from_str(&results_json)
+            .map_err(|e| format!("Failed to parse results: {}. JSON was: {}", e, results_json))?;
+
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
+        Ok(results)
+    } else {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+        Err("Photoshop did not produce output file. Script may have failed.".to_string())
+    }
+}

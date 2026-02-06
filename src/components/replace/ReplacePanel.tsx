@@ -1,0 +1,747 @@
+import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { useReplaceStore } from "../../store/replaceStore";
+import { useReplaceProcessor } from "../../hooks/useReplaceProcessor";
+import { ReplacePairingModal } from "./ReplacePairingModal";
+import type { ReplaceMode, PairingMode } from "../../types/replace";
+
+export function ReplacePanel() {
+  const folders = useReplaceStore((s) => s.folders);
+  const settings = useReplaceStore((s) => s.settings);
+  const setSourceFolder = useReplaceStore((s) => s.setSourceFolder);
+  const setTargetFolder = useReplaceStore((s) => s.setTargetFolder);
+  const setMode = useReplaceStore((s) => s.setMode);
+  const setTextSubMode = useReplaceStore((s) => s.setTextSubMode);
+  const setTextGroupName = useReplaceStore((s) => s.setTextGroupName);
+  const setTextPartialMatch = useReplaceStore((s) => s.setTextPartialMatch);
+  const setImageSettings = useReplaceStore((s) => s.setImageSettings);
+  const setPairingMode = useReplaceStore((s) => s.setPairingMode);
+  const setLinkCharacter = useReplaceStore((s) => s.setLinkCharacter);
+  const setGeneralSettings = useReplaceStore((s) => s.setGeneralSettings);
+  const setSubfolderMode = useReplaceStore((s) => s.setSubfolderMode);
+  const phase = useReplaceStore((s) => s.phase);
+  const isModalOpen = useReplaceStore((s) => s.isModalOpen);
+
+  const { scanAndPair, executeReplacement } = useReplaceProcessor();
+
+  const [generalOpen, setGeneralOpen] = useState(false);
+
+  const batchFolders = useReplaceStore((s) => s.batchFolders);
+
+  const hasBothFolders = settings.mode === "batch"
+    ? folders.sourceFolder && batchFolders.length > 0
+    : folders.sourceFolder && folders.targetFolder;
+  const isScanning = phase === "scanning" || phase === "pairing";
+
+  // 画像モードで少なくとも1つ選択されているか
+  const hasImageSelection =
+    settings.imageSettings.replaceBackground ||
+    settings.imageSettings.replaceSpecialLayer ||
+    settings.imageSettings.replaceNamedGroup;
+
+  const canProceed =
+    hasBothFolders &&
+    !isScanning &&
+    (settings.mode !== "image" || hasImageSelection);
+
+  const handleSelectFolder = async (type: "source" | "target") => {
+    const title =
+      type === "source"
+        ? "植字データフォルダを選択"
+        : "画像データフォルダを選択";
+    const selected = await open({ directory: true, title });
+    if (selected) {
+      if (type === "source") setSourceFolder(selected as string);
+      else setTargetFolder(selected as string);
+    }
+  };
+
+  const getLastFolderName = (path: string | null) => {
+    if (!path) return "";
+    const parts = path.replace(/\\/g, "/").split("/");
+    return parts[parts.length - 1] || parts[parts.length - 2] || path;
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-white/5">
+        <h3 className="text-sm font-display font-medium text-text-primary flex items-center gap-2">
+          <svg
+            className="w-4 h-4 text-accent"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4-4m-4 4l4 4"
+            />
+          </svg>
+          レイヤー差替え
+        </h3>
+        <p className="text-xs text-text-muted mt-1">
+          植字データと画像データ間でレイヤーを差し替え
+        </p>
+      </div>
+
+      {/* Settings */}
+      <div className="flex-1 overflow-auto p-3 space-y-3">
+        {/* Folder Selection */}
+        <div className="bg-bg-tertiary rounded-xl p-3">
+          <h4 className="text-xs font-medium text-text-muted mb-2">
+            フォルダ選択
+          </h4>
+          <div className="space-y-2">
+            <FolderPicker
+              label="植字データ"
+              path={folders.sourceFolder}
+              displayName={getLastFolderName(folders.sourceFolder)}
+              onSelect={() => handleSelectFolder("source")}
+              onClear={() => setSourceFolder(null)}
+              color="accent"
+            />
+            <FolderPicker
+              label="画像データ"
+              path={folders.targetFolder}
+              displayName={getLastFolderName(folders.targetFolder)}
+              onSelect={() => handleSelectFolder("target")}
+              onClear={() => setTargetFolder(null)}
+              color="accent-secondary"
+            />
+          </div>
+        </div>
+
+        {/* Mode Selection */}
+        <div className="bg-bg-tertiary rounded-xl p-3">
+          <h4 className="text-xs font-medium text-text-muted mb-2">
+            差替えモード
+          </h4>
+          <div className="space-y-2">
+            {/* Text Mode */}
+            <ModeCard
+              mode="text"
+              currentMode={settings.mode}
+              label="テキスト差替え"
+              description="植字データ → 画像データ"
+              icon={<TextIcon />}
+              color="accent"
+              onSelect={setMode}
+            />
+            {settings.mode === "text" && (
+              <div className="ml-3 pl-3 border-l-2 border-accent/30 space-y-2">
+                <label
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => setTextSubMode("textLayers")}
+                >
+                  <RadioDot
+                    selected={settings.textSettings.subMode === "textLayers"}
+                  />
+                  <div>
+                    <span className="text-xs text-text-primary">
+                      テキストレイヤーを差替え
+                    </span>
+                    <p className="text-[10px] text-text-muted">
+                      フォルダ階層を維持、画像レイヤーは除外
+                    </p>
+                  </div>
+                </label>
+                <label
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => setTextSubMode("namedGroup")}
+                >
+                  <RadioDot
+                    selected={settings.textSettings.subMode === "namedGroup"}
+                  />
+                  <div>
+                    <span className="text-xs text-text-primary">
+                      特定名グループを差替え
+                    </span>
+                  </div>
+                </label>
+                {settings.textSettings.subMode === "namedGroup" && (
+                  <div className="space-y-1.5">
+                    <input
+                      type="text"
+                      value={settings.textSettings.groupName}
+                      onChange={(e) => setTextGroupName(e.target.value)}
+                      placeholder="グループ名"
+                      className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <CheckBox
+                        checked={settings.textSettings.partialMatch}
+                        onChange={setTextPartialMatch}
+                      />
+                      <span className="text-[10px] text-text-secondary">
+                        部分一致
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Image Mode */}
+            <ModeCard
+              mode="image"
+              currentMode={settings.mode}
+              label="画像差替え"
+              description="画像データ → 植字データ"
+              icon={<ImageIcon />}
+              color="accent-secondary"
+              onSelect={setMode}
+            />
+            {settings.mode === "image" && (
+              <div className="ml-3 pl-3 border-l-2 border-accent-secondary/30 space-y-2">
+                {/* Background */}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <CheckBox
+                    checked={settings.imageSettings.replaceBackground}
+                    onChange={(v) =>
+                      setImageSettings({ replaceBackground: v })
+                    }
+                  />
+                  <span className="text-xs text-text-primary">
+                    背景レイヤー差替え
+                  </span>
+                </label>
+
+                {/* Special Layer */}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <CheckBox
+                    checked={settings.imageSettings.replaceSpecialLayer}
+                    onChange={(v) =>
+                      setImageSettings({ replaceSpecialLayer: v })
+                    }
+                  />
+                  <span className="text-xs text-text-primary">
+                    特定名レイヤー差替え
+                  </span>
+                </label>
+                {settings.imageSettings.replaceSpecialLayer && (
+                  <div className="ml-6 space-y-1.5">
+                    <input
+                      type="text"
+                      value={settings.imageSettings.specialLayerName}
+                      onChange={(e) =>
+                        setImageSettings({ specialLayerName: e.target.value })
+                      }
+                      placeholder="レイヤー名"
+                      className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent-secondary focus:outline-none"
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <CheckBox
+                        checked={
+                          settings.imageSettings.specialLayerPartialMatch
+                        }
+                        onChange={(v) =>
+                          setImageSettings({ specialLayerPartialMatch: v })
+                        }
+                      />
+                      <span className="text-[10px] text-text-secondary">
+                        部分一致
+                      </span>
+                    </label>
+                  </div>
+                )}
+
+                {/* Named Group */}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <CheckBox
+                    checked={settings.imageSettings.replaceNamedGroup}
+                    onChange={(v) =>
+                      setImageSettings({ replaceNamedGroup: v })
+                    }
+                  />
+                  <span className="text-xs text-text-primary">
+                    特定名グループ差替え
+                  </span>
+                </label>
+                {settings.imageSettings.replaceNamedGroup && (
+                  <div className="ml-6 space-y-1.5">
+                    <input
+                      type="text"
+                      value={settings.imageSettings.namedGroupName}
+                      onChange={(e) =>
+                        setImageSettings({ namedGroupName: e.target.value })
+                      }
+                      placeholder="グループ名"
+                      className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent-secondary focus:outline-none"
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <CheckBox
+                        checked={
+                          settings.imageSettings.namedGroupPartialMatch
+                        }
+                        onChange={(v) =>
+                          setImageSettings({ namedGroupPartialMatch: v })
+                        }
+                      />
+                      <span className="text-[10px] text-text-secondary">
+                        部分一致
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <CheckBox
+                        checked={settings.imageSettings.placeFromBottom}
+                        onChange={(v) =>
+                          setImageSettings({ placeFromBottom: v })
+                        }
+                      />
+                      <span className="text-[10px] text-text-secondary">
+                        下から数えて同じ位置に配置
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Batch Mode */}
+            <ModeCard
+              mode="batch"
+              currentMode={settings.mode}
+              label="同時処理"
+              description="白消し・棒消しを一括差替え"
+              icon={<BatchIcon />}
+              color="accent-tertiary"
+              onSelect={setMode}
+            />
+            {settings.mode === "batch" && (
+              <div className="ml-3 pl-3 border-l-2 border-accent-tertiary/30">
+                <p className="text-[10px] text-text-muted">
+                  画像データフォルダのサブフォルダ（白消し、棒消し等）を
+                  自動検出して植字データに一括適用します。
+                  特定名レイヤー・グループの部分一致が自動で有効になります。
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* General Settings (collapsible) */}
+        <div className="bg-bg-tertiary rounded-xl">
+          <button
+            className="w-full p-3 flex items-center justify-between text-xs font-medium text-text-muted hover:text-text-secondary transition-colors"
+            onClick={() => setGeneralOpen(!generalOpen)}
+          >
+            <span>全般設定</span>
+            <svg
+              className={`w-3.5 h-3.5 transition-transform duration-200 ${generalOpen ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </button>
+          {generalOpen && (
+            <div className="px-3 pb-3 space-y-3">
+              {/* Pairing Mode */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">
+                  ペアリング方式
+                </label>
+                <select
+                  value={settings.pairingSettings.mode}
+                  onChange={(e) =>
+                    setPairingMode(e.target.value as PairingMode)
+                  }
+                  className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="fileOrder">ファイル順</option>
+                  <option value="numericKey">ファイル名中の数字</option>
+                  <option value="linkCharManual">
+                    リンク文字 (手動指定)
+                  </option>
+                  <option value="linkCharAuto">
+                    リンク文字 (自動検出)
+                  </option>
+                </select>
+              </div>
+
+              {/* Link Character */}
+              {settings.pairingSettings.mode === "linkCharManual" && (
+                <div>
+                  <label className="text-[10px] text-text-muted mb-1 block">
+                    リンク文字
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.pairingSettings.linkCharacter}
+                    onChange={(e) => setLinkCharacter(e.target.value)}
+                    placeholder="例: ★"
+                    className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Subfolder */}
+              {settings.mode !== "batch" && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <CheckBox
+                    checked={settings.subfolderSettings.mode === "advanced"}
+                    onChange={(v) =>
+                      setSubfolderMode(v ? "advanced" : "none")
+                    }
+                  />
+                  <span className="text-xs text-text-primary">
+                    サブフォルダ対応
+                  </span>
+                </label>
+              )}
+
+              {/* Skip Resize */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <CheckBox
+                  checked={settings.generalSettings.skipResize}
+                  onChange={(v) => setGeneralSettings({ skipResize: v })}
+                />
+                <span className="text-xs text-text-primary">
+                  サイズ変更を行わない
+                </span>
+              </label>
+
+              {/* Round Font Size */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <CheckBox
+                  checked={settings.generalSettings.roundFontSize}
+                  onChange={(v) => setGeneralSettings({ roundFontSize: v })}
+                />
+                <span className="text-xs text-text-primary">
+                  フォントサイズを丸める
+                </span>
+              </label>
+
+              {/* Save File Name */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">
+                  保存ファイル名
+                </label>
+                <div className="flex gap-1.5">
+                  <button
+                    className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg transition-all ${
+                      settings.generalSettings.saveFileName === "target"
+                        ? "bg-accent/20 text-accent border border-accent/30"
+                        : "bg-bg-elevated text-text-secondary border border-white/5"
+                    }`}
+                    onClick={() =>
+                      setGeneralSettings({ saveFileName: "target" })
+                    }
+                  >
+                    画像データ名
+                  </button>
+                  <button
+                    className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg transition-all ${
+                      settings.generalSettings.saveFileName === "source"
+                        ? "bg-accent/20 text-accent border border-accent/30"
+                        : "bg-bg-elevated text-text-secondary border border-white/5"
+                    }`}
+                    onClick={() =>
+                      setGeneralSettings({ saveFileName: "source" })
+                    }
+                  >
+                    植字データ名
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Action Bar */}
+      <div className="p-3 border-t border-white/5 space-y-2">
+        {!hasBothFolders && (
+          <p className="text-[10px] text-text-muted text-center">
+            植字データと画像データのフォルダを選択してください
+          </p>
+        )}
+        <button
+          onClick={scanAndPair}
+          disabled={!canProceed}
+          className="
+            w-full px-4 py-3 text-sm font-medium rounded-xl text-white
+            bg-gradient-to-r from-accent to-accent-secondary
+            shadow-glow-pink
+            hover:shadow-[0_6px_20px_rgba(255,90,138,0.4)]
+            hover:-translate-y-0.5
+            transition-all duration-200
+            disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+            flex items-center justify-center gap-2
+          "
+        >
+          {isScanning ? (
+            <>
+              <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              スキャン中...
+            </>
+          ) : (
+            <>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              ペアリング確認
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Pairing Modal */}
+      {isModalOpen && (
+        <ReplacePairingModal onExecute={executeReplacement} />
+      )}
+    </div>
+  );
+}
+
+// === Sub Components ===
+
+function FolderPicker({
+  label,
+  path,
+  displayName,
+  onSelect,
+  onClear,
+  color,
+}: {
+  label: string;
+  path: string | null;
+  displayName: string;
+  onSelect: () => void;
+  onClear: () => void;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className={`w-1.5 h-8 rounded-full bg-${color} flex-shrink-0`}
+      />
+      <div className="flex-1 min-w-0">
+        <span className="text-[10px] text-text-muted">{label}</span>
+        {path ? (
+          <div className="flex items-center gap-1">
+            <p className="text-xs text-text-primary truncate" title={path}>
+              {displayName}
+            </p>
+            <button
+              onClick={onClear}
+              className="flex-shrink-0 p-0.5 rounded text-text-muted hover:text-error transition-colors"
+            >
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={onSelect}
+            className="text-xs text-accent hover:text-accent/80 transition-colors"
+          >
+            選択...
+          </button>
+        )}
+      </div>
+      {path && (
+        <button
+          onClick={onSelect}
+          className="flex-shrink-0 px-2 py-1 text-[10px] bg-bg-elevated border border-white/10 rounded-lg text-text-secondary hover:text-text-primary transition-colors"
+        >
+          変更
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ModeCard({
+  mode,
+  currentMode,
+  label,
+  description,
+  icon,
+  color,
+  onSelect,
+}: {
+  mode: ReplaceMode;
+  currentMode: ReplaceMode;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  color: string;
+  onSelect: (mode: ReplaceMode) => void;
+}) {
+  const isSelected = currentMode === mode;
+
+  return (
+    <div
+      className={`
+        p-2.5 rounded-xl cursor-pointer transition-all duration-200
+        ${
+          isSelected
+            ? `bg-${color}/15 border-2 border-${color}/50`
+            : "bg-bg-elevated border-2 border-white/5 hover:border-white/10"
+        }
+      `}
+      onClick={() => onSelect(mode)}
+    >
+      <div className="flex items-center gap-2.5">
+        <div
+          className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
+            ${isSelected ? `bg-${color} text-white` : "bg-bg-tertiary text-text-muted"}
+          `}
+        >
+          {icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-medium text-text-primary">
+            {label}
+          </span>
+          <p className="text-[10px] text-text-muted">{description}</p>
+        </div>
+        <div
+          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0
+            ${isSelected ? `border-${color} bg-${color}` : "border-text-muted/30"}
+          `}
+        >
+          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RadioDot({ selected }: { selected: boolean }) {
+  return (
+    <div
+      className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0
+        ${selected ? "border-accent bg-accent" : "border-text-muted/30"}
+      `}
+    >
+      {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+    </div>
+  );
+}
+
+function CheckBox({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div
+      role="checkbox"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all cursor-pointer
+        ${
+          checked
+            ? "bg-gradient-to-br from-accent to-accent-secondary"
+            : "border-2 border-text-muted/30 hover:border-text-muted/50"
+        }
+      `}
+    >
+      {checked && (
+        <svg
+          className="w-2.5 h-2.5 text-white"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={3}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 13l4 4L19 7"
+          />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// === Icons ===
+
+function TextIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 6h16M4 12h8m-8 6h16"
+      />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+      />
+    </svg>
+  );
+}
+
+function BatchIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+      />
+    </svg>
+  );
+}

@@ -1,11 +1,13 @@
-import { useState } from "react";
 import { FileBrowser } from "../file-browser/FileBrowser";
 import { SpecCheckerPanel } from "../spec-checker/SpecCheckerPanel";
 import { LayerControlPanel } from "../layer-control/LayerControlPanel";
 import { SplitPanel } from "../split/SplitPanel";
+import { ReplacePanel } from "../replace/ReplacePanel";
+import { useReplaceStore } from "../../store/replaceStore";
 
 export function Sidebar() {
-  const [activeTab, setActiveTab] = useState<"files" | "spec" | "layers" | "split">("files");
+  const activeTab = useReplaceStore((s) => s.sidebarTab);
+  const setActiveTab = useReplaceStore((s) => s.setSidebarTab);
 
   return (
     <aside data-sidebar className="w-72 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col relative z-10 shadow-soft">
@@ -99,6 +101,21 @@ export function Sidebar() {
             分割
           </span>
         </button>
+        <button
+          className={`flex-1 px-3 py-2 text-xs font-medium rounded-xl transition-all duration-200 ${
+            activeTab === "replace"
+              ? "text-white bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink"
+              : "text-text-secondary hover:text-text-primary hover:bg-bg-tertiary"
+          }`}
+          onClick={() => setActiveTab("replace")}
+        >
+          <span className="flex items-center justify-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4-4m-4 4l4 4" />
+            </svg>
+            差替え
+          </span>
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -107,6 +124,7 @@ export function Sidebar() {
         {activeTab === "spec" && <SpecCheckerPanel />}
         {activeTab === "layers" && <LayerControlPanel />}
         {activeTab === "split" && <SplitPanel />}
+        {activeTab === "replace" && <ReplacePanel />}
       </div>
     </aside>
   );

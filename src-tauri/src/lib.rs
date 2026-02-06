@@ -20,6 +20,9 @@ pub fn run() {
             commands::get_high_res_preview,
             commands::cleanup_preview_files,
             commands::clear_psd_cache,
+            commands::list_folder_files,
+            commands::list_subfolders,
+            commands::run_photoshop_replace,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]
