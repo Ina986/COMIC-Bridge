@@ -295,7 +295,7 @@ export function SpecCheckerPanel() {
                   disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
                   flex items-center justify-center gap-2
                 "
-                onClick={convertWithPhotoshop}
+                onClick={() => convertWithPhotoshop()}
                 disabled={isPhotoshopConverting || !activeSpecId}
               >
                 {isPhotoshopConverting ? (

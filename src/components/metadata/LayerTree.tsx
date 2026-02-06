@@ -162,16 +162,20 @@ function LayerItem({ layer, depth }: LayerItemProps) {
           </span>
         )}
         {layer.hasMask && (
-          <svg className="w-3 h-3 text-text-muted flex-shrink-0" viewBox="0 0 16 16" fill="currentColor" title="レイヤーマスク">
-            <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <circle cx="8" cy="8" r="4" />
-          </svg>
+          <span className="flex-shrink-0" title="レイヤーマスク">
+            <svg className="w-3 h-3 text-text-muted" viewBox="0 0 16 16" fill="currentColor">
+              <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <circle cx="8" cy="8" r="4" />
+            </svg>
+          </span>
         )}
         {layer.hasVectorMask && (
-          <svg className="w-3 h-3 text-[#59a8f8] flex-shrink-0" viewBox="0 0 16 16" fill="currentColor" title="ベクトルマスク">
-            <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M4 12L8 4l4 8H4z" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          </svg>
+          <span className="flex-shrink-0" title="ベクトルマスク">
+            <svg className="w-3 h-3 text-[#59a8f8]" viewBox="0 0 16 16" fill="currentColor">
+              <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M4 12L8 4l4 8H4z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </span>
         )}
 
         {/* Opacity Badge */}

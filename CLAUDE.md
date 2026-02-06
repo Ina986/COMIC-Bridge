@@ -56,7 +56,7 @@
 - Photoshopでの修正方法を説明
 - 「この1件を変換」「NGすべて変換」ボタン
 - サムネイル複数選択（Ctrl+Click / Shift+Click）で選択中のNGファイルのみ変換可能
-- サムネ領域外クリックで複数選択を解除（`data-preview-grid`属性で判定）
+- サムネ領域外クリックで複数選択を解除（`data-preview-grid`/`data-sidebar`/`data-detail-panel`属性で判定、サイドバー・詳細パネル内クリックは除外）
 
 ### 4. Photoshop連携変換
 - NGファイルを一括で仕様に合わせて変換
@@ -82,14 +82,22 @@
 - 適用完了後に結果サマリー表示（成功/エラー件数）
 - 処理完了後にアプリウィンドウを前面に復帰（`window.set_focus()`）
 
-### 6. レイヤー制御（計画中）
-- レイヤー表示/非表示の切り替え
-- 条件指定一括操作
+### 6. レイヤー制御（Photoshop JSX経由）
+- レイヤー表示/非表示の一括切り替え（`hide_layers.jsx`）
+- 条件指定: テキストレイヤー、テキストフォルダ、レイヤー名、フォルダ名、カスタム条件
+- 部分一致/完全一致、大文字小文字の区別オプション
+- 非表示→表示（復元）モード: `doc.info.caption`にメタデータ保存、親グループの可視性も自動復元
+- 選択ファイルのみ / 全ファイル処理対応
+- 処理結果メッセージ表示（成功/エラー、5秒/8秒で自動消去）
 
-### 7. 見開き分割（計画中）
-- 均等/不均等分割
-- プレビュー表示
-- バッチ処理
+### 7. 見開き分割（Photoshop JSX経由）
+- **均等分割**: 中央で左右に分割（`_R`/`_L`サフィックス）
+- **不均等分割**: ノド（綴じ）側に余白を追加して均等化（`outerMargin`設定）
+- **分割なし**: フォーマット変換のみ
+- 単ページ自動検出: 先頭/末尾ファイルが標準幅の70%未満なら分割スキップ
+- オプション: 非表示レイヤー削除、はみ出しテキスト除去
+- 出力形式: PSD / JPG（品質0-100%、JSX側は0-12スケールに変換）
+- Photoshop JSX経由で全ファイル一括処理（`split_psd.jsx`、タイムアウト5分）
 
 ## UIフロー
 
@@ -137,6 +145,10 @@ src/
 │   │   ├── GuideEditorModal.tsx  # ガイドエディタモーダル
 │   │   ├── GuideCanvas.tsx       # ガイド編集キャンバス
 │   │   └── CanvasRuler.tsx       # Photoshop風Canvas定規
+│   ├── layer-control/    # レイヤー制御
+│   │   └── LayerControlPanel.tsx  # 条件指定UIと実行ボタン
+│   ├── split/            # 見開き分割
+│   │   └── SplitPanel.tsx         # 分割モード・オプションUI
 │   └── ui/               # 共通UIコンポーネント
 │       ├── Modal.tsx
 │       └── PopButton.tsx
@@ -145,14 +157,17 @@ src/
 │   ├── useSpecChecker.ts       # 仕様チェックロジック（自動チェック含む）
 │   ├── usePhotoshopConverter.ts # Photoshop連携（仕様変換）
 │   ├── useBatchProcessor.ts    # ガイド一括適用（Photoshop JSX経由）
-│   └── useHighResPreview.ts    # 高解像度プレビュー（ガイドエディタ用）
+│   ├── useHighResPreview.ts    # 高解像度プレビュー（ガイドエディタ用）
+│   ├── useLayerControl.ts      # レイヤー表示/非表示制御（Photoshop JSX経由）
+│   └── useSplitProcessor.ts    # 見開き分割処理（Photoshop JSX経由）
 ├── lib/
 │   └── psd/
 │       └── parser.ts     # ag-psdラッパー、メタデータ抽出
 ├── store/
 │   ├── psdStore.ts       # ファイル一覧状態
 │   ├── specStore.ts      # 仕様・チェック結果・自動チェック設定
-│   └── guideStore.ts     # ガイド線状態
+│   ├── guideStore.ts     # ガイド線状態
+│   └── splitStore.ts     # 分割設定・処理状態
 ├── styles/
 │   └── globals.css       # グローバルスタイル
 └── types/
@@ -161,10 +176,12 @@ src/
 src-tauri/
 ├── scripts/
 │   ├── convert_psd.jsx   # Photoshop仕様変換スクリプト
-│   └── apply_guides.jsx  # Photoshopガイド適用スクリプト
+│   ├── apply_guides.jsx  # Photoshopガイド適用スクリプト
+│   ├── hide_layers.jsx   # Photoshopレイヤー表示/非表示スクリプト
+│   └── split_psd.jsx     # Photoshop見開き分割スクリプト
 └── src/
     ├── lib.rs            # Tauriコマンド登録
-    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、PSDキャッシュ）
+    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、レイヤー制御、分割、PSDキャッシュ）
 ```
 
 ## 重要な型定義
@@ -251,7 +268,7 @@ useEffect(() => {
 4. **JSON処理**: ExtendScriptにはネイティブJSONがないため自作パーサーを使用
 5. **DPIリサンプリング**: `ResampleMethod.BICUBIC` で実際のピクセル処理
 6. **結果パスの正規化**: JSXからの結果パスは `/` 区切り → フロントでの比較時に `\` へ正規化が必要（`useBatchProcessor.ts`と`usePhotoshopConverter.ts`の両方で`.replace(/\//g, "\\")`）
-7. **ウィンドウ前面化**: 処理完了後に `window.set_focus()` でアプリを前面に復帰（`run_photoshop_conversion`と`run_photoshop_guide_apply`の両方）
+7. **ウィンドウ前面化**: 処理完了後に `window.set_focus()` でアプリを前面に復帰（全Photoshop連携コマンド）
 8. **Zustandのstale closure回避**: `useCallback`内で最新のstoreデータが必要な場合は`usePsdStore.getState().files`を使用（`files`をdepsに入れると古い値が参照される）
 
 ## 高速PSD読み込み（Rust側）

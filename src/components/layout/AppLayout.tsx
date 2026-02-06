@@ -21,8 +21,10 @@ export function AppLayout() {
     (e: React.MouseEvent) => {
       // サムネグリッド内のクリックは無視
       if ((e.target as HTMLElement).closest("[data-preview-grid]")) return;
+      // サイドバー・詳細パネル内のクリックは無視
+      if ((e.target as HTMLElement).closest("[data-sidebar], [data-detail-panel]")) return;
       // ボタンやインタラクティブ要素のクリックは無視
-      if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+      if ((e.target as HTMLElement).closest("button, a, input, select, textarea, label")) return;
       clearSelection();
     },
     [clearSelection]

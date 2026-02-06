@@ -1,12 +1,22 @@
 import { useCallback } from "react";
-import { readFile, writeFile } from "@tauri-apps/plugin-fs";
-import { readPsd, writePsd, type Layer } from "ag-psd";
+import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
-import { useLayerStore, type HideCondition, type LayerActionMode } from "../store/layerStore";
+import { useLayerStore, type HideCondition } from "../store/layerStore";
 import type { LayerNode } from "../types";
 
-// テキストフォルダ名のパターン
-const TEXT_FOLDER_PATTERNS = ["text", "写植", "セリフ", "テキスト", "セリフ層"];
+interface PhotoshopResult {
+  filePath: string;
+  success: boolean;
+  changes: string[];
+  error: string | null;
+}
+
+interface LayerCondition {
+  type: string;
+  value?: string;
+  partialMatch?: boolean;
+  caseSensitive?: boolean;
+}
 
 export function useLayerControl() {
   const files = usePsdStore((state) => state.files);
@@ -16,163 +26,20 @@ export function useLayerControl() {
   const getSelectedConditions = useLayerStore((state) => state.getSelectedConditions);
   const actionMode = useLayerStore((state) => state.actionMode);
 
-  // レイヤーが条件に一致するかチェック
-  const matchesCondition = useCallback(
-    (layer: LayerNode, condition: HideCondition, parentIsTextFolder = false): boolean => {
-      switch (condition.type) {
-        case "textLayers":
-          return layer.type === "text";
-
-        case "textFolder":
-          // テキストフォルダ内のレイヤー、またはテキストフォルダ自体
-          if (layer.type === "group") {
-            const lowerName = layer.name.toLowerCase();
-            return TEXT_FOLDER_PATTERNS.some((pattern) =>
-              lowerName.includes(pattern.toLowerCase())
-            );
-          }
-          return parentIsTextFolder;
-
-        case "layerName":
-        case "folderName":
-        case "custom":
-          if (!condition.value) return false;
-          const searchValue = condition.caseSensitive
-            ? condition.value
-            : condition.value.toLowerCase();
-          const layerName = condition.caseSensitive
-            ? layer.name
-            : layer.name.toLowerCase();
-
-          if (condition.partialMatch) {
-            return layerName.includes(searchValue);
-          }
-          return layerName === searchValue;
-
-        default:
-          return false;
-      }
+  // HideCondition を JSX スクリプトが理解できる形式に変換
+  const conditionsToLayerConditions = useCallback(
+    (conditions: HideCondition[]): LayerCondition[] => {
+      return conditions.map((c) => ({
+        type: c.type,
+        value: c.value,
+        partialMatch: c.partialMatch ?? false,
+        caseSensitive: c.caseSensitive ?? false,
+      }));
     },
     []
   );
 
-  // レイヤーツリーを走査して条件に一致するレイヤーのパスを収集
-  // mode: "hide" = 表示中のレイヤーを収集, "show" = 非表示のレイヤーを収集
-  const collectMatchingLayers = useCallback(
-    (
-      layers: LayerNode[],
-      conditions: HideCondition[],
-      mode: LayerActionMode = "hide",
-      path: string[] = [],
-      parentIsTextFolder = false
-    ): string[] => {
-      const matchingPaths: string[] = [];
-
-      for (const layer of layers) {
-        const currentPath = [...path, layer.name];
-        const pathStr = currentPath.join("/");
-
-        // このレイヤーがテキストフォルダかどうか
-        const isTextFolder =
-          layer.type === "group" &&
-          TEXT_FOLDER_PATTERNS.some((pattern) =>
-            layer.name.toLowerCase().includes(pattern.toLowerCase())
-          );
-
-        // 条件に一致するかチェック
-        const matches = conditions.some((condition) =>
-          matchesCondition(layer, condition, parentIsTextFolder)
-        );
-
-        // モードに応じて可視性をチェック
-        const visibilityMatches = mode === "hide" ? layer.visible : !layer.visible;
-
-        if (matches && visibilityMatches) {
-          matchingPaths.push(pathStr);
-        }
-
-        // 子レイヤーを再帰的にチェック
-        if (layer.children && layer.children.length > 0) {
-          const childMatches = collectMatchingLayers(
-            layer.children,
-            conditions,
-            mode,
-            currentPath,
-            isTextFolder || parentIsTextFolder
-          );
-          matchingPaths.push(...childMatches);
-        }
-      }
-
-      return matchingPaths;
-    },
-    [matchesCondition]
-  );
-
-  // PSDファイルのレイヤー可視性を変更して保存
-  // setHidden: true = 非表示にする, false = 表示する
-  const applyVisibilityChanges = useCallback(
-    async (
-      filePath: string,
-      layerPaths: string[],
-      setHidden: boolean = true
-    ): Promise<{ success: boolean; error?: string }> => {
-      try {
-        // ファイルを読み込み
-        const data = await readFile(filePath);
-        const buffer = data.buffer;
-        const psd = readPsd(new Uint8Array(buffer), {
-          skipCompositeImageData: true,
-          skipLayerImageData: true,
-          skipThumbnail: true,
-        });
-
-        if (!psd.children) {
-          return { success: false, error: "レイヤーが見つかりません" };
-        }
-
-        // レイヤー可視性を変更
-        const updateLayerVisibility = (
-          layers: Layer[],
-          targetPaths: Set<string>,
-          currentPath: string[] = []
-        ) => {
-          for (const layer of layers) {
-            const layerPath = [...currentPath, layer.name || ""].join("/");
-
-            if (targetPaths.has(layerPath)) {
-              layer.hidden = setHidden;
-            }
-
-            if (layer.children && layer.children.length > 0) {
-              updateLayerVisibility(
-                layer.children,
-                targetPaths,
-                [...currentPath, layer.name || ""]
-              );
-            }
-          }
-        };
-
-        const pathsSet = new Set(layerPaths);
-        updateLayerVisibility(psd.children, pathsSet);
-
-        // 保存
-        const outputBuffer = writePsd(psd);
-        await writeFile(filePath, new Uint8Array(outputBuffer));
-
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    },
-    []
-  );
-
-  // 選択したファイルに対して表示/非表示処理を実行
+  // Photoshop JSX スクリプト経由でレイヤー可視性を変更
   const applyLayerVisibility = useCallback(async () => {
     const conditions = getSelectedConditions();
     if (conditions.length === 0) return;
@@ -185,103 +52,165 @@ export function useLayerControl() {
 
     setIsProcessing(true);
 
-    const isHideMode = actionMode === "hide";
-    const results: { fileName: string; success: boolean; changedCount: number; error?: string }[] = [];
+    try {
+      const filePaths = targetFiles
+        .filter((f) => f.metadata?.layerTree)
+        .map((f) => f.filePath);
 
-    for (const file of targetFiles) {
-      if (!file.metadata?.layerTree) continue;
+      if (filePaths.length === 0) {
+        setIsProcessing(false);
+        return;
+      }
 
-      // 条件に一致するレイヤーを収集
-      const layersToChange = collectMatchingLayers(
-        file.metadata.layerTree,
-        conditions,
-        actionMode
+      const layerConditions = conditionsToLayerConditions(conditions);
+
+      // Tauriコマンドを実行（Photoshop JSX経由）
+      const psResults = await invoke<PhotoshopResult[]>(
+        "run_photoshop_layer_visibility",
+        {
+          filePaths,
+          conditions: layerConditions,
+          mode: actionMode,
+        }
       );
 
-      if (layersToChange.length === 0) {
+      const isHideMode = actionMode === "hide";
+      const results: { fileName: string; success: boolean; changedCount: number; error?: string }[] = [];
+
+      // 結果を処理してUIのレイヤーツリーを更新
+      for (const psResult of psResults) {
+        const normalizedPath = psResult.filePath.replace(/\//g, "\\");
+        const file = targetFiles.find(
+          (f) => f.filePath === psResult.filePath || f.filePath === normalizedPath
+        );
+
+        if (!file) continue;
+
+        // changesから変更数を抽出
+        const changedMatch = psResult.changes.length > 0
+          ? psResult.changes[0].match(/(\d+) layer/)
+          : null;
+        const changedCount = changedMatch ? parseInt(changedMatch[1], 10) : 0;
+
         results.push({
           fileName: file.fileName,
-          success: true,
-          changedCount: 0,
+          success: psResult.success,
+          changedCount,
+          error: psResult.error || undefined,
         });
-        continue;
+
+        // 成功した場合、メタデータのレイヤーツリーを更新（UI反映）
+        if (psResult.success && file.metadata && changedCount > 0) {
+          // レイヤーツリーを条件に基づいて更新
+          const updatedLayerTree = updateLayerTreeByConditions(
+            file.metadata.layerTree,
+            conditions,
+            !isHideMode // showの場合はvisible=true
+          );
+          updateFile(file.id, {
+            metadata: {
+              ...file.metadata,
+              layerTree: updatedLayerTree,
+            },
+          });
+        }
       }
 
-      // 可視性変更処理を実行
-      const result = await applyVisibilityChanges(file.filePath, layersToChange, isHideMode);
-
-      results.push({
-        fileName: file.fileName,
-        success: result.success,
-        changedCount: result.success ? layersToChange.length : 0,
-        error: result.error,
-      });
-
-      // 成功した場合、ファイルのメタデータを更新（レイヤー可視性を反映）
-      if (result.success && file.metadata) {
-        const updatedLayerTree = updateLayerTreeVisibility(
-          file.metadata.layerTree,
-          new Set(layersToChange),
-          !isHideMode // showの場合はvisible = true
-        );
-        updateFile(file.id, {
-          metadata: {
-            ...file.metadata,
-            layerTree: updatedLayerTree,
-          },
-        });
-      }
+      return results;
+    } catch (error) {
+      console.error("Layer visibility change failed:", error);
+      throw error;
+    } finally {
+      setIsProcessing(false);
     }
-
-    setIsProcessing(false);
-    return results;
   }, [
     files,
     selectedFileIds,
     actionMode,
     getSelectedConditions,
-    collectMatchingLayers,
-    applyVisibilityChanges,
+    conditionsToLayerConditions,
     setIsProcessing,
     updateFile,
   ]);
 
-  // 後方互換性のためのエイリアス
-  const hideLayersInSelectedFiles = applyLayerVisibility;
-
   return {
     applyLayerVisibility,
-    hideLayersInSelectedFiles,
-    collectMatchingLayers,
   };
 }
 
-// レイヤーツリーの可視性を更新するヘルパー
-// setVisible: true = 表示に変更, false = 非表示に変更
-function updateLayerTreeVisibility(
+// テキストフォルダ名のパターン
+const TEXT_FOLDER_PATTERNS = ["text", "写植", "セリフ", "テキスト", "セリフ層"];
+
+// 条件に基づいてレイヤーツリーの可視性を更新するヘルパー
+function updateLayerTreeByConditions(
   layers: LayerNode[],
-  targetPaths: Set<string>,
-  setVisible: boolean = false,
-  currentPath: string[] = []
+  conditions: HideCondition[],
+  setVisible: boolean,
+  parentIsTextFolder = false
 ): LayerNode[] {
   return layers.map((layer) => {
-    const layerPath = [...currentPath, layer.name].join("/");
-    const isTarget = targetPaths.has(layerPath);
+    const isTextFolder =
+      layer.type === "group" &&
+      TEXT_FOLDER_PATTERNS.some((p) =>
+        layer.name.toLowerCase() === p.toLowerCase()
+      );
+
+    const matches = conditions.some((cond) =>
+      matchesCondition(layer, cond, parentIsTextFolder)
+    );
 
     const updatedLayer: LayerNode = {
       ...layer,
-      visible: isTarget ? setVisible : layer.visible,
+      visible: matches ? setVisible : layer.visible,
     };
 
     if (layer.children && layer.children.length > 0) {
-      updatedLayer.children = updateLayerTreeVisibility(
+      updatedLayer.children = updateLayerTreeByConditions(
         layer.children,
-        targetPaths,
+        conditions,
         setVisible,
-        [...currentPath, layer.name]
+        parentIsTextFolder || isTextFolder
       );
     }
 
     return updatedLayer;
   });
+}
+
+function matchesCondition(
+  layer: LayerNode,
+  condition: HideCondition,
+  parentIsTextFolder: boolean
+): boolean {
+  switch (condition.type) {
+    case "textLayers":
+      return layer.type === "text";
+
+    case "textFolder":
+      if (layer.type === "group") {
+        return TEXT_FOLDER_PATTERNS.some(
+          (p) => layer.name.toLowerCase() === p.toLowerCase()
+        );
+      }
+      return parentIsTextFolder;
+
+    case "layerName":
+    case "folderName":
+    case "custom":
+      if (!condition.value) return false;
+      const searchValue = condition.caseSensitive
+        ? condition.value
+        : condition.value.toLowerCase();
+      const layerName = condition.caseSensitive
+        ? layer.name
+        : layer.name.toLowerCase();
+
+      if (condition.partialMatch) {
+        return layerName.includes(searchValue);
+      }
+      return layerName === searchValue;
+
+    default:
+      return false;
+  }
 }

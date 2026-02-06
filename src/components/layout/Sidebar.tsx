@@ -8,7 +8,7 @@ export function Sidebar() {
   const [activeTab, setActiveTab] = useState<"files" | "spec" | "layers" | "split">("files");
 
   return (
-    <aside className="w-72 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col relative z-10 shadow-soft">
+    <aside data-sidebar className="w-72 flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col relative z-10 shadow-soft">
       {/* ロゴ・タイトルエリア */}
       <div className="px-4 py-4 border-b border-border">
         <div className="flex items-center gap-3">

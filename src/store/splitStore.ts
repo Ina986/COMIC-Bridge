@@ -7,8 +7,9 @@ export interface SplitSettings {
   mode: SplitMode;
   outputFormat: OutputFormat;
   jpgQuality: number;
-  leftMargin: number;
-  rightMargin: number;
+  outerMargin: number; // ノド余白 (px) - 不均等分割時のみ
+  deleteHiddenLayers: boolean;
+  deleteOffCanvasText: boolean;
   outputDirectory: string | null;
 }
 
@@ -41,8 +42,9 @@ const defaultSettings: SplitSettings = {
   mode: "even",
   outputFormat: "psd",
   jpgQuality: 95,
-  leftMargin: 0,
-  rightMargin: 0,
+  outerMargin: 0,
+  deleteHiddenLayers: true,
+  deleteOffCanvasText: true,
   outputDirectory: null,
 };
 

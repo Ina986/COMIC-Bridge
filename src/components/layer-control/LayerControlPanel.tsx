@@ -7,6 +7,7 @@ export function LayerControlPanel() {
   const [customName, setCustomName] = useState("");
   const [customType, setCustomType] = useState<"layerName" | "folderName">("layerName");
   const [partialMatch, setPartialMatch] = useState(true);
+  const [resultMessage, setResultMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   const selectedConditions = useLayerStore((state) => state.selectedConditions);
   const customConditions = useLayerStore((state) => state.customConditions);
@@ -37,11 +38,40 @@ export function LayerControlPanel() {
   };
 
   const handleApply = async () => {
-    const results = await applyLayerVisibility();
-    if (results) {
-      const successCount = results.filter((r) => r.success).length;
-      const totalChanged = results.reduce((acc, r) => acc + r.changedCount, 0);
-      console.log(`処理完了: ${successCount}/${results.length} ファイル, ${totalChanged} レイヤー${isHideMode ? "非表示" : "表示"}`);
+    setResultMessage(null);
+    try {
+      const results = await applyLayerVisibility();
+      if (results) {
+        const successCount = results.filter((r) => r.success).length;
+        const totalChanged = results.reduce((acc, r) => acc + r.changedCount, 0);
+        const errorCount = results.filter((r) => !r.success).length;
+
+        if (errorCount > 0) {
+          setResultMessage({
+            text: `${errorCount}件でエラーが発生しました`,
+            type: "error",
+          });
+        } else if (totalChanged > 0) {
+          setResultMessage({
+            text: `${successCount}ファイル, ${totalChanged}レイヤーを${isHideMode ? "非表示" : "表示"}にしました`,
+            type: "success",
+          });
+        } else {
+          setResultMessage({
+            text: "条件に一致するレイヤーがありませんでした",
+            type: "success",
+          });
+        }
+
+        // 5秒後にメッセージを消す
+        setTimeout(() => setResultMessage(null), 5000);
+      }
+    } catch (error) {
+      setResultMessage({
+        text: error instanceof Error ? error.message : "Photoshopの実行に失敗しました",
+        type: "error",
+      });
+      setTimeout(() => setResultMessage(null), 8000);
     }
   };
 
@@ -216,6 +246,18 @@ export function LayerControlPanel() {
             </>
           )}
         </button>
+        {/* 結果メッセージ */}
+        {resultMessage && (
+          <div
+            className={`text-xs px-3 py-2 rounded-lg text-center transition-all duration-300 ${
+              resultMessage.type === "success"
+                ? "bg-success/15 text-success"
+                : "bg-error/15 text-error"
+            }`}
+          >
+            {resultMessage.text}
+          </div>
+        )}
       </div>
     </div>
   );

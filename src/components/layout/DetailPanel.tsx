@@ -12,7 +12,7 @@ export function DetailPanel() {
   const hasError = checkResult && !checkResult.passed;
 
   return (
-    <aside className="w-80 flex-shrink-0 bg-bg-secondary border-l border-border flex flex-col overflow-hidden relative z-10 shadow-soft">
+    <aside data-detail-panel className="w-80 flex-shrink-0 bg-bg-secondary border-l border-border flex flex-col overflow-hidden relative z-10 shadow-soft">
       {/* Header */}
       <div className="px-4 py-4 border-b border-border">
         <div className="flex items-center gap-2">
