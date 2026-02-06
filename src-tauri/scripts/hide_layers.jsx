@@ -155,7 +155,8 @@ function processLayers(layers, conditions, isHideMode, changedPaths, parentIsTex
                 if (layer.visible !== targetVisible) {
                     layer.visible = targetVisible;
                     count++;
-                    changedNames.push("\u30D5\u30A9\u30EB\u30C0\u300C" + trimmedName + "\u300D");
+                    var folderParent = currentPath.length > 0 ? currentPath[currentPath.length - 1] : "";
+                    changedNames.push("\u30D5\u30A9\u30EB\u30C0\u300C" + trimmedName + "\u300D" + (folderParent ? "\u2208\u300C" + folderParent + "\u300D" : ""));
                     if (isHideMode) {
                         changedPaths.push(layerPath);
                     }
@@ -174,7 +175,8 @@ function processLayers(layers, conditions, isHideMode, changedPaths, parentIsTex
                     layer.visible = targetVisible;
                     count++;
                     var layerType = (layer.kind === LayerKind.TEXT) ? "\u30C6\u30AD\u30B9\u30C8" : "\u30EC\u30A4\u30E4\u30FC";
-                    changedNames.push(layerType + "\u300C" + trimmedName + "\u300D");
+                    var layerParent = currentPath.length > 0 ? currentPath[currentPath.length - 1] : "";
+                    changedNames.push(layerType + "\u300C" + trimmedName + "\u300D" + (layerParent ? "\u2208\u300C" + layerParent + "\u300D" : ""));
                     if (isHideMode) {
                         changedPaths.push(layerPath);
                     }

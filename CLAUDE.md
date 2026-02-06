@@ -88,7 +88,8 @@
 - 部分一致/完全一致、大文字小文字の区別オプション
 - 非表示→表示（復元）モード: `doc.info.caption`にメタデータ保存、親グループの可視性も自動復元
 - 選択ファイルのみ / 全ファイル処理対応
-- 処理結果メッセージ表示（成功/エラー、5秒/8秒で自動消去）
+- **詳細レポートダイアログ**: 処理完了後に中央モーダル（createPortal）でファイル別ツリー表示。親フォルダ∈情報付きでグループ/レイヤーの階層関係を表示（F/G/T/L種別バッジ）
+- JSX側: `changedNames`に`"テキスト「name」∈「parent」"`形式で親フォルダ情報を記録。フロント側`extractMatchedItems()`→`buildTree()`でツリー構築
 
 ### 7. レイヤー差替え（Photoshop JSX経由）
 - **テキスト差替え**: 植字データ → 画像データへテキストレイヤー/特定名グループを差替え
@@ -159,7 +160,8 @@ src/
 │   │   ├── GuideCanvas.tsx       # ガイド編集キャンバス
 │   │   └── CanvasRuler.tsx       # Photoshop風Canvas定規
 │   ├── layer-control/    # レイヤー制御
-│   │   └── LayerControlPanel.tsx  # 条件指定UIと実行ボタン
+│   │   ├── LayerControlPanel.tsx        # 条件指定UIと実行ボタン
+│   │   └── LayerControlResultDialog.tsx # 処理結果レポートダイアログ（ツリー表示、createPortal）
 │   ├── replace/          # レイヤー差替え
 │   │   ├── ReplacePanel.tsx        # サイドバー: モード選択・設定UI（出力フォルダ名設定含む）
 │   │   ├── ReplaceDropZone.tsx     # 中央: D&Dドロップゾーン（DPR補正・バッチ・ファイルレベルドロップ対応）
@@ -294,7 +296,8 @@ useEffect(() => {
 8. **Zustandのstale closure回避**: `useCallback`内で最新のstoreデータが必要な場合は`usePsdStore.getState().files`を使用（`files`をdepsに入れると古い値が参照される）
 9. **Tauri D&D座標のDPR補正**: `onDragDropEvent`は物理ピクセル座標を返すが`getBoundingClientRect()`はCSS座標。`pos.x / window.devicePixelRatio`で補正が必要（Windows 150%スケーリング等）
 10. **`<button>`は`<label>`のlabelable要素**: `<button>`を`<label>`内に配置するとクリック時に二重トグルが発生する。カスタムCheckBoxには`<div role="checkbox">`を使用
-11. **JSX詳細レポート**: `result.changes`に`"  → レイヤー「name」"`/`"  → グループ「name」"`/`"  → テキストフォルダ「name」"`形式で個別マッチを記録。フロント側`extractMatchedNames()`で正規表現パース
+11. **JSX詳細レポート（差替え）**: `result.changes`に`"  → レイヤー「name」"`/`"  → グループ「name」"`/`"  → テキストフォルダ「name」"`形式で個別マッチを記録。フロント側`extractMatchedNames()`で正規表現パース
+12. **JSX詳細レポート（レイヤー制御）**: `changedNames`に`"テキスト「name」∈「parent」"`形式で親フォルダ情報付きで記録。フロント側`extractMatchedItems()`→`buildTree()`でツリー構築。親フォルダが結果に含まれない場合はコンテキストとして`グループ`ノード（G）を自動生成
 
 ## 高速PSD読み込み（Rust側）
 

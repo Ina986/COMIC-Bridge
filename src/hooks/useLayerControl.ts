@@ -117,7 +117,7 @@ export function useLayerControl() {
         }
       }
 
-      // Store results for toast display
+      // Store results for result dialog
       setLastResults(results, actionMode);
 
       return results;
