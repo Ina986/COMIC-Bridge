@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
-import { useLayerStore, type HideCondition } from "../store/layerStore";
+import { useLayerStore, type HideCondition, type LayerControlResult } from "../store/layerStore";
 import type { LayerNode } from "../types";
 
 interface PhotoshopResult {
@@ -25,6 +25,7 @@ export function useLayerControl() {
   const setIsProcessing = useLayerStore((state) => state.setIsProcessing);
   const getSelectedConditions = useLayerStore((state) => state.getSelectedConditions);
   const actionMode = useLayerStore((state) => state.actionMode);
+  const setLastResults = useLayerStore((state) => state.setLastResults);
 
   // HideCondition を JSX スクリプトが理解できる形式に変換
   const conditionsToLayerConditions = useCallback(
@@ -75,7 +76,7 @@ export function useLayerControl() {
       );
 
       const isHideMode = actionMode === "hide";
-      const results: { fileName: string; success: boolean; changedCount: number; error?: string }[] = [];
+      const results: LayerControlResult[] = [];
 
       // 結果を処理してUIのレイヤーツリーを更新
       for (const psResult of psResults) {
@@ -86,16 +87,16 @@ export function useLayerControl() {
 
         if (!file) continue;
 
-        // changesから変更数を抽出
-        const changedMatch = psResult.changes.length > 0
-          ? psResult.changes[0].match(/(\d+) layer/)
-          : null;
+        // changesからサマリー行の変更数を抽出（詳細行は "  → " で始まる）
+        const summaryLine = psResult.changes.find((c: string) => !c.startsWith("  "));
+        const changedMatch = summaryLine ? summaryLine.match(/(\d+) layer/) : null;
         const changedCount = changedMatch ? parseInt(changedMatch[1], 10) : 0;
 
         results.push({
           fileName: file.fileName,
           success: psResult.success,
           changedCount,
+          changes: psResult.changes,
           error: psResult.error || undefined,
         });
 
@@ -116,6 +117,9 @@ export function useLayerControl() {
         }
       }
 
+      // Store results for toast display
+      setLastResults(results, actionMode);
+
       return results;
     } catch (error) {
       console.error("Layer visibility change failed:", error);
@@ -130,6 +134,7 @@ export function useLayerControl() {
     getSelectedConditions,
     conditionsToLayerConditions,
     setIsProcessing,
+    setLastResults,
     updateFile,
   ]);
 

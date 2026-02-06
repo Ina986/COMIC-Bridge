@@ -82,10 +82,11 @@ function processFile(filePath, conditions, mode) {
 
         var isHideMode = (mode === "hide");
         var changedPaths = [];
+        var changedNames = [];
         var changedCount = 0;
 
         // Process layers recursively
-        changedCount = processLayers(doc.layers, conditions, isHideMode, changedPaths, false, []);
+        changedCount = processLayers(doc.layers, conditions, isHideMode, changedPaths, false, [], changedNames);
 
         if (changedCount > 0) {
             // Save metadata for later restoration (hide mode only)
@@ -99,6 +100,10 @@ function processFile(filePath, conditions, mode) {
             saveOptions.embedColorProfile = true;
             doc.saveAs(file, saveOptions, true, Extension.LOWERCASE);
 
+            // Push individual match details first
+            for (var ci = 0; ci < changedNames.length; ci++) {
+                result.changes.push("  \u2192 " + changedNames[ci]);
+            }
             result.changes.push((isHideMode ? "Hidden" : "Shown") + " " + changedCount + " layer(s)");
         } else {
             result.changes.push("No matching layers found");
@@ -123,7 +128,7 @@ function processFile(filePath, conditions, mode) {
 /* -----------------------------------------------------
   Layer Traversal & Condition Matching
  ----------------------------------------------------- */
-function processLayers(layers, conditions, isHideMode, changedPaths, parentIsTextFolder, currentPath) {
+function processLayers(layers, conditions, isHideMode, changedPaths, parentIsTextFolder, currentPath, changedNames) {
     var count = 0;
 
     for (var i = layers.length - 1; i >= 0; i--) {
@@ -141,7 +146,7 @@ function processLayers(layers, conditions, isHideMode, changedPaths, parentIsTex
             // Recurse into children first
             count += processLayers(
                 layer.layers, conditions, isHideMode, changedPaths,
-                parentIsTextFolder || isTextFolder, layerPath
+                parentIsTextFolder || isTextFolder, layerPath, changedNames
             );
 
             // Then toggle folder visibility if it matches
@@ -150,6 +155,7 @@ function processLayers(layers, conditions, isHideMode, changedPaths, parentIsTex
                 if (layer.visible !== targetVisible) {
                     layer.visible = targetVisible;
                     count++;
+                    changedNames.push("\u30D5\u30A9\u30EB\u30C0\u300C" + trimmedName + "\u300D");
                     if (isHideMode) {
                         changedPaths.push(layerPath);
                     }
@@ -167,6 +173,8 @@ function processLayers(layers, conditions, isHideMode, changedPaths, parentIsTex
                 if (layer.visible !== targetVisible) {
                     layer.visible = targetVisible;
                     count++;
+                    var layerType = (layer.kind === LayerKind.TEXT) ? "\u30C6\u30AD\u30B9\u30C8" : "\u30EC\u30A4\u30E4\u30FC";
+                    changedNames.push(layerType + "\u300C" + trimmedName + "\u300D");
                     if (isHideMode) {
                         changedPaths.push(layerPath);
                     }

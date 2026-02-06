@@ -1,13 +1,23 @@
 import { useState } from "react";
-import { useLayerStore, PRESET_CONDITIONS, type HideCondition, type LayerActionMode } from "../../store/layerStore";
+import { useLayerStore, PRESET_CONDITIONS, type HideCondition, type LayerActionMode, type LayerControlResult } from "../../store/layerStore";
 import { usePsdStore } from "../../store/psdStore";
 import { useLayerControl } from "../../hooks/useLayerControl";
+import { LayerControlToast } from "./LayerControlToast";
+
+/** changesからマッチしたレイヤー/フォルダ名を抽出 */
+function extractMatchedNames(changes: string[]): string[] {
+  const names: string[] = [];
+  for (const c of changes) {
+    const m = c.match(/^\s+→\s+(?:テキスト|レイヤー|フォルダ)「(.+?)」$/);
+    if (m) names.push(m[1]);
+  }
+  return names;
+}
 
 export function LayerControlPanel() {
   const [customName, setCustomName] = useState("");
   const [customType, setCustomType] = useState<"layerName" | "folderName">("layerName");
   const [partialMatch, setPartialMatch] = useState(true);
-  const [resultMessage, setResultMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   const selectedConditions = useLayerStore((state) => state.selectedConditions);
   const customConditions = useLayerStore((state) => state.customConditions);
@@ -17,6 +27,9 @@ export function LayerControlPanel() {
   const isProcessing = useLayerStore((state) => state.isProcessing);
   const actionMode = useLayerStore((state) => state.actionMode);
   const setActionMode = useLayerStore((state) => state.setActionMode);
+  const lastResults = useLayerStore((state) => state.lastResults);
+  const lastActionMode = useLayerStore((state) => state.lastActionMode);
+  const clearLastResults = useLayerStore((state) => state.clearLastResults);
 
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
@@ -38,40 +51,10 @@ export function LayerControlPanel() {
   };
 
   const handleApply = async () => {
-    setResultMessage(null);
     try {
-      const results = await applyLayerVisibility();
-      if (results) {
-        const successCount = results.filter((r) => r.success).length;
-        const totalChanged = results.reduce((acc, r) => acc + r.changedCount, 0);
-        const errorCount = results.filter((r) => !r.success).length;
-
-        if (errorCount > 0) {
-          setResultMessage({
-            text: `${errorCount}件でエラーが発生しました`,
-            type: "error",
-          });
-        } else if (totalChanged > 0) {
-          setResultMessage({
-            text: `${successCount}ファイル, ${totalChanged}レイヤーを${isHideMode ? "非表示" : "表示"}にしました`,
-            type: "success",
-          });
-        } else {
-          setResultMessage({
-            text: "条件に一致するレイヤーがありませんでした",
-            type: "success",
-          });
-        }
-
-        // 5秒後にメッセージを消す
-        setTimeout(() => setResultMessage(null), 5000);
-      }
+      await applyLayerVisibility();
     } catch (error) {
-      setResultMessage({
-        text: error instanceof Error ? error.message : "Photoshopの実行に失敗しました",
-        type: "error",
-      });
-      setTimeout(() => setResultMessage(null), 8000);
+      console.error("Layer visibility change failed:", error);
     }
   };
 
@@ -201,6 +184,9 @@ export function LayerControlPanel() {
             </button>
           </div>
         </div>
+
+        {/* 処理結果リスト */}
+        {lastResults.length > 0 && <MatchDetailsList results={lastResults} actionMode={lastActionMode} onClear={clearLastResults} />}
       </div>
 
       {/* アクションバー */}
@@ -246,19 +232,10 @@ export function LayerControlPanel() {
             </>
           )}
         </button>
-        {/* 結果メッセージ */}
-        {resultMessage && (
-          <div
-            className={`text-xs px-3 py-2 rounded-lg text-center transition-all duration-300 ${
-              resultMessage.type === "success"
-                ? "bg-success/15 text-success"
-                : "bg-error/15 text-error"
-            }`}
-          >
-            {resultMessage.text}
-          </div>
-        )}
       </div>
+
+      {/* Toast notification */}
+      <LayerControlToast />
     </div>
   );
 }
@@ -359,6 +336,95 @@ function ConditionItem({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
+      )}
+    </div>
+  );
+}
+
+// マッチ詳細リストコンポーネント
+function MatchDetailsList({
+  results,
+  actionMode,
+  onClear,
+}: {
+  results: LayerControlResult[];
+  actionMode: LayerActionMode | null;
+  onClear: () => void;
+}) {
+  const successCount = results.filter((r) => r.success).length;
+  const totalChanged = results.reduce((acc, r) => acc + r.changedCount, 0);
+  const errorCount = results.filter((r) => !r.success).length;
+  const isHideMode = actionMode === "hide";
+
+  const matchDetails = results
+    .filter((r) => r.success)
+    .map((r) => ({
+      fileName: r.fileName,
+      matched: extractMatchedNames(r.changes),
+    }))
+    .filter((d) => d.matched.length > 0);
+
+  const s = isHideMode
+    ? { bg: "bg-accent/5", border: "border-accent/20", headerBg: "bg-accent/10", headerBorder: "border-accent/15", title: "text-accent", divider: "divide-accent/10", tagBg: "bg-accent/15", tagText: "text-accent" }
+    : { bg: "bg-accent-tertiary/5", border: "border-accent-tertiary/20", headerBg: "bg-accent-tertiary/10", headerBorder: "border-accent-tertiary/15", title: "text-accent-tertiary", divider: "divide-accent-tertiary/10", tagBg: "bg-accent-tertiary/15", tagText: "text-accent-tertiary" };
+
+  return (
+    <div className={`${s.bg} rounded-xl border ${s.border} overflow-hidden`}>
+      {/* Header */}
+      <div className={`px-3 py-2 ${s.headerBg} border-b ${s.headerBorder} flex items-center justify-between`}>
+        <h4 className={`text-xs font-medium ${s.title} flex items-center gap-1.5`}>
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          {totalChanged > 0
+            ? `${successCount} ファイル, ${totalChanged} レイヤーを${isHideMode ? "非表示" : "表示"}`
+            : "一致するレイヤーなし"}
+        </h4>
+        <button
+          onClick={onClear}
+          className="p-0.5 rounded text-text-muted/50 hover:text-text-muted transition-colors"
+          title="閉じる"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Error details */}
+      {errorCount > 0 && (
+        <div className="px-3 py-1.5 bg-error/5 border-b border-error/10">
+          <p className="text-[10px] text-error">
+            {errorCount} ファイルでエラー
+            {results.find((r) => !r.success)?.error && `: ${results.find((r) => !r.success)!.error}`}
+          </p>
+        </div>
+      )}
+
+      {/* File-by-file match details */}
+      {matchDetails.length > 0 && (
+        <div className={`divide-y ${s.divider}`}>
+          {matchDetails.map((d, idx) => (
+            <div key={idx} className="px-3 py-1.5 flex items-start gap-2">
+              <span
+                className="text-[10px] text-text-primary font-medium flex-shrink-0 min-w-[80px] max-w-[110px] truncate"
+                title={d.fileName}
+              >
+                {d.fileName}
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {d.matched.map((name, nIdx) => (
+                  <span
+                    key={nIdx}
+                    className={`px-1.5 py-0.5 text-[9px] rounded ${s.tagBg} ${s.tagText}`}
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -41,6 +41,15 @@ export const PRESET_CONDITIONS: HideCondition[] = [
   },
 ];
 
+// 処理結果（ファイルごと）
+export interface LayerControlResult {
+  fileName: string;
+  success: boolean;
+  changedCount: number;
+  changes: string[]; // 個別マッチ詳細含む
+  error?: string;
+}
+
 interface LayerVisibilityState {
   // ファイルごとの変更されたレイヤー可視性を追跡
   // Map<fileId, Map<layerPath, visible>>
@@ -58,6 +67,10 @@ interface LayerVisibilityState {
   // 処理中フラグ
   isProcessing: boolean;
 
+  // 処理結果
+  lastResults: LayerControlResult[];
+  lastActionMode: LayerActionMode | null;
+
   // アクション
   setLayerVisibility: (fileId: string, layerPath: string, visible: boolean) => void;
   clearPendingChanges: (fileId?: string) => void;
@@ -67,6 +80,8 @@ interface LayerVisibilityState {
   removeCustomCondition: (id: string) => void;
   setIsProcessing: (processing: boolean) => void;
   getSelectedConditions: () => HideCondition[];
+  setLastResults: (results: LayerControlResult[], mode: LayerActionMode) => void;
+  clearLastResults: () => void;
 }
 
 export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
@@ -75,6 +90,8 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   selectedConditions: [],
   customConditions: [],
   isProcessing: false,
+  lastResults: [],
+  lastActionMode: null,
 
   setLayerVisibility: (fileId, layerPath, visible) => {
     set((state) => {
@@ -132,5 +149,12 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
     const state = get();
     const allConditions = [...PRESET_CONDITIONS, ...state.customConditions];
     return allConditions.filter((c) => state.selectedConditions.includes(c.id));
+  },
+
+  setLastResults: (results, mode) => {
+    set({ lastResults: results, lastActionMode: mode });
+  },
+  clearLastResults: () => {
+    set({ lastResults: [], lastActionMode: null });
   },
 }));
