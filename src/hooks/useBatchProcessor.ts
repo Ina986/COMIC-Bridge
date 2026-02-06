@@ -1,8 +1,14 @@
 import { useState, useCallback } from "react";
-import { readFile, writeFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
-import { writeGuidesToPsd } from "../lib/psd/parser";
 import type { Guide } from "../types";
+
+interface PhotoshopResult {
+  filePath: string;
+  success: boolean;
+  changes: string[];
+  error: string | null;
+}
 
 interface BatchTask {
   fileId: string;
@@ -19,74 +25,83 @@ export function useBatchProcessor() {
   const files = usePsdStore((state) => state.files);
   const updateFile = usePsdStore((state) => state.updateFile);
 
-  const updateTask = useCallback((fileId: string, updates: Partial<BatchTask>) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.fileId === fileId ? { ...t, ...updates } : t))
-    );
-  }, []);
+  const updateTask = useCallback(
+    (fileId: string, updates: Partial<BatchTask>) => {
+      setTasks((prev) =>
+        prev.map((t) => (t.fileId === fileId ? { ...t, ...updates } : t))
+      );
+    },
+    []
+  );
 
   const processFiles = useCallback(
     async (fileIds: string[], guides: Guide[]) => {
-      const PARALLEL_LIMIT = 4;
       setIsProcessing(true);
 
-      // Get file info for selected IDs
       const targetFiles = files.filter((f) => fileIds.includes(f.id));
 
       // Initialize tasks
       const initialTasks: BatchTask[] = targetFiles.map((f) => ({
         fileId: f.id,
         fileName: f.fileName,
-        status: "pending",
+        status: "processing",
       }));
       setTasks(initialTasks);
       setProgress({ current: 0, total: targetFiles.length });
 
-      // Process in chunks
-      for (let i = 0; i < targetFiles.length; i += PARALLEL_LIMIT) {
-        const chunk = targetFiles.slice(i, i + PARALLEL_LIMIT);
+      try {
+        const filePaths = targetFiles.map((f) => f.filePath);
 
-        await Promise.all(
-          chunk.map(async (file) => {
-            updateTask(file.id, { status: "processing" });
-
-            try {
-              // Read file
-              const buffer = await readFile(file.filePath);
-              const arrayBuffer = buffer.buffer.slice(
-                buffer.byteOffset,
-                buffer.byteOffset + buffer.byteLength
-              );
-
-              // Apply guides
-              const modifiedBuffer = writeGuidesToPsd(arrayBuffer, guides);
-
-              // Write back
-              await writeFile(file.filePath, new Uint8Array(modifiedBuffer));
-
-              // Update file metadata
-              updateFile(file.id, {
-                metadata: file.metadata
-                  ? {
-                      ...file.metadata,
-                      hasGuides: guides.length > 0,
-                      guides: guides,
-                    }
-                  : undefined,
-              });
-
-              updateTask(file.id, { status: "success" });
-            } catch (error) {
-              console.error(`Failed to process ${file.fileName}:`, error);
-              updateTask(file.id, {
-                status: "error",
-                error: error instanceof Error ? error.message : "処理エラー",
-              });
-            }
-
-            setProgress((p) => ({ ...p, current: p.current + 1 }));
-          })
+        // Photoshop JSX via Rust command
+        const results = await invoke<PhotoshopResult[]>(
+          "run_photoshop_guide_apply",
+          {
+            filePaths,
+            guides: guides.map((g) => ({
+              direction: g.direction,
+              position: g.position,
+            })),
+          }
         );
+
+        // Map results back to tasks
+        // JSX returns paths with forward slashes, normalize for comparison
+        for (const result of results) {
+          const normalizedPath = result.filePath.replace(/\//g, "\\");
+          const file = targetFiles.find(
+            (f) => f.filePath === result.filePath || f.filePath === normalizedPath
+          );
+          if (!file) continue;
+
+          if (result.success) {
+            updateTask(file.id, { status: "success" });
+            updateFile(file.id, {
+              metadata: file.metadata
+                ? {
+                    ...file.metadata,
+                    hasGuides: guides.length > 0,
+                    guides: guides,
+                  }
+                : undefined,
+            });
+          } else {
+            updateTask(file.id, {
+              status: "error",
+              error: result.error || "処理エラー",
+            });
+          }
+
+          setProgress((p) => ({ ...p, current: p.current + 1 }));
+        }
+      } catch (error) {
+        console.error("Photoshop guide apply failed:", error);
+        // Mark all tasks as error
+        for (const file of targetFiles) {
+          updateTask(file.id, {
+            status: "error",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
 
       setIsProcessing(false);

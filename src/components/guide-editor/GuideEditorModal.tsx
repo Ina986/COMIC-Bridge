@@ -20,7 +20,7 @@ export function GuideEditorModal() {
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
   const activeFile = usePsdStore((state) => state.getActiveFile());
 
-  const { processFiles, isProcessing, progress } = useBatchProcessor();
+  const { processFiles, isProcessing, progress, tasks, reset } = useBatchProcessor();
 
   const [applyTarget, setApplyTarget] = useState<"selected" | "all">("all");
 
@@ -32,6 +32,7 @@ export function GuideEditorModal() {
   );
 
   const handleApply = async () => {
+    reset();
     const targetFileIds =
       applyTarget === "selected" && selectedFileIds.length > 0
         ? selectedFileIds
@@ -39,6 +40,13 @@ export function GuideEditorModal() {
 
     await processFiles(targetFileIds, guides);
   };
+
+  // Result summary
+  const successCount = tasks.filter((t) => t.status === "success").length;
+  const errorCount = tasks.filter((t) => t.status === "error").length;
+  const isDone = !isProcessing && tasks.length > 0;
+  const hasErrors = errorCount > 0;
+  const errorTasks = tasks.filter((t) => t.status === "error");
 
   const handleClose = () => {
     closeEditor();
@@ -166,6 +174,36 @@ export function GuideEditorModal() {
                   ? `適用中... (${progress.current}/${progress.total})`
                   : "適用する"}
               </button>
+
+              {/* Result summary */}
+              {isDone && (
+                <div
+                  className={`rounded-md px-3 py-2 text-sm ${
+                    hasErrors
+                      ? "bg-red-500/10 border border-red-500/30"
+                      : "bg-green-500/10 border border-green-500/30"
+                  }`}
+                >
+                  {hasErrors ? (
+                    <>
+                      <p className="text-red-400 font-medium">
+                        {successCount}/{tasks.length} 件成功 / {errorCount} 件エラー
+                      </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {errorTasks.map((t) => (
+                          <li key={t.fileId} className="text-red-400/80 text-xs truncate">
+                            {t.fileName}: {t.error}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="text-green-400 font-medium">
+                      {successCount} 件すべて適用完了
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

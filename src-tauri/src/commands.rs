@@ -679,6 +679,138 @@ pub async fn run_photoshop_conversion(
 }
 
 // ============================================
+// Photoshop Guide Application
+// ============================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GuideInfo {
+    pub direction: String,
+    pub position: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GuideApplySettings {
+    pub files: Vec<String>,
+    pub guides: Vec<GuideInfo>,
+    #[serde(rename = "outputPath")]
+    pub output_path: String,
+}
+
+/// Run Photoshop to apply guides to PSD files
+#[tauri::command]
+pub async fn run_photoshop_guide_apply(
+    app_handle: tauri::AppHandle,
+    file_paths: Vec<String>,
+    guides: Vec<GuideInfo>,
+) -> Result<Vec<PhotoshopResult>, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found. Please install Adobe Photoshop.".to_string())?;
+
+    // Resolve script path
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let script_path = resource_path.join("scripts").join("apply_guides.jsx");
+
+    let script_path_str = if script_path.exists() {
+        script_path.to_string_lossy().to_string()
+    } else {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("apply_guides.jsx");
+        if dev_script.exists() {
+            dev_script.to_string_lossy().to_string()
+        } else {
+            return Err("Guide apply script not found".to_string());
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let settings_path = temp_dir.join("psd_guide_settings.json");
+    let output_path = temp_dir.join("psd_guide_results.json");
+
+    let _ = fs::remove_file(&output_path);
+
+    // Build settings JSON
+    let settings = GuideApplySettings {
+        files: file_paths.iter().map(|p| p.replace("\\", "/")).collect(),
+        guides,
+        output_path: output_path.to_string_lossy().to_string().replace("\\", "/"),
+    };
+
+    let settings_json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+
+    let mut settings_file = fs::File::create(&settings_path)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    // UTF-8 BOM for Japanese support
+    settings_file.write_all(&[0xEF, 0xBB, 0xBF])
+        .map_err(|e| format!("Failed to write BOM: {}", e))?;
+    settings_file.write_all(settings_json.as_bytes())
+        .map_err(|e| format!("Failed to write settings: {}", e))?;
+
+    eprintln!("Guide apply - Photoshop: {}", ps_path);
+    eprintln!("Guide apply - Script: {}", script_path_str);
+    eprintln!("Guide apply - Files: {}", file_paths.len());
+
+    let _output = Command::new(&ps_path)
+        .arg("-r")
+        .arg(&script_path_str)
+        .output()
+        .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    // Poll for results
+    let max_wait_secs = 120;
+    let poll_interval_ms = 500;
+    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+
+    for poll in 0..max_polls {
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                if content.trim().starts_with('[') && content.trim().ends_with(']') {
+                    eprintln!("Guide apply output ready after {} polls", poll);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+
+        if poll > 0 && poll % 20 == 0 {
+            eprintln!("Still waiting for Photoshop... ({} seconds)", poll * poll_interval_ms / 1000);
+        }
+    }
+
+    if output_path.exists() {
+        let results_json = fs::read_to_string(&output_path)
+            .map_err(|e| format!("Failed to read results: {}", e))?;
+
+        let results: Vec<PhotoshopResult> = serde_json::from_str(&results_json)
+            .map_err(|e| format!("Failed to parse results: {}. JSON was: {}", e, results_json))?;
+
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+
+        // Bring app window to foreground
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
+        Ok(results)
+    } else {
+        // Bring app window to foreground even on failure
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+        Err("Photoshop did not produce output file. Script may have failed.".to_string())
+    }
+}
+
+// ============================================
 // Fast PSD Loading (from tachimi_standalone)
 // ============================================
 

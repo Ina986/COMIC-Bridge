@@ -14,6 +14,7 @@ pub fn run() {
             commands::get_image_info,
             commands::check_photoshop_installed,
             commands::run_photoshop_conversion,
+            commands::run_photoshop_guide_apply,
             commands::get_high_res_preview,
             commands::cleanup_preview_files,
             commands::clear_psd_cache,
