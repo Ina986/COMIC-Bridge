@@ -26,12 +26,52 @@ fn get_psd_cache() -> &'static Mutex<HashMap<String, (Vec<u8>, u32, u32)>> {
     PSD_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// ============================================
+// Preview Result Cache (for instant repeated access)
+// ============================================
+
+/// プレビュー結果キャッシュ（ガイドエディタ用）
+/// キー: "{file_path}_{modified_secs}_{max_size}", 値: HighResPreviewResult
+static PREVIEW_RESULT_CACHE: OnceLock<Mutex<HashMap<String, HighResPreviewResult>>> = OnceLock::new();
+
+/// プレビュー結果キャッシュの最大エントリ数
+const MAX_PREVIEW_CACHE_ENTRIES: usize = 20;
+
+/// プレビュー結果キャッシュのハンドルを取得
+fn get_preview_result_cache() -> &'static Mutex<HashMap<String, HighResPreviewResult>> {
+    PREVIEW_RESULT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// PSDキャッシュをクリア
 #[tauri::command]
 pub async fn clear_psd_cache() {
     if let Ok(mut cache) = get_psd_cache().lock() {
         cache.clear();
     }
+    if let Ok(mut cache) = get_preview_result_cache().lock() {
+        cache.clear();
+    }
+}
+
+/// ファイルの更新日時をUNIXエポックからの秒数で取得
+fn get_file_modified_secs(path: &Path) -> u64 {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+        .unwrap_or(0)
+}
+
+/// PSDヘッダーから寸法のみを高速読み取り（26バイトのみ）
+fn read_psd_dimensions(path: &Path) -> Result<(u32, u32), String> {
+    let mut file = File::open(path).map_err(|e| format!("Failed to open: {}", e))?;
+    let mut header = [0u8; 26];
+    file.read_exact(&mut header).map_err(|e| format!("Header read error: {}", e))?;
+    if &header[0..4] != b"8BPS" {
+        return Err("Not a valid PSD file".to_string());
+    }
+    let height = u32::from_be_bytes([header[14], header[15], header[16], header[17]]);
+    let width = u32::from_be_bytes([header[18], header[19], header[20], header[21]]);
+    Ok((width, height))
 }
 
 /// PSDキャッシュから画像を取得、またはキャッシュに追加
@@ -880,7 +920,7 @@ fn channels_to_rgba(channel_data: Vec<Vec<u8>>, width: u32, height: u32, color_m
 // High Resolution Preview for Guide Editor
 // ============================================
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HighResPreviewResult {
     pub file_path: String,
     pub original_width: u32,
@@ -905,30 +945,88 @@ pub async fn get_high_res_preview(
 }
 
 /// Synchronous version of get_high_res_preview (runs in blocking thread)
+/// 3層キャッシュ: メモリ → ディスク → フル生成
 fn get_high_res_preview_sync(file_path: &str, max_size: u32) -> Result<HighResPreviewResult, String> {
     let path = Path::new(file_path);
 
-    // Check if it's a PSD file
+    // ファイル更新日時でキャッシュ無効化を管理
+    let modified_secs = get_file_modified_secs(path);
+
+    let original_name = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("preview");
+
+    // 決定論的キャッシュキー（ファイル更新時に自動無効化）
+    let cache_key = format!("{}_{}_{}", file_path, modified_secs, max_size);
+
+    // ===== Layer 1: メモリキャッシュ（~0ms） =====
+    if let Ok(cache) = get_preview_result_cache().lock() {
+        if let Some(cached_result) = cache.get(&cache_key) {
+            if Path::new(&cached_result.file_path).exists() {
+                return Ok(cached_result.clone());
+            }
+        }
+    }
+
+    // ===== Layer 2: ディスクキャッシュ（~5-10ms） =====
+    let temp_dir = std::env::temp_dir();
+    let preview_filename = format!(
+        "manga_psd_preview_{}_{}_{}.jpg",
+        original_name, modified_secs, max_size
+    );
+    let preview_path = temp_dir.join(&preview_filename);
+
+    if preview_path.exists() {
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let is_psd = extension.eq_ignore_ascii_case("psd") || extension.eq_ignore_ascii_case("psb");
+
+        let (original_width, original_height) = if is_psd {
+            read_psd_dimensions(path)?
+        } else {
+            image::image_dimensions(path)
+                .map_err(|e| format!("Failed to read image dimensions: {}", e))?
+        };
+
+        let (preview_width, preview_height) = image::image_dimensions(&preview_path)
+            .map_err(|e| format!("Failed to read preview dimensions: {}", e))?;
+
+        let result = HighResPreviewResult {
+            file_path: preview_path.to_string_lossy().to_string(),
+            original_width,
+            original_height,
+            preview_width,
+            preview_height,
+        };
+
+        // メモリキャッシュに追加
+        if let Ok(mut cache) = get_preview_result_cache().lock() {
+            if cache.len() >= MAX_PREVIEW_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(cache_key, result.clone());
+        }
+
+        return Ok(result);
+    }
+
+    // ===== Layer 3: フル生成 =====
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let is_psd = extension.eq_ignore_ascii_case("psd") || extension.eq_ignore_ascii_case("psb");
 
     let (img, original_width, original_height) = if is_psd {
-        // Use cached PSD loading for faster repeated access
         let img = get_or_cache_psd(path)?;
         let (width, height) = img.dimensions();
         (img, width, height)
     } else {
-        // Handle regular image files
         let file_bytes = fs::read(path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
         let img = image::load_from_memory(&file_bytes)
             .map_err(|e| format!("Failed to load image: {}", e))?;
-
         let (width, height) = img.dimensions();
         (img, width, height)
     };
 
-    // Calculate resize dimensions while maintaining aspect ratio
+    // アスペクト比を維持してリサイズ寸法を計算
     let (preview_width, preview_height) = if original_width > max_size || original_height > max_size {
         let scale = if original_width > original_height {
             max_size as f64 / original_width as f64
@@ -943,36 +1041,35 @@ fn get_high_res_preview_sync(file_path: &str, max_size: u32) -> Result<HighResPr
         (original_width, original_height)
     };
 
-    // Resize the image using Triangle (Bilinear) filter for faster processing
-    // (CatmullRom or Lanczos3 are higher quality but slower)
+    // CatmullRomフィルタでリサイズ（トンボ等の細線を保持）
     let resized = img.resize_exact(preview_width, preview_height, FilterType::CatmullRom);
 
-    // Generate unique filename using timestamp and original filename
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    // JPEG品質92で保存（マンガの細線に適したバランス）
+    use image::codecs::jpeg::JpegEncoder;
+    let file = File::create(&preview_path)
+        .map_err(|e| format!("Failed to create preview file: {}", e))?;
+    let mut writer = std::io::BufWriter::new(file);
+    let encoder = JpegEncoder::new_with_quality(&mut writer, 92);
+    resized.write_with_encoder(encoder)
+        .map_err(|e| format!("Failed to encode preview JPEG: {}", e))?;
 
-    let original_name = path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("preview");
-
-    // Create temp file path
-    let temp_dir = std::env::temp_dir();
-    let preview_filename = format!("manga_psd_preview_{}_{}.jpg", original_name, timestamp);
-    let preview_path = temp_dir.join(&preview_filename);
-
-    // Save as JPEG with high quality
-    resized.save(&preview_path)
-        .map_err(|e| format!("Failed to save preview: {}", e))?;
-
-    Ok(HighResPreviewResult {
+    let result = HighResPreviewResult {
         file_path: preview_path.to_string_lossy().to_string(),
         original_width,
         original_height,
         preview_width,
         preview_height,
-    })
+    };
+
+    // メモリキャッシュに追加
+    if let Ok(mut cache) = get_preview_result_cache().lock() {
+        if cache.len() >= MAX_PREVIEW_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(cache_key, result.clone());
+    }
+
+    Ok(result)
 }
 
 /// Clean up old preview files from temp directory
@@ -990,7 +1087,7 @@ pub async fn cleanup_preview_files() -> Result<u32, String> {
                     if let Ok(metadata) = fs::metadata(&path) {
                         if let Ok(modified) = metadata.modified() {
                             if let Ok(age) = SystemTime::now().duration_since(modified) {
-                                if age.as_secs() > 3600 {
+                                if age.as_secs() > 86400 {
                                     if fs::remove_file(&path).is_ok() {
                                         cleaned_count += 1;
                                     }

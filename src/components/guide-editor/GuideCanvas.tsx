@@ -31,6 +31,8 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
   const selectedGuideIndex = useGuideStore((state) => state.selectedGuideIndex);
   const setSelectedGuideIndex = useGuideStore((state) => state.setSelectedGuideIndex);
   const removeGuide = useGuideStore((state) => state.removeGuide);
+  const undo = useGuideStore((state) => state.undo);
+  const redo = useGuideStore((state) => state.redo);
 
   // Calculate preview area dimensions (excluding rulers)
   const previewAreaWidth = Math.max(0, containerSize.width - RULER_SIZE);
@@ -175,6 +177,16 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
         e.preventDefault();
         setZoom(1);
       }
+
+      // Ctrl + Z: Undo / Ctrl + Shift + Z or Ctrl + Y: Redo
+      if (e.ctrlKey && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if (e.ctrlKey && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -190,7 +202,7 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [selectedGuideIndex, removeGuide, isSpacePressed]);
+  }, [selectedGuideIndex, removeGuide, isSpacePressed, undo, redo]);
 
   // Zoom controls (Ctrl + wheel)
   const handleWheel = (e: React.WheelEvent) => {
