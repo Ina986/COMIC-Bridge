@@ -90,7 +90,17 @@
 - 選択ファイルのみ / 全ファイル処理対応
 - 処理結果メッセージ表示（成功/エラー、5秒/8秒で自動消去）
 
-### 7. 見開き分割（Photoshop JSX経由）
+### 7. レイヤー差替え（Photoshop JSX経由）
+- **テキスト差替え**: 植字データ → 画像データへテキストレイヤー/特定名グループを差替え
+- **画像差替え**: 画像データ → 植字データへ背景レイヤー/特定名レイヤー/特定名グループを差替え
+- **同時処理（バッチモード）**: 白消し・棒消しフォルダを自動検出して一括差替え
+- ペアリング: ファイル順/数字キー/リンク文字（手動・自動検出）
+- 中央エリアにD&Dドロップゾーン（Tauri物理座標→CSS座標のDPR補正付き）
+- バッチモード: 親フォルダ⇔個別指定の排他制御、サブフォルダ自動検出
+- ファイル数カウント（再帰対応）、0件時の警告表示、準備完了インジケータ
+- Photoshop JSX経由で差替え実行（`replace_layers.jsx`）
+
+### 8. 見開き分割（Photoshop JSX経由）
 - **均等分割**: 中央で左右に分割（`_R`/`_L`サフィックス）
 - **不均等分割**: ノド（綴じ）側に余白を追加して均等化（`outerMargin`設定）
 - **分割なし**: フォーマット変換のみ
@@ -147,6 +157,10 @@ src/
 │   │   └── CanvasRuler.tsx       # Photoshop風Canvas定規
 │   ├── layer-control/    # レイヤー制御
 │   │   └── LayerControlPanel.tsx  # 条件指定UIと実行ボタン
+│   ├── replace/          # レイヤー差替え
+│   │   ├── ReplacePanel.tsx        # サイドバー: モード選択・設定UI
+│   │   ├── ReplaceDropZone.tsx     # 中央: D&Dドロップゾーン（DPR補正・バッチ対応）
+│   │   └── ReplacePairingModal.tsx # ペアリング確認モーダル
 │   ├── split/            # 見開き分割
 │   │   └── SplitPanel.tsx         # 分割モード・オプションUI
 │   └── ui/               # 共通UIコンポーネント
@@ -159,7 +173,8 @@ src/
 │   ├── useBatchProcessor.ts    # ガイド一括適用（Photoshop JSX経由）
 │   ├── useHighResPreview.ts    # 高解像度プレビュー（ガイドエディタ用）
 │   ├── useLayerControl.ts      # レイヤー表示/非表示制御（Photoshop JSX経由）
-│   └── useSplitProcessor.ts    # 見開き分割処理（Photoshop JSX経由）
+│   ├── useSplitProcessor.ts    # 見開き分割処理（Photoshop JSX経由）
+│   └── useReplaceProcessor.ts # レイヤー差替え処理（スキャン・ペアリング・実行）
 ├── lib/
 │   └── psd/
 │       └── parser.ts     # ag-psdラッパー、メタデータ抽出
@@ -167,21 +182,24 @@ src/
 │   ├── psdStore.ts       # ファイル一覧状態
 │   ├── specStore.ts      # 仕様・チェック結果・自動チェック設定
 │   ├── guideStore.ts     # ガイド線状態
-│   └── splitStore.ts     # 分割設定・処理状態
+│   ├── splitStore.ts     # 分割設定・処理状態
+│   └── replaceStore.ts   # 差替え設定・フォルダ・バッチ・タブ状態
 ├── styles/
 │   └── globals.css       # グローバルスタイル
 └── types/
-    └── index.ts          # 型定義
+    ├── index.ts          # 型定義
+    └── replace.ts        # 差替え関連型定義
 
 src-tauri/
 ├── scripts/
 │   ├── convert_psd.jsx   # Photoshop仕様変換スクリプト
 │   ├── apply_guides.jsx  # Photoshopガイド適用スクリプト
 │   ├── hide_layers.jsx   # Photoshopレイヤー表示/非表示スクリプト
-│   └── split_psd.jsx     # Photoshop見開き分割スクリプト
+│   ├── split_psd.jsx     # Photoshop見開き分割スクリプト
+│   └── replace_layers.jsx # Photoshopレイヤー差替えスクリプト
 └── src/
     ├── lib.rs            # Tauriコマンド登録
-    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、レイヤー制御、分割、PSDキャッシュ）
+    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、レイヤー制御、分割、差替え、PSDキャッシュ）
 ```
 
 ## 重要な型定義
@@ -270,6 +288,8 @@ useEffect(() => {
 6. **結果パスの正規化**: JSXからの結果パスは `/` 区切り → フロントでの比較時に `\` へ正規化が必要（`useBatchProcessor.ts`と`usePhotoshopConverter.ts`の両方で`.replace(/\//g, "\\")`）
 7. **ウィンドウ前面化**: 処理完了後に `window.set_focus()` でアプリを前面に復帰（全Photoshop連携コマンド）
 8. **Zustandのstale closure回避**: `useCallback`内で最新のstoreデータが必要な場合は`usePsdStore.getState().files`を使用（`files`をdepsに入れると古い値が参照される）
+9. **Tauri D&D座標のDPR補正**: `onDragDropEvent`は物理ピクセル座標を返すが`getBoundingClientRect()`はCSS座標。`pos.x / window.devicePixelRatio`で補正が必要（Windows 150%スケーリング等）
+10. **`<button>`は`<label>`のlabelable要素**: `<button>`を`<label>`内に配置するとクリック時に二重トグルが発生する。カスタムCheckBoxには`<div role="checkbox">`を使用
 
 ## 高速PSD読み込み（Rust側）
 
