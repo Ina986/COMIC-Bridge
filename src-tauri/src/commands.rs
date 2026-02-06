@@ -1774,10 +1774,11 @@ pub async fn run_photoshop_replace(
     eprintln!("Replace - Pairs: {}", jobs_normalized.pairs.len());
     eprintln!("Replace - Mode: {}", jobs_normalized.mode);
 
-    let _output = Command::new(&ps_path)
+    // spawn() で即座にリターン（output() だと PS が開いている間ブロックする）
+    let _child = Command::new(&ps_path)
         .arg("-r")
         .arg(&script_path_str)
-        .output()
+        .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
     // Poll for results (replacement is slow: 2 files per pair)
@@ -1822,4 +1823,29 @@ pub async fn run_photoshop_replace(
         }
         Err("Photoshop did not produce output file. Script may have failed.".to_string())
     }
+}
+
+/// フォルダをエクスプローラーで開く
+#[tauri::command]
+pub async fn open_folder_in_explorer(folder_path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    let path = Path::new(&folder_path);
+    if !path.exists() {
+        return Err(format!("Folder not found: {}", folder_path));
+    }
+
+    #[cfg(target_os = "windows")]
+    Command::new("explorer")
+        .arg(path)
+        .spawn()
+        .map_err(|e| format!("Failed to open folder: {}", e))?;
+
+    #[cfg(target_os = "macos")]
+    Command::new("open")
+        .arg(path)
+        .spawn()
+        .map_err(|e| format!("Failed to open folder: {}", e))?;
+
+    Ok(())
 }

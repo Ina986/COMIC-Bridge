@@ -489,12 +489,13 @@ function processPair(pair, opts) {
                             if (opts.skipResize) {
                                 try { dupFolder.translate(centerOffsetX, centerOffsetY); } catch (e) {}
                             }
+                            result.changes.push("  \u2192 \u30C6\u30AD\u30B9\u30C8\u30D5\u30A9\u30EB\u30C0\u300C" + srcSet.name + "\u300D");
                             textCount++;
                         }
-                    } catch (e) { result.changes.push("テキストフォルダ処理エラー: " + e.message); }
+                    } catch (e) { result.changes.push("\u30C6\u30AD\u30B9\u30C8\u30D5\u30A9\u30EB\u30C0\u51E6\u7406\u30A8\u30E9\u30FC: " + e.message); }
                 }
             }
-            result.changes.push("テキストレイヤー " + textCount + " グループをコピー");
+            result.changes.push("\u30C6\u30AD\u30B9\u30C8\u30EC\u30A4\u30E4\u30FC " + textCount + " \u30B0\u30EB\u30FC\u30D7\u3092\u30B3\u30D4\u30FC");
             if (needFontSizeAdjustment) {
                 result.changes.push("フォントサイズ調整 (scale: " + ((scaleX + scaleY) / 2).toFixed(2) + ")");
             }
@@ -528,6 +529,7 @@ function processPair(pair, opts) {
                         setActiveDocument(targetDoc);
                         var dupI = iRelative ? iLayer.duplicate(iRelative, iPlacement) : iLayer.duplicate(iContainer, iPlacement);
                         if (opts.skipResize) { setActiveDocument(sourceDoc); dupI.translate(-centerOffsetX, -centerOffsetY); }
+                        result.changes.push("  \u2192 \u30EC\u30A4\u30E4\u30FC\u300C" + iLayer.name + "\u300D");
                         specialCount++;
                     } catch (e) {}
                 }
@@ -561,6 +563,7 @@ function processPair(pair, opts) {
                         setActiveDocument(sourceDoc);
                         var dup = relative ? sLayer.duplicate(relative, placement) : sLayer.duplicate(tContainer, placement);
                         if (opts.skipResize) { setActiveDocument(targetDoc); dup.translate(centerOffsetX, centerOffsetY); }
+                        result.changes.push("  \u2192 \u30EC\u30A4\u30E4\u30FC\u300C" + sLayer.name + "\u300D");
                         specialCount++;
                     } catch (e) {}
                 }
@@ -594,10 +597,11 @@ function processPair(pair, opts) {
                     setActiveDocument(sourceDoc);
                     var dupGroup = relative ? sGroup.duplicate(relative, placement) : sGroup.duplicate(tContainer, placement);
                     if (opts.skipResize) { setActiveDocument(targetDoc); dupGroup.translate(centerOffsetX, centerOffsetY); }
+                    result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + sGroup.name + "\u300D");
                     tgCount++;
                 } catch (e) {}
             }
-            if (tgCount > 0) result.changes.push("グループ「" + opts.groupName + "」" + tgCount + " 個を複製(通常方向)");
+            if (tgCount > 0) result.changes.push("\u30B0\u30EB\u30FC\u30D7\u300C" + opts.groupName + "\u300D" + tgCount + " \u500B\u3092\u8907\u88FD(\u901A\u5E38\u65B9\u5411)");
         }
 
         if (opts.shouldReplaceImageGroup) {
@@ -631,6 +635,7 @@ function processPair(pair, opts) {
                         setActiveDocument(sourceDoc);
                         var dupGroup = relative ? sGroup.duplicate(relative, placement) : sGroup.duplicate(tContainer, placement);
                         if (opts.skipResize) { setActiveDocument(targetDoc); dupGroup.translate(centerOffsetX, centerOffsetY); }
+                        result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + sGroup.name + "\u300D");
                         igCount++;
                     } catch (e) {}
                 }
@@ -659,6 +664,7 @@ function processPair(pair, opts) {
                         setActiveDocument(targetDoc);
                         var dupBGroup = bRelative ? bGroup.duplicate(bRelative, bPlacement) : bGroup.duplicate(bContainer, bPlacement);
                         if (opts.skipResize) { setActiveDocument(sourceDoc); dupBGroup.translate(-centerOffsetX, -centerOffsetY); }
+                        result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + bGroup.name + "\u300D");
                         igCount++;
                     } catch (e) {}
                 }
@@ -686,6 +692,7 @@ function processPair(pair, opts) {
                         setActiveDocument(targetDoc);
                         var dupIGroup = iRelative ? iGroup.duplicate(iRelative, iPlacement) : iGroup.duplicate(iContainer, iPlacement);
                         if (opts.skipResize) { setActiveDocument(sourceDoc); dupIGroup.translate(-centerOffsetX, -centerOffsetY); }
+                        result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + iGroup.name + "\u300D");
                         igCount++;
                     } catch (e) {}
                 }

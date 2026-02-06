@@ -1,9 +1,21 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { useReplaceStore } from "../../store/replaceStore";
 
 interface Props {
   onExecute: () => Promise<void>;
+}
+
+/** operationsからマッチしたレイヤー/グループ名を抽出 */
+function extractMatchedNames(operations: string[]): string[] {
+  const names: string[] = [];
+  for (const op of operations) {
+    // "  → レイヤー「白消し_01」" or "  → グループ「棒消し」" or "  → テキストフォルダ「text」"
+    const m = op.match(/^\s+→\s+(?:レイヤー|グループ|テキストフォルダ)「(.+?)」$/);
+    if (m) names.push(m[1]);
+  }
+  return names;
 }
 
 export function ReplacePairingModal({ onExecute }: Props) {
@@ -70,6 +82,17 @@ export function ReplacePairingModal({ onExecute }: Props) {
   const handleExecute = async () => {
     await onExecute();
   };
+
+  // マッチ詳細データを構築
+  const matchDetails = phase === "complete"
+    ? results
+        .filter((r) => r.success)
+        .map((r) => ({
+          fileName: r.targetName || r.sourceName,
+          matched: extractMatchedNames(r.operations),
+        }))
+        .filter((d) => d.matched.length > 0)
+    : [];
 
   const modalContent = (
     <div
@@ -228,6 +251,39 @@ export function ReplacePairingModal({ onExecute }: Props) {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Match Details (after completion) */}
+          {phase === "complete" && matchDetails.length > 0 && (
+            <div className="bg-accent-secondary/5 rounded-xl border border-accent-secondary/20 overflow-hidden">
+              <div className="px-4 py-2.5 bg-accent-secondary/10 border-b border-accent-secondary/15">
+                <h4 className="text-xs font-medium text-accent-secondary flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  マッチ詳細 — {matchDetails.length}/{successCount} ファイルでマッチ
+                </h4>
+              </div>
+              <div className="divide-y divide-accent-secondary/10">
+                {matchDetails.map((d, idx) => (
+                  <div key={idx} className="px-4 py-2 flex items-start gap-3">
+                    <span className="text-xs text-text-primary font-medium flex-shrink-0 min-w-[140px] truncate" title={d.fileName}>
+                      {d.fileName}
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {d.matched.map((name, nIdx) => (
+                        <span
+                          key={nIdx}
+                          className="px-1.5 py-0.5 text-[10px] rounded bg-accent-secondary/15 text-accent-secondary"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -424,12 +480,32 @@ export function ReplacePairingModal({ onExecute }: Props) {
             </>
           )}
           {phase === "complete" && (
-            <button
-              onClick={closeModal}
-              className="px-6 py-2.5 text-sm font-medium rounded-xl text-white bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:-translate-y-0.5 transition-all duration-200"
-            >
-              閉じる
-            </button>
+            <>
+              {(() => {
+                const firstSuccess = results.find((r) => r.success && r.outputFile);
+                if (!firstSuccess?.outputFile) return null;
+                const parts = firstSuccess.outputFile.replace(/\//g, "\\").split("\\");
+                parts.pop();
+                const outputFolder = parts.join("\\");
+                return (
+                  <button
+                    onClick={() => invoke("open_folder_in_explorer", { folderPath: outputFolder }).catch(() => {})}
+                    className="px-4 py-2 text-sm rounded-xl text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors flex items-center gap-1.5"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                    出力フォルダを開く
+                  </button>
+                );
+              })()}
+              <button
+                onClick={closeModal}
+                className="px-6 py-2.5 text-sm font-medium rounded-xl text-white bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:-translate-y-0.5 transition-all duration-200"
+              >
+                閉じる
+              </button>
+            </>
           )}
         </div>
       </div>

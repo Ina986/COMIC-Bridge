@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useReplaceStore } from "../../store/replaceStore";
 import { useReplaceProcessor } from "../../hooks/useReplaceProcessor";
 import { ReplacePairingModal } from "./ReplacePairingModal";
+import { ReplaceToast } from "./ReplaceToast";
 import type { ReplaceMode, PairingMode } from "../../types/replace";
 
 export function ReplacePanel() {
@@ -29,7 +30,7 @@ export function ReplacePanel() {
   const batchFolders = useReplaceStore((s) => s.batchFolders);
 
   const hasBothFolders = settings.mode === "batch"
-    ? folders.sourceFolder && batchFolders.length > 0
+    ? folders.sourceFolder && (folders.targetFolder || batchFolders.length > 0)
     : folders.sourceFolder && folders.targetFolder;
   const isScanning = phase === "scanning" || phase === "pairing";
 
@@ -421,6 +422,25 @@ export function ReplacePanel() {
                 </span>
               </label>
 
+              {/* Output Folder Name */}
+              <div>
+                <label className="text-[10px] text-text-muted mb-1 block">
+                  出力フォルダ名
+                </label>
+                <input
+                  type="text"
+                  value={settings.generalSettings.outputFolderName}
+                  onChange={(e) =>
+                    setGeneralSettings({ outputFolderName: e.target.value })
+                  }
+                  placeholder="空欄＝日時で自動生成"
+                  className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted/50 focus:border-accent focus:outline-none"
+                />
+                <p className="text-[9px] text-text-muted/60 mt-0.5">
+                  デスクトップ/Script_Output/差替えファイル_出力/ 以下
+                </p>
+              </div>
+
               {/* Save File Name */}
               <div>
                 <label className="text-[10px] text-text-muted mb-1 block">
@@ -509,6 +529,9 @@ export function ReplacePanel() {
       {isModalOpen && (
         <ReplacePairingModal onExecute={executeReplacement} />
       )}
+
+      {/* Completion Toast */}
+      <ReplaceToast />
     </div>
   );
 }

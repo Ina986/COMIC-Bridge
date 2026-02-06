@@ -98,6 +98,9 @@
 - 中央エリアにD&Dドロップゾーン（Tauri物理座標→CSS座標のDPR補正付き）
 - バッチモード: 親フォルダ⇔個別指定の排他制御、サブフォルダ自動検出
 - ファイル数カウント（再帰対応）、0件時の警告表示、準備完了インジケータ
+- **カスタム出力フォルダ名**: 全般設定で任意のサブフォルダ名を指定可能（空欄ならタイムスタンプで自動生成）
+- **詳細マッチレポート**: 処理完了後にファイルごとのマッチしたレイヤー/グループ名をタグバッジで一覧表示
+- **完了トースト通知**: モーダル閉じ後にも成功/エラー結果をReplaceToastで表示、出力フォルダを開くボタン付き
 - Photoshop JSX経由で差替え実行（`replace_layers.jsx`）
 
 ### 8. 見開き分割（Photoshop JSX経由）
@@ -158,9 +161,10 @@ src/
 │   ├── layer-control/    # レイヤー制御
 │   │   └── LayerControlPanel.tsx  # 条件指定UIと実行ボタン
 │   ├── replace/          # レイヤー差替え
-│   │   ├── ReplacePanel.tsx        # サイドバー: モード選択・設定UI
-│   │   ├── ReplaceDropZone.tsx     # 中央: D&Dドロップゾーン（DPR補正・バッチ対応）
-│   │   └── ReplacePairingModal.tsx # ペアリング確認モーダル
+│   │   ├── ReplacePanel.tsx        # サイドバー: モード選択・設定UI（出力フォルダ名設定含む）
+│   │   ├── ReplaceDropZone.tsx     # 中央: D&Dドロップゾーン（DPR補正・バッチ・ファイルレベルドロップ対応）
+│   │   ├── ReplacePairingModal.tsx # ペアリング確認・処理結果・マッチ詳細表示モーダル
+│   │   └── ReplaceToast.tsx        # 処理完了トースト通知（モーダル閉じ後に表示）
 │   ├── split/            # 見開き分割
 │   │   └── SplitPanel.tsx         # 分割モード・オプションUI
 │   └── ui/               # 共通UIコンポーネント
@@ -199,7 +203,7 @@ src-tauri/
 │   └── replace_layers.jsx # Photoshopレイヤー差替えスクリプト
 └── src/
     ├── lib.rs            # Tauriコマンド登録
-    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、レイヤー制御、分割、差替え、PSDキャッシュ）
+    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、レイヤー制御、分割、差替え、PSDキャッシュ、open_folder_in_explorer）
 ```
 
 ## 重要な型定義
@@ -290,6 +294,7 @@ useEffect(() => {
 8. **Zustandのstale closure回避**: `useCallback`内で最新のstoreデータが必要な場合は`usePsdStore.getState().files`を使用（`files`をdepsに入れると古い値が参照される）
 9. **Tauri D&D座標のDPR補正**: `onDragDropEvent`は物理ピクセル座標を返すが`getBoundingClientRect()`はCSS座標。`pos.x / window.devicePixelRatio`で補正が必要（Windows 150%スケーリング等）
 10. **`<button>`は`<label>`のlabelable要素**: `<button>`を`<label>`内に配置するとクリック時に二重トグルが発生する。カスタムCheckBoxには`<div role="checkbox">`を使用
+11. **JSX詳細レポート**: `result.changes`に`"  → レイヤー「name」"`/`"  → グループ「name」"`/`"  → テキストフォルダ「name」"`形式で個別マッチを記録。フロント側`extractMatchedNames()`で正規表現パース
 
 ## 高速PSD読み込み（Rust側）
 

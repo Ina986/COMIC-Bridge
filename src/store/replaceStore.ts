@@ -49,8 +49,8 @@ interface ReplaceState {
   setSidebarTab: (tab: SidebarTab) => void;
 
   // Actions - フォルダ
-  setSourceFolder: (path: string | null) => void;
-  setTargetFolder: (path: string | null) => void;
+  setSourceFolder: (path: string | null, files?: string[] | null) => void;
+  setTargetFolder: (path: string | null, files?: string[] | null) => void;
   setBatchFolders: (folders: BatchFolder[]) => void;
   addBatchFolder: (folder: BatchFolder) => void;
   removeBatchFolder: (path: string) => void;
@@ -114,6 +114,7 @@ const defaultSettings: ReplaceSettings = {
     skipResize: false,
     roundFontSize: true,
     saveFileName: "target",
+    outputFolderName: "",
   },
   subfolderSettings: {
     mode: "none",
@@ -122,7 +123,7 @@ const defaultSettings: ReplaceSettings = {
 
 export const useReplaceStore = create<ReplaceState>((set) => ({
   sidebarTab: "files",
-  folders: { sourceFolder: null, targetFolder: null },
+  folders: { sourceFolder: null, targetFolder: null, sourceFiles: null, targetFiles: null },
   batchFolders: [],
   settings: defaultSettings,
   isModalOpen: false,
@@ -138,10 +139,10 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
 
   // フォルダ
-  setSourceFolder: (path) =>
-    set((state) => ({ folders: { ...state.folders, sourceFolder: path } })),
-  setTargetFolder: (path) =>
-    set((state) => ({ folders: { ...state.folders, targetFolder: path } })),
+  setSourceFolder: (path, files) =>
+    set((state) => ({ folders: { ...state.folders, sourceFolder: path, sourceFiles: files ?? null } })),
+  setTargetFolder: (path, files) =>
+    set((state) => ({ folders: { ...state.folders, targetFolder: path, targetFiles: files ?? null } })),
   setBatchFolders: (folders) => set({ batchFolders: folders }),
   addBatchFolder: (folder) =>
     set((state) => {

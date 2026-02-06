@@ -45,6 +45,7 @@ export interface GeneralSettings {
   skipResize: boolean;
   roundFontSize: boolean;
   saveFileName: "target" | "source";
+  outputFolderName: string; // 出力サブフォルダ名（空ならタイムスタンプ）
 }
 
 // === サブフォルダ設定 ===
@@ -66,6 +67,8 @@ export interface ReplaceSettings {
 export interface FolderSelection {
   sourceFolder: string | null; // 植字データフォルダ
   targetFolder: string | null; // 画像データフォルダ
+  sourceFiles: string[] | null; // 個別ファイル指定（ファイルドロップ時）
+  targetFiles: string[] | null; // 個別ファイル指定（ファイルドロップ時）
 }
 
 // === ファイルペア ===

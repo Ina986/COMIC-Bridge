@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readDir } from "@tauri-apps/plugin-fs";
+import { readDir, stat } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { useReplaceStore } from "../../store/replaceStore";
 
@@ -57,17 +57,22 @@ export function ReplaceDropZone() {
 
   // ファイル数カウント
   useEffect(() => {
-    if (folders.sourceFolder) {
+    if (folders.sourceFiles) {
+      // 個別ファイル指定時はそのカウントを使用
+      setSourceFileCount(folders.sourceFiles.length);
+    } else if (folders.sourceFolder) {
       countFiles(folders.sourceFolder)
         .then(setSourceFileCount)
         .catch(() => setSourceFileCount(null));
     } else {
       setSourceFileCount(null);
     }
-  }, [folders.sourceFolder]);
+  }, [folders.sourceFolder, folders.sourceFiles]);
 
   useEffect(() => {
-    if (folders.targetFolder) {
+    if (folders.targetFiles) {
+      setTargetFileCount(folders.targetFiles.length);
+    } else if (folders.targetFolder) {
       const counter = isBatch ? countFilesRecursive : countFiles;
       counter(folders.targetFolder)
         .then(setTargetFileCount)
@@ -75,7 +80,7 @@ export function ReplaceDropZone() {
     } else {
       setTargetFileCount(null);
     }
-  }, [folders.targetFolder, isBatch]);
+  }, [folders.targetFolder, folders.targetFiles, isBatch]);
 
   // 白消し・棒消しフォルダのファイル数カウント
   useEffect(() => {
@@ -160,21 +165,38 @@ export function ReplaceDropZone() {
     [isBatch, parentActive, individualActive]
   );
 
-  // ドロップハンドラ
+  // ドロップハンドラ（stat で確実にファイル/フォルダを判別）
   const handleDrop = useCallback(
-    (paths: string[], target: DragTarget) => {
+    async (paths: string[], target: DragTarget) => {
       if (!paths.length || !target) return;
-      const folderPath = paths[0];
+
+      let folderPath = paths[0];
+      let fileList: string[] | null = null;
+
+      try {
+        const info = await stat(paths[0]);
+        if (info.isFile) {
+          // ファイルドロップ → 親ディレクトリを使い、個別ファイルリストを保存
+          folderPath = paths[0].replace(/[\\/][^\\/]+$/, "");
+          fileList = paths;
+        }
+      } catch {
+        // stat 失敗時は拡張子で判定（フォールバック）
+        if (/\.(psd|psb|tif|tiff|jpg|jpeg|png|bmp|gif|webp)$/i.test(paths[0])) {
+          folderPath = paths[0].replace(/[\\/][^\\/]+$/, "");
+          fileList = paths;
+        }
+      }
 
       switch (target) {
         case "source":
-          setSourceFolder(folderPath);
+          setSourceFolder(folderPath, fileList);
           break;
         case "target":
-          setTargetFolder(folderPath);
+          setTargetFolder(folderPath, fileList);
           break;
         case "batch-parent":
-          setTargetFolder(folderPath);
+          setTargetFolder(folderPath, fileList);
           break;
         case "batch-shiro":
           setNamedBatchFolder("白消し", folderPath);
@@ -276,6 +298,7 @@ export function ReplaceDropZone() {
             color="pink"
             folderPath={folders.sourceFolder}
             fileCount={sourceFileCount}
+            isFileSelection={!!folders.sourceFiles}
             isDragOver={dragTarget === "source"}
             onSelect={() => handleSelectFolder("source")}
             onClear={() => setSourceFolder(null)}
@@ -348,6 +371,7 @@ export function ReplaceDropZone() {
               color="purple"
               folderPath={folders.targetFolder}
               fileCount={targetFileCount}
+              isFileSelection={!!folders.targetFiles}
               isDragOver={dragTarget === "target"}
               onSelect={() => handleSelectFolder("target")}
               onClear={() => setTargetFolder(null)}
@@ -370,6 +394,7 @@ interface DropCardProps {
   color: "pink" | "purple";
   folderPath: string | null;
   fileCount: number | null;
+  isFileSelection?: boolean;
   isDragOver: boolean;
   onSelect: () => void;
   onClear: () => void;
@@ -382,6 +407,7 @@ function DropCard({
   color,
   folderPath,
   fileCount,
+  isFileSelection,
   isDragOver,
   onSelect,
   onClear,
@@ -451,7 +477,7 @@ function DropCard({
               </span>
             ) : (
               <span className={`mt-3 px-3 py-1 text-xs rounded-full font-medium ${styles.badge}`}>
-                {fileCount} ファイル
+                {fileCount} ファイル{isFileSelection ? " 選択中" : ""}
               </span>
             )
           )}

@@ -226,6 +226,13 @@ export function useReplaceProcessor() {
     [settings.pairingSettings]
   );
 
+  // --- タイムスタンプ生成 (YYYY-MM-DD_HH-mm) ---
+  const makeTimestamp = () => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
+  };
+
   // --- フォルダスキャン → ペアリング → モーダル起動 ---
   const scanAndPair = useCallback(async () => {
     const currentBatchFolders = useReplaceStore.getState().batchFolders;
@@ -234,7 +241,7 @@ export function useReplaceProcessor() {
     // 通常モード: sourceFolder + targetFolder が必要
     if (!folders.sourceFolder) return;
     if (settings.mode === "batch") {
-      if (currentBatchFolders.length === 0) return;
+      if (currentBatchFolders.length === 0 && !folders.targetFolder) return;
     } else {
       if (!folders.targetFolder) return;
     }
@@ -246,18 +253,39 @@ export function useReplaceProcessor() {
       const jobs: PairingJob[] = [];
       let globalPairIndex = 0;
       let globalDetectedChar: string | null = null;
+      const currentGeneralSettings = useReplaceStore.getState().settings.generalSettings;
+      const folderName = currentGeneralSettings.outputFolderName.trim() || makeTimestamp();
+      const outBase = `__desktop__/Script_Output/差替えファイル_出力/${folderName}`;
 
       if (settings.mode === "batch") {
-        // --- 白消し・棒消し同時処理: batchFolders → 植字データ ---
-        for (const batchFolder of currentBatchFolders) {
+        // --- バッチモード ---
+        let batchTargets: { name: string; path: string }[] = [];
+
+        if (currentBatchFolders.length > 0) {
+          // 個別指定モード: batchFolders をそのまま使用
+          batchTargets = currentBatchFolders.map((f) => ({ name: f.name, path: f.path }));
+        } else if (folders.targetFolder) {
+          // 親フォルダモード: サブフォルダを自動検出
+          const subfolders = await invoke<string[]>("list_subfolders", {
+            folderPath: folders.targetFolder,
+          });
+          batchTargets = subfolders.map((sf) => ({
+            name: getFolderName(sf),
+            path: sf,
+          }));
+        }
+
+        for (const target of batchTargets) {
           const subFiles = await invoke<string[]>("list_folder_files", {
-            folderPath: batchFolder.path,
+            folderPath: target.path,
             recursive: false,
           });
-          const plantFiles = await invoke<string[]>("list_folder_files", {
-            folderPath: folders.sourceFolder!,
-            recursive: false,
-          });
+          const plantFiles = folders.sourceFiles
+            ? [...folders.sourceFiles].sort()
+            : await invoke<string[]>("list_folder_files", {
+                folderPath: folders.sourceFolder!,
+                recursive: false,
+              });
 
           const { pairs, detectedChar } = computePairs(subFiles, plantFiles);
           if (detectedChar) globalDetectedChar = detectedChar;
@@ -268,9 +296,9 @@ export function useReplaceProcessor() {
           }));
 
           jobs.push({
-            description: `${batchFolder.name} → 植字データ`,
+            description: `${target.name} → 植字データ`,
             pairs: indexedPairs,
-            outputDir: `__desktop__/Script_Output/差替えファイル_出力/${batchFolder.name}_差替え後PSD`,
+            outputDir: `${outBase}/${target.name}_差替え後PSD`,
           });
         }
       } else if (settings.subfolderSettings.mode === "advanced") {
@@ -281,14 +309,18 @@ export function useReplaceProcessor() {
 
         if (targetSubs.length === 0) {
           // ケースA: Targetにサブフォルダなし → Source全階層を再帰検索
-          const sourceFiles = await invoke<string[]>("list_folder_files", {
-            folderPath: folders.sourceFolder,
-            recursive: true,
-          });
-          const targetFiles = await invoke<string[]>("list_folder_files", {
-            folderPath: folders.targetFolder,
-            recursive: false,
-          });
+          const sourceFiles = folders.sourceFiles
+            ? [...folders.sourceFiles].sort()
+            : await invoke<string[]>("list_folder_files", {
+                folderPath: folders.sourceFolder,
+                recursive: true,
+              });
+          const targetFiles = folders.targetFiles
+            ? [...folders.targetFiles].sort()
+            : await invoke<string[]>("list_folder_files", {
+                folderPath: folders.targetFolder,
+                recursive: false,
+              });
 
           const { pairs, detectedChar } = computePairs(
             sourceFiles,
@@ -304,7 +336,7 @@ export function useReplaceProcessor() {
           jobs.push({
             description: "Source全階層 → Targetルート",
             pairs: indexedPairs,
-            outputDir: "__desktop__/Script_Output/差替えファイル_出力",
+            outputDir: outBase,
           });
         } else {
           // ケースB: Targetにサブフォルダあり
@@ -336,7 +368,7 @@ export function useReplaceProcessor() {
               jobs.push({
                 description: `${getFolderName(sourceSubs[i])} → ${tgtName}`,
                 pairs: indexedPairs,
-                outputDir: `__desktop__/Script_Output/差替えファイル_出力/${tgtName}`,
+                outputDir: `${outBase}/${tgtName}`,
               });
             }
           } else {
@@ -375,7 +407,7 @@ export function useReplaceProcessor() {
                 jobs.push({
                   description: `${getFolderName(srcFolder)} → ${tgtName} (No.${tgtNum})`,
                   pairs: indexedPairs,
-                  outputDir: `__desktop__/Script_Output/差替えファイル_出力/${tgtName}`,
+                  outputDir: `${outBase}/${tgtName}`,
                 });
               }
             }
@@ -383,14 +415,18 @@ export function useReplaceProcessor() {
         }
       } else {
         // --- 通常モード ---
-        const sourceFiles = await invoke<string[]>("list_folder_files", {
-          folderPath: folders.sourceFolder,
-          recursive: false,
-        });
-        const targetFiles = await invoke<string[]>("list_folder_files", {
-          folderPath: folders.targetFolder,
-          recursive: false,
-        });
+        const sourceFiles = folders.sourceFiles
+          ? [...folders.sourceFiles].sort()
+          : await invoke<string[]>("list_folder_files", {
+              folderPath: folders.sourceFolder,
+              recursive: false,
+            });
+        const targetFiles = folders.targetFiles
+          ? [...folders.targetFiles].sort()
+          : await invoke<string[]>("list_folder_files", {
+              folderPath: folders.targetFolder,
+              recursive: false,
+            });
 
         const { pairs, detectedChar } = computePairs(sourceFiles, targetFiles);
         if (detectedChar) globalDetectedChar = detectedChar;
@@ -403,7 +439,7 @@ export function useReplaceProcessor() {
         jobs.push({
           description: "通常処理",
           pairs: indexedPairs,
-          outputDir: "__desktop__/Script_Output/差替えファイル_出力",
+          outputDir: outBase,
         });
       }
 
