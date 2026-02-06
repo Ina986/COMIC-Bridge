@@ -30,6 +30,8 @@
 - ドラッグ&ドロップでファイル/フォルダ読み込み
 - 埋め込みサムネイル表示（高速）
 - メタデータ抽出（サイズ、DPI、カラーモード、ビット深度、レイヤー構造、αチャンネル等）
+- レイヤーツリー表示: 種別アイコン（グループ/テキスト/調整/スマートオブジェクト/シェイプ/レイヤー）
+- マスク情報表示: クリッピングマスク(`clip`バッジ)、レイヤーマスク、ベクトルマスク
 
 ### 2. 自動仕様チェック
 - ファイル読み込み後に仕様選択モーダルを表示
@@ -53,6 +55,8 @@
 - 問題点（現在値 → 必要値）を明示
 - Photoshopでの修正方法を説明
 - 「この1件を変換」「NGすべて変換」ボタン
+- サムネイル複数選択（Ctrl+Click / Shift+Click）で選択中のNGファイルのみ変換可能
+- サムネ領域外クリックで複数選択を解除（`data-preview-grid`属性で判定）
 
 ### 4. Photoshop連携変換
 - NGファイルを一括で仕様に合わせて変換
@@ -61,6 +65,9 @@
   - カラーモード変換
   - ビット深度変換
   - αチャンネル削除
+- 変換完了後にConversionToastで結果通知（成功:チェックマーク / エラー:シェイク）
+- 処理完了後にアプリウィンドウを前面に復帰（`window.set_focus()`）
+- 変換後に仕様チェックを自動再実行（`usePsdStore.getState().files`で最新状態を取得）
 
 ### 5. ガイド線管理
 - 高解像度プレビュー: 3層キャッシュ（メモリ→ディスク→フル生成）で高速化
@@ -124,7 +131,8 @@ src/
 │   ├── spec-checker/     # 仕様チェック
 │   │   ├── SpecCheckerPanel.tsx
 │   │   ├── SpecSelectionModal.tsx  # 仕様選択モーダル
-│   │   └── FixGuidePanel.tsx       # NG時の修正ガイド
+│   │   ├── FixGuidePanel.tsx       # NG時の修正ガイド
+│   │   └── ConversionToast.tsx     # 変換完了トースト通知
 │   ├── guide-editor/     # ガイド線編集
 │   │   ├── GuideEditorModal.tsx  # ガイドエディタモーダル
 │   │   ├── GuideCanvas.tsx       # ガイド編集キャンバス
@@ -178,6 +186,20 @@ interface PsdMetadata {
   alphaChannelNames: string[];
 }
 
+// レイヤーノード
+interface LayerNode {
+  id: string;
+  name: string;
+  type: "layer" | "group" | "text" | "adjustment" | "smartObject" | "shape";
+  visible: boolean;
+  opacity: number;
+  blendMode: string;
+  hasMask?: boolean;        // レイヤーマスク（ag-psd: mask/realMask）
+  hasVectorMask?: boolean;  // ベクトルマスク（ag-psd: vectorMask）
+  clipping?: boolean;       // クリッピングマスク（ag-psd: clipping）
+  children?: LayerNode[];
+}
+
 // 仕様定義
 interface Specification {
   id: string;
@@ -228,8 +250,9 @@ useEffect(() => {
 3. **パス変換**: Windows `\\` → `/` に変換（JSX互換性）
 4. **JSON処理**: ExtendScriptにはネイティブJSONがないため自作パーサーを使用
 5. **DPIリサンプリング**: `ResampleMethod.BICUBIC` で実際のピクセル処理
-6. **結果パスの正規化**: JSXからの結果パスは `/` 区切り → フロントでの比較時に `\` へ正規化が必要
-7. **ウィンドウ前面化**: 処理完了後に `window.set_focus()` でアプリを前面に復帰
+6. **結果パスの正規化**: JSXからの結果パスは `/` 区切り → フロントでの比較時に `\` へ正規化が必要（`useBatchProcessor.ts`と`usePhotoshopConverter.ts`の両方で`.replace(/\//g, "\\")`）
+7. **ウィンドウ前面化**: 処理完了後に `window.set_focus()` でアプリを前面に復帰（`run_photoshop_conversion`と`run_photoshop_guide_apply`の両方）
+8. **Zustandのstale closure回避**: `useCallback`内で最新のstoreデータが必要な場合は`usePsdStore.getState().files`を使用（`files`をdepsに入れると古い値が参照される）
 
 ## 高速PSD読み込み（Rust側）
 
