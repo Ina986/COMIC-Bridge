@@ -12,7 +12,7 @@
 - **フロントエンド**: React 18 + TypeScript + Vite
 - **スタイリング**: Tailwind CSS
 - **状態管理**: Zustand
-- **PSD処理**: ag-psd（フロントエンド）、Photoshop ExtendScript（変換処理）
+- **PSD処理**: ag-psd（読み取り専用）、Photoshop ExtendScript（変換・書き込み）
 - **バックエンド**: Rust
 
 ## 設計思想
@@ -21,6 +21,7 @@
 
 - PSDメタデータの読み込み・チェックはag-psdで高速に実行
 - 実際の画像変換（DPIリサンプリング、カラーモード変換等）はPhotoshop JSXスクリプトで実行
+- **ag-psd の writePsd() はPSDバイナリを破壊する** → PSD書き込みは必ずPhotoshop JSX経由
 - Photoshopの高品質な画像処理エンジンを活用
 
 ## 主要機能
@@ -62,12 +63,17 @@
   - αチャンネル削除
 
 ### 5. ガイド線管理
-- 高解像度プレビュー（Rust側でmaxSize 1600のプレビュー生成）
+- 高解像度プレビュー: 3層キャッシュ（メモリ→ディスク→フル生成）で高速化
+  - 決定論的ファイル名: `{name}_{modified_secs}_{maxSize}.jpg`
+  - JPEG品質92（トンボの細線保持）
 - Photoshop風Canvas定規（グラデーション、ズーム対応目盛り）
 - 定規からドラッグでガイド作成
+- Undo/Redo対応（Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z）
 - ズーム/パン操作（Ctrl+/-/0、Space+ドラッグ）
 - プリセット（B5同人誌、A4商業誌等）
-- 複数ファイルへの一括適用（ag-psdで直接書き込み）
+- 複数ファイルへの一括適用（Photoshop JSX経由、`apply_guides.jsx`）
+- 適用完了後に結果サマリー表示（成功/エラー件数）
+- 処理完了後にアプリウィンドウを前面に復帰（`window.set_focus()`）
 
 ### 6. レイヤー制御（計画中）
 - レイヤー表示/非表示の切り替え
@@ -129,7 +135,8 @@ src/
 ├── hooks/
 │   ├── usePsdLoader.ts         # PSD読み込み・モーダル表示トリガー
 │   ├── useSpecChecker.ts       # 仕様チェックロジック（自動チェック含む）
-│   ├── usePhotoshopConverter.ts # Photoshop連携
+│   ├── usePhotoshopConverter.ts # Photoshop連携（仕様変換）
+│   ├── useBatchProcessor.ts    # ガイド一括適用（Photoshop JSX経由）
 │   └── useHighResPreview.ts    # 高解像度プレビュー（ガイドエディタ用）
 ├── lib/
 │   └── psd/
@@ -145,10 +152,11 @@ src/
 
 src-tauri/
 ├── scripts/
-│   └── convert_psd.jsx   # Photoshop ExtendScript
+│   ├── convert_psd.jsx   # Photoshop仕様変換スクリプト
+│   └── apply_guides.jsx  # Photoshopガイド適用スクリプト
 └── src/
     ├── lib.rs            # Tauriコマンド登録
-    └── commands.rs       # Rustコマンド実装
+    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、PSDキャッシュ）
 ```
 
 ## 重要な型定義
@@ -220,6 +228,8 @@ useEffect(() => {
 3. **パス変換**: Windows `\\` → `/` に変換（JSX互換性）
 4. **JSON処理**: ExtendScriptにはネイティブJSONがないため自作パーサーを使用
 5. **DPIリサンプリング**: `ResampleMethod.BICUBIC` で実際のピクセル処理
+6. **結果パスの正規化**: JSXからの結果パスは `/` 区切り → フロントでの比較時に `\` へ正規化が必要
+7. **ウィンドウ前面化**: 処理完了後に `window.set_focus()` でアプリを前面に復帰
 
 ## 高速PSD読み込み（Rust側）
 
@@ -315,6 +325,8 @@ lastSelectedSpecId: string    // 前回選択した仕様ID
 
 | 操作 | キー |
 |------|------|
+| 元に戻す | Ctrl + Z |
+| やり直す | Ctrl + Y / Ctrl + Shift + Z |
 | ズームイン | Ctrl + (+/=) |
 | ズームアウト | Ctrl + (-) |
 | ズームリセット | Ctrl + 0 |
@@ -324,3 +336,4 @@ lastSelectedSpecId: string    // 前回選択した仕様ID
 - 水平定規からドラッグ → 水平ガイド（Y軸位置）
 - 垂直定規からドラッグ → 垂直ガイド（X軸位置）
 - ガイドクリックで選択 → 選択中はハイライト表示
+- Undo/Redo: 最大20ステップの履歴管理（guideStore）
