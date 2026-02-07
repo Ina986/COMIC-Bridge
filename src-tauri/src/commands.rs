@@ -820,6 +820,138 @@ pub async fn run_photoshop_guide_apply(
 }
 
 // ============================================
+// Photoshop Unified Prepare (Spec Fix + Guide Apply)
+// ============================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PrepareFileSettings {
+    pub path: String,
+    pub needs_dpi_change: bool,
+    pub needs_color_mode_change: bool,
+    pub needs_bit_depth_change: bool,
+    pub needs_alpha_removal: bool,
+    pub needs_guide_apply: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PrepareSettings {
+    pub files: Vec<PrepareFileSettings>,
+    pub options: PhotoshopConversionOptions,
+    pub guides: Vec<GuideInfo>,
+    #[serde(rename = "outputPath")]
+    pub output_path: String,
+}
+
+/// Run Photoshop to prepare PSD files (spec fix + guide apply in one pass)
+#[tauri::command]
+pub async fn run_photoshop_prepare(
+    app_handle: tauri::AppHandle,
+    settings: PrepareSettings,
+) -> Result<Vec<PhotoshopResult>, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found. Please install Adobe Photoshop.".to_string())?;
+
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let script_path = resource_path.join("scripts").join("prepare_psd.jsx");
+
+    let script_path_str = if script_path.exists() {
+        script_path.to_string_lossy().to_string()
+    } else {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("prepare_psd.jsx");
+        if dev_script.exists() {
+            dev_script.to_string_lossy().to_string()
+        } else {
+            return Err("Prepare script not found".to_string());
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let settings_path = temp_dir.join("psd_prepare_settings.json");
+    let output_path = temp_dir.join("psd_prepare_results.json");
+
+    let _ = fs::remove_file(&output_path);
+
+    // Normalize settings
+    let mut settings_normalized = settings;
+    settings_normalized.output_path = output_path.to_string_lossy().to_string().replace("\\", "/");
+    for file in &mut settings_normalized.files {
+        file.path = file.path.replace("\\", "/");
+    }
+
+    let settings_json = serde_json::to_string_pretty(&settings_normalized)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+
+    let mut settings_file = fs::File::create(&settings_path)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    settings_file.write_all(&[0xEF, 0xBB, 0xBF])
+        .map_err(|e| format!("Failed to write BOM: {}", e))?;
+    settings_file.write_all(settings_json.as_bytes())
+        .map_err(|e| format!("Failed to write settings: {}", e))?;
+
+    eprintln!("Prepare - Photoshop: {}", ps_path);
+    eprintln!("Prepare - Script: {}", script_path_str);
+    eprintln!("Prepare - Files: {}", settings_normalized.files.len());
+
+    let _output = Command::new(&ps_path)
+        .arg("-r")
+        .arg(&script_path_str)
+        .output()
+        .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    // Poll for results
+    let max_wait_secs = 180; // 3 minutes
+    let poll_interval_ms = 500;
+    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+
+    for poll in 0..max_polls {
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                if content.trim().starts_with('[') && content.trim().ends_with(']') {
+                    eprintln!("Prepare output ready after {} polls", poll);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+
+        if poll > 0 && poll % 20 == 0 {
+            eprintln!("Still waiting for Photoshop prepare... ({} seconds)", poll * poll_interval_ms / 1000);
+        }
+    }
+
+    if output_path.exists() {
+        let results_json = fs::read_to_string(&output_path)
+            .map_err(|e| format!("Failed to read results: {}", e))?;
+
+        let results: Vec<PhotoshopResult> = serde_json::from_str(&results_json)
+            .map_err(|e| format!("Failed to parse results: {}. JSON was: {}", e, results_json))?;
+
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
+        Ok(results)
+    } else {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+        Err("Photoshop did not produce output file. Script may have failed.".to_string())
+    }
+}
+
+// ============================================
 // Photoshop Layer Visibility Control
 // ============================================
 

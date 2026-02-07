@@ -15,6 +15,7 @@ pub fn run() {
             commands::check_photoshop_installed,
             commands::run_photoshop_conversion,
             commands::run_photoshop_guide_apply,
+            commands::run_photoshop_prepare,
             commands::run_photoshop_layer_visibility,
             commands::run_photoshop_split,
             commands::get_high_res_preview,

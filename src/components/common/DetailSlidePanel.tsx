@@ -2,6 +2,7 @@ import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
 import { MetadataPanel } from "../metadata/MetadataPanel";
 import { FixGuidePanel } from "../spec-checker/FixGuidePanel";
+import { GuideSectionPanel } from "../spec-checker/GuideSectionPanel";
 
 export function DetailSlidePanel() {
   const activeFile = usePsdStore((state) => state.getActiveFile());
@@ -67,6 +68,9 @@ export function DetailSlidePanel() {
                   <FixGuidePanel checkResult={checkResult} />
                 </div>
               )}
+              <div className="p-3 border-b border-border">
+                <GuideSectionPanel file={activeFile} />
+              </div>
               <MetadataPanel file={activeFile} />
             </div>
           </>

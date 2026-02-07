@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type AppView = "files" | "specCheck" | "layers" | "split" | "replace";
+export type AppView = "specCheck" | "layers" | "split" | "replace";
 
 interface ViewState {
   activeView: AppView;
@@ -12,7 +12,7 @@ interface ViewState {
 }
 
 export const useViewStore = create<ViewState>((set) => ({
-  activeView: "files",
+  activeView: "specCheck",
   isDetailPanelOpen: false,
 
   setActiveView: (activeView) => set({ activeView }),
