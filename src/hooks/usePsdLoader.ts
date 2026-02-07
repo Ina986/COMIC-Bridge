@@ -4,6 +4,7 @@ import { usePsdStore } from "../store/psdStore";
 import { useSpecStore } from "../store/specStore";
 import { useViewStore } from "../store/viewStore";
 import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
+import { naturalCompare } from "../lib/naturalSort";
 import type { PsdFile } from "../types";
 
 export function usePsdLoader() {
@@ -72,6 +73,9 @@ export function usePsdLoader() {
     async (filePaths: string[]) => {
       // replace タブ時はスキップ（ReplaceDropZone が独自に処理する）
       if (useViewStore.getState().activeView === "replace") return;
+
+      // 自然順ソート（数字部分を数値比較）
+      filePaths.sort((a, b) => naturalCompare(a, b));
 
       // Create initial file entries
       const initialFiles: PsdFile[] = filePaths.map((filePath, index) => {

@@ -7,6 +7,7 @@ import { ConversionToast } from "../spec-checker/ConversionToast";
 import { usePsdStore } from "../../store/psdStore";
 import { useGuideStore } from "../../store/guideStore";
 import { useSpecChecker } from "../../hooks/useSpecChecker";
+import { useGlobalDragDrop } from "../../hooks/useGlobalDragDrop";
 
 export function AppLayout() {
   const isEditorOpen = useGuideStore((state) => state.isEditorOpen);
@@ -14,6 +15,9 @@ export function AppLayout() {
 
   // 自動チェック機能を有効化
   useSpecChecker();
+
+  // グローバルドラッグ＆ドロップ（常時有効）
+  useGlobalDragDrop();
 
   // サムネ領域外クリックで複数選択を解除
   const handleMouseDown = useCallback(

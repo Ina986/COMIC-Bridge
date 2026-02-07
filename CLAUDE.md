@@ -27,7 +27,8 @@
 ## 主要機能
 
 ### 1. PSD読み込み・プレビュー
-- ドラッグ&ドロップでファイル/フォルダ読み込み
+- ドラッグ&ドロップでファイル/フォルダ読み込み（グローバルD&D: AppLayout常時リスナー）
+- 自然順ソート: ファイル名の数字部分を数値比較（"1巻 (2)" < "1巻 (10)"）
 - 埋め込みサムネイル表示（高速）
 - メタデータ抽出（サイズ、DPI、カラーモード、ビット深度、レイヤー構造、αチャンネル等）
 - レイヤーツリー表示: 種別アイコン（グループ/テキスト/調整/スマートオブジェクト/シェイプ/レイヤー）
@@ -118,7 +119,7 @@
 ### レイアウト
 - **TopNav**: 上部ナビゲーション。タブでビュー切替（ファイル/レイヤー制御/仕様チェック/差替え/見開き分割）
 - **ViewRouter + viewStore**: タブベースのビュー切替管理
-- **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）
+- **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）、グローバルD&Dリスナー（useGlobalDragDrop）
 
 ### ビュー
 - **FileView**: ファイル一覧・サムネイル・メタデータ表示
@@ -162,7 +163,7 @@ src/
 │   │   ├── CompactFileList.tsx    # コンパクトファイル一覧
 │   │   └── DetailSlidePanel.tsx   # スライドイン詳細パネル
 │   ├── file-browser/      # ファイル選択・ドロップゾーン
-│   │   └── DropZone.tsx
+│   │   └── DropZone.tsx          # UI表示のみ（D&DリスナーはuseGlobalDragDrop）
 │   ├── layout/            # レイアウトコンポーネント
 │   │   ├── AppLayout.tsx         # メインレイアウト（TopNav + ビュー）
 │   │   ├── TopNav.tsx            # 上部ナビゲーション（タブ切替）
@@ -204,7 +205,8 @@ src/
 │       ├── Modal.tsx
 │       └── PopButton.tsx
 ├── hooks/
-│   ├── usePsdLoader.ts
+│   ├── usePsdLoader.ts           # PSD読み込み・自然順ソート
+│   ├── useGlobalDragDrop.ts      # グローバルD&Dリスナー（AppLayoutで常時有効）
 │   ├── useSpecChecker.ts
 │   ├── usePhotoshopConverter.ts
 │   ├── useBatchProcessor.ts
@@ -216,7 +218,8 @@ src/
 ├── lib/
 │   ├── psd/
 │   │   └── parser.ts            # ag-psdラッパー、メタデータ抽出
-│   └── layerMatcher.ts          # レイヤーマッチング・リスク分類（共有ロジック）
+│   ├── layerMatcher.ts          # レイヤーマッチング・リスク分類（共有ロジック）+ 差替え対象マッチング
+│   └── naturalSort.ts           # 自然順ソート（数字部分を数値比較）
 ├── store/
 │   ├── psdStore.ts        # ファイル一覧・選択状態
 │   ├── specStore.ts       # 仕様・チェック結果
