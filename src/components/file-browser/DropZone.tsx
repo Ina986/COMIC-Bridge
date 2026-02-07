@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { usePsdLoader } from "../../hooks/usePsdLoader";
-import { useReplaceStore } from "../../store/replaceStore";
+import { useViewStore } from "../../store/viewStore";
 
 export function DropZone() {
   const [isDragging, setIsDragging] = useState(false);
@@ -17,7 +17,7 @@ export function DropZone() {
     const setupListener = async () => {
       const fn = await currentWindow.onDragDropEvent(async (event) => {
         // replace タブ時はスキップ（ReplaceDropZone が処理する）
-        if (useReplaceStore.getState().sidebarTab === "replace") return;
+        if (useViewStore.getState().activeView === "replace") return;
 
         if (event.payload.type === "over") {
           setIsDragging(true);

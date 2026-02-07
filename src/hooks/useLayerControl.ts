@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
 import { useLayerStore, type HideCondition, type LayerControlResult } from "../store/layerStore";
+import { matchesCondition, isTextFolder } from "../lib/layerMatcher";
 import type { LayerNode } from "../types";
 
 interface PhotoshopResult {
@@ -143,9 +144,6 @@ export function useLayerControl() {
   };
 }
 
-// テキストフォルダ名のパターン
-const TEXT_FOLDER_PATTERNS = ["text", "写植", "セリフ", "テキスト", "セリフ層"];
-
 // 条件に基づいてレイヤーツリーの可視性を更新するヘルパー
 function updateLayerTreeByConditions(
   layers: LayerNode[],
@@ -154,11 +152,7 @@ function updateLayerTreeByConditions(
   parentIsTextFolder = false
 ): LayerNode[] {
   return layers.map((layer) => {
-    const isTextFolder =
-      layer.type === "group" &&
-      TEXT_FOLDER_PATTERNS.some((p) =>
-        layer.name.toLowerCase() === p.toLowerCase()
-      );
+    const textFolder = isTextFolder(layer);
 
     const matches = conditions.some((cond) =>
       matchesCondition(layer, cond, parentIsTextFolder)
@@ -174,48 +168,10 @@ function updateLayerTreeByConditions(
         layer.children,
         conditions,
         setVisible,
-        parentIsTextFolder || isTextFolder
+        parentIsTextFolder || textFolder
       );
     }
 
     return updatedLayer;
   });
-}
-
-function matchesCondition(
-  layer: LayerNode,
-  condition: HideCondition,
-  parentIsTextFolder: boolean
-): boolean {
-  switch (condition.type) {
-    case "textLayers":
-      return layer.type === "text";
-
-    case "textFolder":
-      if (layer.type === "group") {
-        return TEXT_FOLDER_PATTERNS.some(
-          (p) => layer.name.toLowerCase() === p.toLowerCase()
-        );
-      }
-      return parentIsTextFolder;
-
-    case "layerName":
-    case "folderName":
-    case "custom":
-      if (!condition.value) return false;
-      const searchValue = condition.caseSensitive
-        ? condition.value
-        : condition.value.toLowerCase();
-      const layerName = condition.caseSensitive
-        ? layer.name
-        : layer.name.toLowerCase();
-
-      if (condition.partialMatch) {
-        return layerName.includes(searchValue);
-      }
-      return layerName === searchValue;
-
-    default:
-      return false;
-  }
 }

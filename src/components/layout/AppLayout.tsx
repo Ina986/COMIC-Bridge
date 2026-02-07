@@ -1,7 +1,6 @@
 import { useCallback } from "react";
-import { Sidebar } from "./Sidebar";
-import { MainView } from "./MainView";
-import { DetailPanel } from "./DetailPanel";
+import { TopNav } from "./TopNav";
+import { ViewRouter } from "./ViewRouter";
 import { GuideEditorModal } from "../guide-editor/GuideEditorModal";
 import { SpecSelectionModal } from "../spec-checker/SpecSelectionModal";
 import { ConversionToast } from "../spec-checker/ConversionToast";
@@ -13,17 +12,15 @@ export function AppLayout() {
   const isEditorOpen = useGuideStore((state) => state.isEditorOpen);
   const clearSelection = usePsdStore((state) => state.clearSelection);
 
-  // 自動チェック機能を有効化（useEffectが発火するようにする）
+  // 自動チェック機能を有効化
   useSpecChecker();
 
   // サムネ領域外クリックで複数選択を解除
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // サムネグリッド内のクリックは無視
       if ((e.target as HTMLElement).closest("[data-preview-grid]")) return;
-      // サイドバー・詳細パネル内のクリックは無視
       if ((e.target as HTMLElement).closest("[data-sidebar], [data-detail-panel]")) return;
-      // ボタンやインタラクティブ要素のクリックは無視
+      if ((e.target as HTMLElement).closest("[data-tool-panel]")) return;
       if ((e.target as HTMLElement).closest("button, a, input, select, textarea, label")) return;
       clearSelection();
     },
@@ -31,18 +28,15 @@ export function AppLayout() {
   );
 
   return (
-    <div className="flex h-screen bg-bg-primary overflow-hidden" onMouseDown={handleMouseDown}>
+    <div className="flex flex-col h-screen bg-bg-primary overflow-hidden" onMouseDown={handleMouseDown}>
       {/* 背景のトーンパターン */}
       <div className="fixed inset-0 bg-tone pointer-events-none" />
 
-      {/* Sidebar - File Browser */}
-      <Sidebar />
+      {/* Top Navigation */}
+      <TopNav />
 
-      {/* Main View - Preview Area */}
-      <MainView />
-
-      {/* Detail Panel - Metadata */}
-      <DetailPanel />
+      {/* View Content */}
+      <ViewRouter />
 
       {/* Guide Editor Modal */}
       {isEditorOpen && <GuideEditorModal />}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useReplaceStore } from "../../store/replaceStore";
 import { useReplaceProcessor } from "../../hooks/useReplaceProcessor";

@@ -11,17 +11,12 @@ import type {
   ReplaceResult,
 } from "../types/replace";
 
-export type SidebarTab = "files" | "spec" | "layers" | "split" | "replace";
-
 export interface BatchFolder {
   name: string;
   path: string;
 }
 
 interface ReplaceState {
-  // サイドバータブ（Sidebar ↔ MainView 共有）
-  sidebarTab: SidebarTab;
-
   // フォルダ選択
   folders: FolderSelection;
 
@@ -44,9 +39,6 @@ interface ReplaceState {
   totalPairs: number;
   currentPair: string | null;
   results: ReplaceResult[];
-
-  // Actions - タブ
-  setSidebarTab: (tab: SidebarTab) => void;
 
   // Actions - フォルダ
   setSourceFolder: (path: string | null, files?: string[] | null) => void;
@@ -122,7 +114,6 @@ const defaultSettings: ReplaceSettings = {
 };
 
 export const useReplaceStore = create<ReplaceState>((set) => ({
-  sidebarTab: "files",
   folders: { sourceFolder: null, targetFolder: null, sourceFiles: null, targetFiles: null },
   batchFolders: [],
   settings: defaultSettings,
@@ -134,9 +125,6 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
   totalPairs: 0,
   currentPair: null,
   results: [],
-
-  // タブ
-  setSidebarTab: (tab) => set({ sidebarTab: tab }),
 
   // フォルダ
   setSourceFolder: (path, files) =>

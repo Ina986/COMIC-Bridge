@@ -1849,3 +1849,24 @@ pub async fn open_folder_in_explorer(folder_path: String) -> Result<(), String> 
 
     Ok(())
 }
+
+/// Open a file in Photoshop
+#[tauri::command]
+pub async fn open_file_in_photoshop(file_path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found".to_string())?;
+
+    Command::new(&ps_path)
+        .arg(&file_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open file in Photoshop: {}", e))?;
+
+    Ok(())
+}

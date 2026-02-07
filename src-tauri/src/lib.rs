@@ -24,6 +24,7 @@ pub fn run() {
             commands::list_subfolders,
             commands::run_photoshop_replace,
             commands::open_folder_in_explorer,
+            commands::open_file_in_photoshop,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

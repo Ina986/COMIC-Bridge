@@ -269,10 +269,6 @@ export function ReplaceDropZone() {
       batchFolders.some((f) => (f.name === "白消し" || f.name === "棒消し") &&
         (f.name === "白消し" ? shiroFileCount !== 0 : bouFileCount !== 0))
     : !!folders.targetFolder && targetFileCount !== 0;
-  const hasSource = !!folders.sourceFolder;
-  const hasTarget = isBatch
-    ? !!(folders.targetFolder || batchFolders.some((f) => f.name === "白消し" || f.name === "棒消し"))
-    : !!folders.targetFolder;
   const isReady = sourceOk && targetOk;
 
   // ブラウザのデフォルトdrag挙動を防止
