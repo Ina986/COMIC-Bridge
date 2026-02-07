@@ -220,12 +220,19 @@ function CellValue({
   }
 
   if (isNG && failedRule) {
+    const expected = typeof failedRule.rule.value === "boolean"
+      ? (failedRule.rule.value ? "あり" : "なし")
+      : String(failedRule.rule.value);
     return (
       <div
-        className="text-xs font-medium text-error bg-error/10 px-2 py-0.5 rounded"
-        title={`${failedRule.rule.message} (期待値: ${failedRule.rule.value})`}
+        className="text-xs font-medium text-error bg-error/10 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+        title={failedRule.rule.message}
       >
-        {String(value)}
+        <span className="truncate">{String(value)}</span>
+        <svg className="w-2.5 h-2.5 text-text-muted flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+        </svg>
+        <span className="text-success truncate">{expected}</span>
       </div>
     );
   }
