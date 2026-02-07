@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useState, useRef } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
 import { useGuideStore } from "../../store/guideStore";
@@ -35,6 +35,8 @@ export function SpecCheckView() {
   const openEditor = useGuideStore((state) => state.openEditor);
 
   const [showResults, setShowResults] = useState(false);
+  const [showGuidePrompt, setShowGuidePrompt] = useState(false);
+  const guidePromptRef = useRef<HTMLDivElement>(null);
 
   const { checkAllFiles, isChecking } = useSpecChecker();
   const { isPhotoshopInstalled, isConverting } = usePhotoshopConverter();
@@ -63,6 +65,18 @@ export function SpecCheckView() {
       }
     }
   }, [activeSpecId, specifications, setConversionSettings]);
+
+  // ポップオーバー外クリックで閉じる
+  useEffect(() => {
+    if (!showGuidePrompt) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (guidePromptRef.current && !guidePromptRef.current.contains(e.target as Node)) {
+        setShowGuidePrompt(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showGuidePrompt]);
 
   // 変換結果が追加されたらバナーを表示
   useEffect(() => {
@@ -360,30 +374,84 @@ export function SpecCheckView() {
                 </button>
               )}
               {stats.failed > 0 && isPhotoshopInstalled && (
-                <button
-                  className="h-14 px-7 text-base font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center gap-3 text-white bg-gradient-to-r from-[#31A8FF] to-[#0066CC] shadow-[0_6px_25px_rgba(49,168,255,0.4)] hover:shadow-[0_8px_35px_rgba(49,168,255,0.55)] hover:brightness-110 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => prepareFiles({
-                    fixSpec: true,
-                    applyGuides: stats.noGuides > 0 && guides.length > 0,
-                    fileIds: selectedFileIds.length > 0 ? selectedFileIds : undefined,
-                  })}
-                  disabled={isConverting || isProcessing || !activeSpecId}
-                >
-                  {isConverting || isProcessing ? (
-                    <>
-                      <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                      <span className="text-base">処理中...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-base font-bold leading-none">P</span>
-                      一括変換
-                      <span className="px-2 py-1 rounded-lg bg-white/25 text-sm font-bold">
-                        {selectedFileIds.length > 0 ? selectedFileIds.length : stats.failed}
-                      </span>
-                    </>
+                <div className="relative">
+                  {/* Guide Prompt Popover */}
+                  {showGuidePrompt && (
+                    <div
+                      ref={guidePromptRef}
+                      className="absolute bottom-full right-0 mb-3 w-72 bg-white rounded-xl shadow-elevated border border-border p-4 space-y-3"
+                      style={{ animation: "toast-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-6 h-6 rounded-full bg-warning/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <svg className="w-3.5 h-3.5 text-warning" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-text-primary">ガイドが未設定です</p>
+                          <p className="text-xs text-text-muted mt-1">
+                            {stats.noGuides}件のファイルにガイドがありません
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          className="flex-1 px-3 py-2 text-xs font-medium rounded-lg border-2 border-guide-v/50 text-guide-v hover:bg-guide-v/10 transition-colors"
+                          onClick={() => {
+                            setShowGuidePrompt(false);
+                            openEditor();
+                          }}
+                        >
+                          ガイドを編集
+                        </button>
+                        <button
+                          className="flex-1 px-3 py-2 text-xs font-medium rounded-lg bg-bg-tertiary text-text-secondary hover:bg-bg-elevated transition-colors"
+                          onClick={() => {
+                            setShowGuidePrompt(false);
+                            prepareFiles({
+                              fixSpec: true,
+                              applyGuides: false,
+                              fileIds: selectedFileIds.length > 0 ? selectedFileIds : undefined,
+                            });
+                          }}
+                        >
+                          このまま変換
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </button>
+                  <button
+                    className="h-14 px-7 text-base font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center gap-3 text-white bg-gradient-to-r from-[#31A8FF] to-[#0066CC] shadow-[0_6px_25px_rgba(49,168,255,0.4)] hover:shadow-[0_8px_35px_rgba(49,168,255,0.55)] hover:brightness-110 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => {
+                      if (stats.noGuides > 0 && guides.length === 0) {
+                        setShowGuidePrompt(true);
+                      } else {
+                        prepareFiles({
+                          fixSpec: true,
+                          applyGuides: stats.noGuides > 0 && guides.length > 0,
+                          fileIds: selectedFileIds.length > 0 ? selectedFileIds : undefined,
+                        });
+                      }
+                    }}
+                    disabled={isConverting || isProcessing || !activeSpecId}
+                  >
+                    {isConverting || isProcessing ? (
+                      <>
+                        <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        <span className="text-base">処理中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-base font-bold leading-none">P</span>
+                        一括変換
+                        <span className="px-2 py-1 rounded-lg bg-white/25 text-sm font-bold">
+                          {selectedFileIds.length > 0 ? selectedFileIds.length : stats.failed}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           )}

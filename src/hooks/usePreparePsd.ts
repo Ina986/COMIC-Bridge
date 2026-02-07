@@ -43,8 +43,18 @@ export interface PrepareOptions {
   fileIds?: string[];
 }
 
+export interface PrepareTask {
+  fileId: string;
+  fileName: string;
+  status: "processing" | "success" | "error";
+  error?: string;
+  changes?: string[];
+}
+
 export function usePreparePsd() {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [tasks, setTasks] = useState<PrepareTask[]>([]);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
 
   const files = usePsdStore((state) => state.files);
   const updateFile = usePsdStore((state) => state.updateFile);
@@ -59,6 +69,11 @@ export function usePreparePsd() {
   const guides = useGuideStore((state) => state.guides);
 
   const { checkAllFiles } = useSpecChecker();
+
+  const reset = useCallback(() => {
+    setTasks([]);
+    setProgress({ current: 0, total: 0 });
+  }, []);
 
   const prepareFiles = useCallback(
     async ({ fixSpec, applyGuides, fileIds }: PrepareOptions) => {
@@ -86,6 +101,14 @@ export function usePreparePsd() {
       setIsProcessing(true);
       setStoreIsConverting(true);
       clearConversionResults();
+
+      // Initialize task tracking
+      setTasks(targetFiles.map((f) => ({
+        fileId: f.id,
+        fileName: f.fileName,
+        status: "processing" as const,
+      })));
+      setProgress({ current: 0, total: targetFiles.length });
 
       try {
         // Check if we need both operations for any file → use unified command
@@ -128,6 +151,14 @@ export function usePreparePsd() {
           };
           addConversionResult(conversionResult);
 
+          // Update task tracking
+          setTasks((prev) => prev.map((t) =>
+            t.fileId === file.id
+              ? { ...t, status: result.success ? "success" as const : "error" as const, error: result.error ?? undefined, changes: result.changes }
+              : t
+          ));
+          setProgress((p) => ({ ...p, current: p.current + 1 }));
+
           if (result.success && result.changes.length > 0 && !result.changes.includes("No changes needed")) {
             successfulFiles.push({ id: file.id, filePath: file.filePath });
           }
@@ -161,15 +192,18 @@ export function usePreparePsd() {
         }
       } catch (error) {
         console.error("Prepare failed:", error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
         for (const file of targetFiles) {
           addConversionResult({
             fileId: file.id,
             fileName: file.fileName,
             success: false,
             changes: [],
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMsg,
           });
         }
+        setTasks((prev) => prev.map((t) => ({ ...t, status: "error" as const, error: errorMsg })));
+        setProgress((p) => ({ ...p, current: p.total }));
       } finally {
         setIsProcessing(false);
         setStoreIsConverting(false);
@@ -286,6 +320,9 @@ export function usePreparePsd() {
 
   return {
     isProcessing,
+    tasks,
+    progress,
     prepareFiles,
+    reset,
   };
 }
