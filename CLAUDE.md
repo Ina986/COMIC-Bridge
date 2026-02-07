@@ -113,8 +113,30 @@
 - 出力形式: PSD / JPG（品質0-100%、JSX側は0-12スケールに変換）
 - Photoshop JSX経由で全ファイル一括処理（`split_psd.jsx`、タイムアウト5分）
 
-## UIフロー
+## UI構成
 
+### レイアウト
+- **TopNav**: 上部ナビゲーション。タブでビュー切替（ファイル/レイヤー制御/仕様チェック/差替え/見開き分割）
+- **ViewRouter + viewStore**: タブベースのビュー切替管理
+- **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）
+
+### ビュー
+- **FileView**: ファイル一覧・サムネイル・メタデータ表示
+- **LayerControlView**: レイヤー制御パネル + LayerPreviewPanel（レイヤーツリー）
+- **SpecCheckView**: 仕様チェックテーブル（SpecCheckTable）
+- **ReplaceView**: レイヤー差替え
+- **SplitView**: 見開き分割
+
+### レイヤーツリー (LayerPreviewPanel)
+- **表示順**: ag-psdのbottom-to-topを`.reverse()`でPhotoshop表示順（上がforeground）に変換
+- **マルチカラムグリッド**: 最大3列、4ファイル以上は次の行へ。CSS Gridで同一行の高さを揃え
+- **サイドバー連動**: selectedFileIdsがあればそのファイルのみ、なければ全ファイル表示
+- **ローカル複数選択**: クリックで単一選択、Shift+クリックで複数選択。チェック済みファイルはPhotoshop Blue (#31A8FF)でハイライト
+- **Pキー**: チェック済みファイルをPhotoshopで一括起動（単一ファイル時はそのまま起動）
+- **モード連動**: actionMode (hide/show) に応じて willChange / 済 / 要確認 をバッジ表示
+- **リスク分類**: layerMatcher.ts で safe/warning/none を判定。ラスターレイヤーの誤非表示をwarning表示
+
+### UIフロー
 ```
 1. ファイル読み込み（D&D or フォルダ選択）
          ↓
@@ -126,7 +148,7 @@
          ↓
 4. OK/NG結果をサムネイル・Toolbarに表示
          ↓
-5. NGファイル選択 → DetailPanelに修正ガイド表示
+5. NGファイル選択 → 修正ガイド表示
          ↓
 6. 「変換」ボタン → Photoshopで一括修正
 ```
@@ -136,76 +158,89 @@
 ```
 src/
 ├── components/
-│   ├── file-browser/     # ファイル選択・ドロップゾーン
+│   ├── common/            # 共通コンポーネント
+│   │   ├── CompactFileList.tsx    # コンパクトファイル一覧
+│   │   └── DetailSlidePanel.tsx   # スライドイン詳細パネル
+│   ├── file-browser/      # ファイル選択・ドロップゾーン
 │   │   └── DropZone.tsx
-│   ├── layout/           # レイアウトコンポーネント
-│   │   ├── AppLayout.tsx
-│   │   ├── Sidebar.tsx
-│   │   ├── MainView.tsx
-│   │   ├── DetailPanel.tsx
-│   │   └── Toolbar.tsx
-│   ├── metadata/         # メタデータ表示
+│   ├── layout/            # レイアウトコンポーネント
+│   │   ├── AppLayout.tsx         # メインレイアウト（TopNav + ビュー）
+│   │   ├── TopNav.tsx            # 上部ナビゲーション（タブ切替）
+│   │   └── ViewRouter.tsx        # ビュー切替ルーター
+│   ├── views/             # ビューコンポーネント
+│   │   ├── FileView.tsx          # ファイル一覧ビュー
+│   │   ├── LayerControlView.tsx  # レイヤー制御ビュー
+│   │   ├── SpecCheckView.tsx     # 仕様チェックビュー
+│   │   ├── ReplaceView.tsx       # レイヤー差替えビュー
+│   │   └── SplitView.tsx         # 見開き分割ビュー
+│   ├── metadata/          # メタデータ表示
 │   │   ├── MetadataPanel.tsx
 │   │   └── LayerTree.tsx
-│   ├── preview/          # プレビュー
+│   ├── preview/           # プレビュー
 │   │   ├── PreviewGrid.tsx
 │   │   └── ThumbnailCard.tsx
-│   ├── spec-checker/     # 仕様チェック
+│   ├── spec-checker/      # 仕様チェック
 │   │   ├── SpecCheckerPanel.tsx
-│   │   ├── SpecSelectionModal.tsx  # 仕様選択モーダル
-│   │   ├── FixGuidePanel.tsx       # NG時の修正ガイド
-│   │   └── ConversionToast.tsx     # 変換完了トースト通知
-│   ├── guide-editor/     # ガイド線編集
-│   │   ├── GuideEditorModal.tsx  # ガイドエディタモーダル
-│   │   ├── GuideCanvas.tsx       # ガイド編集キャンバス
-│   │   └── CanvasRuler.tsx       # Photoshop風Canvas定規
-│   ├── layer-control/    # レイヤー制御
+│   │   ├── SpecCheckTable.tsx    # 仕様チェック結果テーブル
+│   │   ├── SpecSelectionModal.tsx
+│   │   ├── FixGuidePanel.tsx
+│   │   └── ConversionToast.tsx
+│   ├── guide-editor/      # ガイド線編集
+│   │   ├── GuideEditorModal.tsx
+│   │   ├── GuideCanvas.tsx
+│   │   └── CanvasRuler.tsx
+│   ├── layer-control/     # レイヤー制御
 │   │   ├── LayerControlPanel.tsx        # 条件指定UIと実行ボタン
-│   │   └── LayerControlResultDialog.tsx # 処理結果レポートダイアログ（ツリー表示、createPortal）
-│   ├── replace/          # レイヤー差替え
-│   │   ├── ReplacePanel.tsx        # サイドバー: モード選択・設定UI（出力フォルダ名設定含む）
-│   │   ├── ReplaceDropZone.tsx     # 中央: D&Dドロップゾーン（DPR補正・バッチ・ファイルレベルドロップ対応）
-│   │   ├── ReplacePairingModal.tsx # ペアリング確認・処理結果・マッチ詳細表示モーダル
-│   │   └── ReplaceToast.tsx        # 処理完了トースト通知（モーダル閉じ後に表示）
-│   ├── split/            # 見開き分割
-│   │   └── SplitPanel.tsx         # 分割モード・オプションUI
-│   └── ui/               # 共通UIコンポーネント
+│   │   ├── LayerPreviewPanel.tsx        # レイヤーツリープレビュー（グリッド・選択・Ps連携）
+│   │   └── LayerControlResultDialog.tsx # 処理結果レポートダイアログ
+│   ├── replace/           # レイヤー差替え
+│   │   ├── ReplacePanel.tsx
+│   │   ├── ReplaceDropZone.tsx
+│   │   ├── ReplacePairingModal.tsx
+│   │   └── ReplaceToast.tsx
+│   ├── split/             # 見開き分割
+│   │   └── SplitPanel.tsx
+│   └── ui/                # 共通UIコンポーネント
 │       ├── Modal.tsx
 │       └── PopButton.tsx
 ├── hooks/
-│   ├── usePsdLoader.ts         # PSD読み込み・モーダル表示トリガー
-│   ├── useSpecChecker.ts       # 仕様チェックロジック（自動チェック含む）
-│   ├── usePhotoshopConverter.ts # Photoshop連携（仕様変換）
-│   ├── useBatchProcessor.ts    # ガイド一括適用（Photoshop JSX経由）
-│   ├── useHighResPreview.ts    # 高解像度プレビュー（ガイドエディタ用）
-│   ├── useLayerControl.ts      # レイヤー表示/非表示制御（Photoshop JSX経由）
-│   ├── useSplitProcessor.ts    # 見開き分割処理（Photoshop JSX経由）
-│   └── useReplaceProcessor.ts # レイヤー差替え処理（スキャン・ペアリング・実行）
+│   ├── usePsdLoader.ts
+│   ├── useSpecChecker.ts
+│   ├── usePhotoshopConverter.ts
+│   ├── useBatchProcessor.ts
+│   ├── useHighResPreview.ts
+│   ├── useLayerControl.ts
+│   ├── useSplitProcessor.ts
+│   ├── useReplaceProcessor.ts
+│   └── useOpenInPhotoshop.ts    # Photoshopファイル起動（ユーティリティ + Pキーショートカット）
 ├── lib/
-│   └── psd/
-│       └── parser.ts     # ag-psdラッパー、メタデータ抽出
+│   ├── psd/
+│   │   └── parser.ts            # ag-psdラッパー、メタデータ抽出
+│   └── layerMatcher.ts          # レイヤーマッチング・リスク分類（共有ロジック）
 ├── store/
-│   ├── psdStore.ts       # ファイル一覧状態
-│   ├── specStore.ts      # 仕様・チェック結果・自動チェック設定
-│   ├── guideStore.ts     # ガイド線状態
-│   ├── splitStore.ts     # 分割設定・処理状態
-│   └── replaceStore.ts   # 差替え設定・フォルダ・バッチ・タブ状態
+│   ├── psdStore.ts        # ファイル一覧・選択状態
+│   ├── specStore.ts       # 仕様・チェック結果
+│   ├── guideStore.ts      # ガイド線状態
+│   ├── layerStore.ts      # レイヤー制御: actionMode, selectedConditions, customConditions
+│   ├── viewStore.ts       # ビュー切替状態（activeView）
+│   ├── splitStore.ts      # 分割設定
+│   └── replaceStore.ts    # 差替え設定
 ├── styles/
-│   └── globals.css       # グローバルスタイル
+│   └── globals.css
 └── types/
-    ├── index.ts          # 型定義
-    └── replace.ts        # 差替え関連型定義
+    ├── index.ts
+    └── replace.ts
 
 src-tauri/
 ├── scripts/
-│   ├── convert_psd.jsx   # Photoshop仕様変換スクリプト
-│   ├── apply_guides.jsx  # Photoshopガイド適用スクリプト
-│   ├── hide_layers.jsx   # Photoshopレイヤー表示/非表示スクリプト
-│   ├── split_psd.jsx     # Photoshop見開き分割スクリプト
-│   └── replace_layers.jsx # Photoshopレイヤー差替えスクリプト
+│   ├── convert_psd.jsx
+│   ├── apply_guides.jsx
+│   ├── hide_layers.jsx
+│   ├── split_psd.jsx
+│   └── replace_layers.jsx
 └── src/
-    ├── lib.rs            # Tauriコマンド登録
-    └── commands.rs       # Rustコマンド（プレビュー3層キャッシュ、ガイド適用、レイヤー制御、分割、差替え、PSDキャッシュ、open_folder_in_explorer）
+    ├── lib.rs
+    └── commands.rs       # Rustコマンド（open_file_in_photoshop含む）
 ```
 
 ## 重要な型定義
@@ -405,3 +440,9 @@ lastSelectedSpecId: string    // 前回選択した仕様ID
 - 垂直定規からドラッグ → 垂直ガイド（X軸位置）
 - ガイドクリックで選択 → 選択中はハイライト表示
 - Undo/Redo: 最大20ステップの履歴管理（guideStore）
+
+## グローバルショートカット
+
+| 操作 | キー | ビュー |
+|------|------|--------|
+| Photoshopで開く | P | レイヤー制御・仕様チェック |
