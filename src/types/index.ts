@@ -81,7 +81,7 @@ export interface SpecCheckResult {
 }
 
 // UI Types
-export type ViewMode = "grid" | "list";
+export type ViewMode = "grid";
 export type ThumbnailSize = "small" | "medium" | "large" | "xlarge";
 
 export const THUMBNAIL_SIZES: Record<ThumbnailSize, { value: number; label: string }> = {

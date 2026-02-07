@@ -5,26 +5,26 @@ import { useGuideStore } from "../../store/guideStore";
 import { useSpecChecker } from "../../hooks/useSpecChecker";
 import { usePhotoshopConverter } from "../../hooks/usePhotoshopConverter";
 import { usePreparePsd } from "../../hooks/usePreparePsd";
-import { usePhotoshopShortcut } from "../../hooks/useOpenInPhotoshop";
-import { SpecCheckTable } from "../spec-checker/SpecCheckTable";
+import { usePhotoshopShortcut, useOpenInPhotoshop } from "../../hooks/useOpenInPhotoshop";
 import { PreviewGrid } from "../preview/PreviewGrid";
-import { DetailSlidePanel } from "../common/DetailSlidePanel";
+import { CompactFileList } from "../common/CompactFileList";
+import { MetadataPanel } from "../metadata/MetadataPanel";
+import { FixGuidePanel } from "../spec-checker/FixGuidePanel";
+import { GuideSectionPanel } from "../spec-checker/GuideSectionPanel";
 import { DropZone } from "../file-browser/DropZone";
 import { THUMBNAIL_SIZES, type ThumbnailSize } from "../../types";
 
 export function SpecCheckView() {
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
-  const viewMode = usePsdStore((state) => state.viewMode);
   const thumbnailSize = usePsdStore((state) => state.thumbnailSize);
-  const setViewMode = usePsdStore((state) => state.setViewMode);
   const setThumbnailSize = usePsdStore((state) => state.setThumbnailSize);
-  const selectAll = usePsdStore((state) => state.selectAll);
-  const clearSelection = usePsdStore((state) => state.clearSelection);
+  const activeFile = usePsdStore((state) => state.getActiveFile());
 
   const specifications = useSpecStore((state) => state.specifications);
   const activeSpecId = useSpecStore((state) => state.activeSpecId);
   const setActiveSpec = useSpecStore((state) => state.setActiveSpec);
+  const selectSpecAndCheck = useSpecStore((state) => state.selectSpecAndCheck);
   const checkResults = useSpecStore((state) => state.checkResults);
   const conversionSettings = useSpecStore((state) => state.conversionSettings);
   const setConversionSettings = useSpecStore((state) => state.setConversionSettings);
@@ -34,13 +34,12 @@ export function SpecCheckView() {
   const guides = useGuideStore((state) => state.guides);
   const openEditor = useGuideStore((state) => state.openEditor);
 
-  const [fixSpec, setFixSpec] = useState(true);
-  const [applyGuidesChecked, setApplyGuidesChecked] = useState(true);
   const [showResults, setShowResults] = useState(false);
 
   const { checkAllFiles, isChecking } = useSpecChecker();
   const { isPhotoshopInstalled, isConverting } = usePhotoshopConverter();
   const { isProcessing, prepareFiles } = usePreparePsd();
+  const { openFileInPhotoshop } = useOpenInPhotoshop();
   usePhotoshopShortcut();
 
   // アクティブな仕様から変換設定を自動設定
@@ -87,25 +86,6 @@ export function SpecCheckView() {
     return { passed, failed, unchecked, noGuides };
   }, [files, checkResults]);
 
-  // NG ファイルのみ選択
-  const selectNGOnly = () => {
-    const ngIds = files
-      .filter((f) => {
-        const r = checkResults.get(f.id);
-        return r && !r.passed;
-      })
-      .map((f) => f.id);
-    usePsdStore.setState({ selectedFileIds: ngIds, activeFileId: ngIds[0] || null });
-  };
-
-  // ガイドなしファイルのみ選択
-  const selectNoGuidesOnly = () => {
-    const noGuideIds = files
-      .filter((f) => f.metadata && !f.metadata.hasGuides)
-      .map((f) => f.id);
-    usePsdStore.setState({ selectedFileIds: noGuideIds, activeFileId: noGuideIds[0] || null });
-  };
-
   // 手動再チェック
   const handleRecheck = () => {
     const enabledSpecs = specifications.filter((s) => s.enabled);
@@ -122,14 +102,6 @@ export function SpecCheckView() {
     const allChanges = conversionResults.flatMap((r) => r.changes).filter((c) => c !== "No changes needed");
     return { successCount, errorCount, totalChanges: allChanges.length };
   }, [conversionResults]);
-
-  // 一括処理対象の説明テキスト
-  const processTargetText = useMemo(() => {
-    if (selectedFileIds.length > 0) {
-      return `選択中${selectedFileIds.length}件`;
-    }
-    return "全対象";
-  }, [selectedFileIds.length]);
 
   const hasFiles = files.length > 0;
 
@@ -157,7 +129,7 @@ export function SpecCheckView() {
                   : "text-text-secondary bg-bg-tertiary hover:text-text-primary hover:bg-bg-elevated border border-border"
                 }
               `}
-              onClick={() => setActiveSpec(spec.id === activeSpecId ? null : spec.id)}
+              onClick={() => spec.id === activeSpecId ? setActiveSpec(null) : selectSpecAndCheck(spec.id)}
             >
               {spec.name}
             </button>
@@ -211,51 +183,18 @@ export function SpecCheckView() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* View Mode Toggle + Thumbnail Size */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-bg-tertiary rounded-lg p-0.5">
-            <button
-              className={`p-1.5 rounded-md transition-all duration-200 ${
-                viewMode === "grid"
-                  ? "bg-gradient-to-r from-accent to-accent-secondary text-white shadow-sm"
-                  : "text-text-secondary hover:text-text-primary"
-              }`}
-              onClick={() => setViewMode("grid")}
-              title="グリッド表示"
-            >
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-              </svg>
-            </button>
-            <button
-              className={`p-1.5 rounded-md transition-all duration-200 ${
-                viewMode === "list"
-                  ? "bg-gradient-to-r from-accent to-accent-secondary text-white shadow-sm"
-                  : "text-text-secondary hover:text-text-primary"
-              }`}
-              onClick={() => setViewMode("list")}
-              title="テーブル表示"
-            >
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
-
-          {viewMode === "grid" && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-muted">サイズ:</span>
-              <select
-                className="bg-bg-tertiary border border-border rounded-md text-xs py-1 px-2 text-text-primary focus:border-accent focus:outline-none"
-                value={thumbnailSize}
-                onChange={(e) => setThumbnailSize(e.target.value as ThumbnailSize)}
-              >
-                {Object.entries(THUMBNAIL_SIZES).map(([key, { label }]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-            </div>
-          )}
+        {/* Thumbnail Size */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-text-muted">サイズ:</span>
+          <select
+            className="bg-bg-tertiary border border-border rounded-md text-xs py-1 px-2 text-text-primary focus:border-accent focus:outline-none"
+            value={thumbnailSize}
+            onChange={(e) => setThumbnailSize(e.target.value as ThumbnailSize)}
+          >
+            {Object.entries(THUMBNAIL_SIZES).map(([key, { label }]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -332,147 +271,121 @@ export function SpecCheckView() {
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-hidden relative" data-preview-grid>
-        {viewMode === "grid" ? <PreviewGrid /> : <SpecCheckTable />}
-        <DetailSlidePanel />
-      </div>
+      {/* Main Content - 3-Column Layout */}
+      <div className="flex-1 flex overflow-hidden" data-tool-panel>
+        {/* Left: File List */}
+        <CompactFileList className="w-52 flex-shrink-0 border-r border-border" />
 
-      {/* Bottom Action Bar */}
-      <div className="px-4 py-2.5 bg-bg-secondary border-t border-border flex-shrink-0 space-y-2">
-        {/* Top row: File info + Selection */}
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-text-muted">
-            {files.length} ファイル
-          </span>
-          {selectedFileIds.length > 0 && (
+        {/* Center: Spec Detail Panel */}
+        <div className="w-[320px] flex-shrink-0 border-r border-border overflow-hidden flex flex-col bg-bg-secondary">
+          {activeFile ? (
             <>
-              <span className="text-text-muted">/</span>
-              <span className="text-accent font-medium">
-                {selectedFileIds.length}件選択中
-              </span>
-            </>
-          )}
-          <div className="flex-1" />
-          {stats.failed > 0 && (
-            <button
-              className="px-2 py-0.5 text-[11px] text-error hover:bg-error/10 rounded transition-colors font-medium"
-              onClick={selectNGOnly}
-            >
-              NGのみ
-            </button>
-          )}
-          {stats.noGuides > 0 && (
-            <button
-              className="px-2 py-0.5 text-[11px] text-warning hover:bg-warning/10 rounded transition-colors font-medium"
-              onClick={selectNoGuidesOnly}
-            >
-              ガイドなし
-            </button>
-          )}
-          <button
-            className="px-2 py-0.5 text-[11px] text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors"
-            onClick={selectedFileIds.length > 0 ? clearSelection : selectAll}
-          >
-            {selectedFileIds.length > 0 ? "選択解除" : "全選択"}
-          </button>
-        </div>
-
-        {/* Bottom row: Action buttons */}
-        <div className="flex items-center gap-2">
-          {/* Guide Edit Button */}
-          <button
-            className="h-9 px-4 text-sm font-medium rounded-lg bg-bg-tertiary text-text-primary border border-border hover:border-guide-v/40 hover:bg-guide-v/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            onClick={openEditor}
-            disabled={files.length === 0}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-            </svg>
-            ガイド編集
-            {guides.length > 0 && (
-              <span className="px-1.5 py-0.5 bg-guide-v/20 text-guide-v rounded text-[11px] font-semibold">
-                {guides.length}
-              </span>
-            )}
-          </button>
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Batch Processing Controls */}
-          {isPhotoshopInstalled && (stats.failed > 0 || (stats.noGuides > 0 && guides.length > 0)) && (
-            <>
-              {/* Toggle Buttons */}
-              <div className="flex items-center gap-1 bg-bg-tertiary rounded-lg p-0.5">
-                {stats.failed > 0 && (
+              {/* Header */}
+              <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0">
+                <div className="w-5 h-5 rounded-md bg-accent-secondary/20 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-3 h-3 text-accent-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <span className="text-xs font-medium text-text-primary truncate flex-1">
+                  {activeFile.fileName}
+                </span>
+                {isPhotoshopInstalled && activeFile.filePath && (
                   <button
-                    onClick={() => setFixSpec(!fixSpec)}
-                    className={`
-                      h-8 px-3 text-xs font-medium rounded-md transition-all duration-200
-                      flex items-center gap-1.5
-                      ${fixSpec
-                        ? "bg-error/15 text-error shadow-sm"
-                        : "text-text-muted hover:text-text-secondary"
-                      }
-                    `}
+                    className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all text-[#31A8FF] hover:bg-[#31A8FF]/15 active:scale-95"
+                    onClick={() => openFileInPhotoshop(activeFile.filePath)}
+                    title="Photoshopで開く (P)"
                   >
-                    <span className={`w-2 h-2 rounded-full transition-colors ${fixSpec ? "bg-error" : "bg-text-muted/30"}`} />
-                    仕様修正
-                  </button>
-                )}
-                {stats.noGuides > 0 && guides.length > 0 && (
-                  <button
-                    onClick={() => setApplyGuidesChecked(!applyGuidesChecked)}
-                    className={`
-                      h-8 px-3 text-xs font-medium rounded-md transition-all duration-200
-                      flex items-center gap-1.5
-                      ${applyGuidesChecked
-                        ? "bg-guide-v/15 text-guide-v shadow-sm"
-                        : "text-text-muted hover:text-text-secondary"
-                      }
-                    `}
-                  >
-                    <span className={`w-2 h-2 rounded-full transition-colors ${applyGuidesChecked ? "bg-guide-v" : "bg-text-muted/30"}`} />
-                    ガイド適用
+                    <span className="text-sm font-bold leading-none">P</span>
                   </button>
                 )}
               </div>
 
-              {/* Unified Process Button */}
-              <button
-                className="h-9 px-5 text-sm font-semibold rounded-lg text-white bg-gradient-to-r from-[#31A8FF] to-[#0066CC] shadow-[0_2px_10px_rgba(49,168,255,0.3)] hover:shadow-[0_4px_15px_rgba(49,168,255,0.4)] hover:brightness-110 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                onClick={() => prepareFiles({
-                  fixSpec: fixSpec && stats.failed > 0,
-                  applyGuides: applyGuidesChecked && stats.noGuides > 0 && guides.length > 0,
-                  fileIds: selectedFileIds.length > 0 ? selectedFileIds : undefined,
-                })}
-                disabled={
-                  isConverting || isProcessing ||
-                  (!fixSpec && !applyGuidesChecked) ||
-                  (fixSpec && stats.failed > 0 && !activeSpecId)
-                }
-              >
-                {isConverting || isProcessing ? (
-                  <>
-                    <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                    処理中...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M9.85 8.42c-.37-.15-.77-.21-1.18-.2H7.2v3.03h1.35c.41 0 .82-.07 1.18-.23.26-.12.47-.31.61-.56.14-.25.21-.54.21-.86 0-.32-.07-.61-.2-.85a1.3 1.3 0 0 0-.5-.33zM12 0C5.38 0 0 5.38 0 12s5.38 12 12 12 12-5.38 12-12S18.62 0 12 0zm-2.8 14.48H7.2v2.7H5V6.77h3.72c.67-.01 1.33.09 1.96.3.53.17 1.01.44 1.42.82.37.35.66.77.85 1.24.19.47.29.97.28 1.48 0 .51-.1 1.01-.28 1.48-.19.47-.48.89-.85 1.24-.41.38-.89.65-1.42.82-.63.21-1.3.32-1.96.33h.48zm7.44.72c.2.24.48.4.79.46.34.07.69.06 1.02-.03.25-.06.5-.16.72-.29.24-.14.44-.32.6-.53l1.17 1.05c-.33.4-.75.72-1.23.91-.53.23-1.11.34-1.69.33-.51 0-1.01-.09-1.48-.28-.43-.17-.82-.43-1.14-.77-.31-.34-.55-.74-.71-1.18-.17-.48-.25-.99-.25-1.5 0-.51.08-1.02.26-1.5.16-.44.4-.84.72-1.19.31-.34.69-.6 1.11-.78.46-.19.96-.29 1.46-.28.45-.01.91.07 1.33.24.37.15.71.38.97.68.27.32.47.69.58 1.09.13.46.19.94.18 1.43v.77h-4.65c.01.3.12.58.31.8zm2.31-3.03c-.17-.26-.4-.48-.67-.63-.28-.15-.59-.22-.91-.21-.31 0-.62.07-.91.22-.26.13-.49.32-.67.56-.18.24-.31.51-.39.8h3.62c-.04-.27-.12-.53-.26-.77z" />
-                    </svg>
-                    一括処理 ({processTargetText})
-                  </>
-                )}
-              </button>
+              {/* Content */}
+              <div className="flex-1 overflow-auto">
+                {(() => {
+                  const activeCheckResult = checkResults.get(activeFile.id);
+                  const activeHasError = activeCheckResult && !activeCheckResult.passed;
+                  return (
+                    <>
+                      {activeHasError && activeCheckResult && (
+                        <div className="p-3 border-b border-border">
+                          <FixGuidePanel checkResult={activeCheckResult} />
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+                <div className="p-3 border-b border-border">
+                  <GuideSectionPanel file={activeFile} />
+                </div>
+                <MetadataPanel file={activeFile} />
+              </div>
             </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center px-6">
+                <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-bg-tertiary flex items-center justify-center">
+                  <svg className="w-5 h-5 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                  </svg>
+                </div>
+                <p className="text-xs text-text-muted">
+                  ファイルを選択すると詳細が表示されます
+                </p>
+              </div>
+            </div>
           )}
-          {(stats.failed > 0 || stats.noGuides > 0) && !isPhotoshopInstalled && (
-            <span className="text-xs text-text-muted">
-              Photoshopが見つかりません
-            </span>
+        </div>
+
+        {/* Right: Thumbnail Grid */}
+        <div className="flex-1 overflow-hidden relative" data-preview-grid>
+          <PreviewGrid />
+
+          {/* Floating Action Buttons */}
+          {(stats.failed > 0 || stats.noGuides > 0) && (
+            <div className="absolute bottom-6 right-6 flex flex-col items-end gap-4 z-10">
+              {stats.noGuides > 0 && (
+                <button
+                  className="h-14 px-7 text-base font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center gap-3 bg-bg-secondary/95 backdrop-blur-md border-2 border-guide-v/50 text-guide-v hover:bg-guide-v/15 hover:border-guide-v/70 hover:shadow-[0_8px_30px_rgba(0,188,212,0.25)] active:scale-[0.97]"
+                  onClick={openEditor}
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  ガイドを編集
+                  <span className="px-2 py-1 rounded-lg bg-warning/15 text-warning text-sm font-bold">
+                    {stats.noGuides}
+                  </span>
+                </button>
+              )}
+              {stats.failed > 0 && isPhotoshopInstalled && (
+                <button
+                  className="h-14 px-7 text-base font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center gap-3 text-white bg-gradient-to-r from-[#31A8FF] to-[#0066CC] shadow-[0_6px_25px_rgba(49,168,255,0.4)] hover:shadow-[0_8px_35px_rgba(49,168,255,0.55)] hover:brightness-110 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => prepareFiles({
+                    fixSpec: true,
+                    applyGuides: stats.noGuides > 0 && guides.length > 0,
+                    fileIds: selectedFileIds.length > 0 ? selectedFileIds : undefined,
+                  })}
+                  disabled={isConverting || isProcessing || !activeSpecId}
+                >
+                  {isConverting || isProcessing ? (
+                    <>
+                      <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                      <span className="text-base">処理中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-base font-bold leading-none">P</span>
+                      一括変換
+                      <span className="px-2 py-1 rounded-lg bg-white/25 text-sm font-bold">
+                        {selectedFileIds.length > 0 ? selectedFileIds.length : stats.failed}
+                      </span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

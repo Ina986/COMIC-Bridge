@@ -125,14 +125,20 @@ export function ThumbnailCard({
             >
               {file.metadata.dpi}dpi
             </span>
+            {file.metadata.hasAlphaChannels ? (
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${
+                  failedRuleTypes.includes("hasAlphaChannels")
+                    ? "bg-error/30 text-error"
+                    : "bg-warning/25 text-warning"
+                }`}
+              >
+                α{file.metadata.alphaChannelCount}
+              </span>
+            ) : null}
             {file.metadata.hasGuides && (
               <span className="text-[10px] text-guide-v bg-guide-v/20 px-1.5 py-0.5 rounded-md">
                 Guide
-              </span>
-            )}
-            {file.metadata.hasAlphaChannels && failedRuleTypes.includes("hasAlphaChannels") && (
-              <span className="text-[10px] bg-error/30 text-error px-1.5 py-0.5 rounded-md font-medium">
-                α
               </span>
             )}
           </div>

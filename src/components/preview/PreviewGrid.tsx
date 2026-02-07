@@ -1,11 +1,9 @@
 import { usePsdStore } from "../../store/psdStore";
 import { ThumbnailCard } from "./ThumbnailCard";
-import { PreviewList } from "./PreviewList";
 import { THUMBNAIL_SIZES } from "../../types";
 
 export function PreviewGrid() {
   const files = usePsdStore((state) => state.files);
-  const viewMode = usePsdStore((state) => state.viewMode);
   const thumbnailSize = usePsdStore((state) => state.thumbnailSize);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
   const activeFileId = usePsdStore((state) => state.activeFileId);
@@ -21,10 +19,6 @@ export function PreviewGrid() {
       selectFile(fileId);
     }
   };
-
-  if (viewMode === "list") {
-    return <PreviewList />;
-  }
 
   const size = THUMBNAIL_SIZES[thumbnailSize].value;
 

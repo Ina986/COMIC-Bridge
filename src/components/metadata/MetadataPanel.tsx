@@ -6,49 +6,8 @@ interface MetadataPanelProps {
 }
 
 export function MetadataPanel({ file }: MetadataPanelProps) {
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
   return (
     <div className="p-4 space-y-5">
-      {/* File Name */}
-      <div className="bg-bg-tertiary rounded-xl p-3">
-        <h3 className="text-xs font-medium text-text-muted mb-1.5 flex items-center gap-1.5">
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-          </svg>
-          ファイル名
-        </h3>
-        <p className="text-sm text-text-primary break-all font-medium">{file.fileName}</p>
-        {file.fileSize > 0 && (
-          <p className="text-xs text-text-muted mt-1">
-            {formatFileSize(file.fileSize)}
-          </p>
-        )}
-      </div>
-
-      {/* Thumbnail Preview */}
-      {file.thumbnailUrl && (
-        <div>
-          <h3 className="text-xs font-medium text-text-muted mb-2 flex items-center gap-1.5">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            プレビュー
-          </h3>
-          <div className="bg-bg-tertiary rounded-xl p-3 flex items-center justify-center border border-white/5">
-            <img
-              src={file.thumbnailUrl}
-              alt={file.fileName}
-              className="max-w-full max-h-48 object-contain rounded-lg"
-            />
-          </div>
-        </div>
-      )}
-
       {file.metadata ? (
         <>
           {/* Color Mode & Bit Depth */}
@@ -96,53 +55,6 @@ export function MetadataPanel({ file }: MetadataPanelProps) {
                 {file.metadata.dpi} dpi
               </span>
             </div>
-          </div>
-
-          {/* Guides */}
-          <div className="bg-bg-tertiary rounded-xl p-3">
-            <h3 className="text-xs font-medium text-text-muted mb-2 flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z" />
-              </svg>
-              ガイド
-            </h3>
-            {file.metadata.hasGuides ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-success" />
-                  <span className="text-sm text-success font-medium">
-                    {file.metadata.guides.length} 本
-                  </span>
-                </div>
-                <div className="bg-bg-elevated rounded-lg p-2 max-h-28 overflow-auto space-y-1">
-                  {file.metadata.guides.map((guide, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center gap-2 text-xs py-1 px-2 rounded-md hover:bg-white/5"
-                    >
-                      <span
-                        className={`w-2.5 h-2.5 rounded-full ${
-                          guide.direction === "horizontal"
-                            ? "bg-guide-h"
-                            : "bg-guide-v"
-                        }`}
-                      />
-                      <span className="text-text-secondary min-w-[2.5rem]">
-                        {guide.direction === "horizontal" ? "水平" : "垂直"}
-                      </span>
-                      <span className="font-mono text-text-primary">
-                        {guide.position} px
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-text-muted">
-                <span className="w-2 h-2 rounded-full bg-text-muted/50" />
-                <span className="text-sm">ガイドなし</span>
-              </div>
-            )}
           </div>
 
           {/* Layer Tree */}

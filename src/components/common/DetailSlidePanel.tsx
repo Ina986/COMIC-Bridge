@@ -1,5 +1,7 @@
 import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
+import { useOpenInPhotoshop } from "../../hooks/useOpenInPhotoshop";
+import { usePhotoshopConverter } from "../../hooks/usePhotoshopConverter";
 import { MetadataPanel } from "../metadata/MetadataPanel";
 import { FixGuidePanel } from "../spec-checker/FixGuidePanel";
 import { GuideSectionPanel } from "../spec-checker/GuideSectionPanel";
@@ -8,6 +10,8 @@ export function DetailSlidePanel() {
   const activeFile = usePsdStore((state) => state.getActiveFile());
   const clearSelection = usePsdStore((state) => state.clearSelection);
   const checkResults = useSpecStore((state) => state.checkResults);
+  const { openFileInPhotoshop } = useOpenInPhotoshop();
+  const { isPhotoshopInstalled } = usePhotoshopConverter();
 
   const checkResult = activeFile ? checkResults.get(activeFile.id) : undefined;
   const hasError = checkResult && !checkResult.passed;
@@ -48,17 +52,31 @@ export function DetailSlidePanel() {
                   {activeFile.fileName}
                 </span>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clearSelection();
-                }}
-                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors flex-shrink-0"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {isPhotoshopInstalled && activeFile.filePath && (
+                  <button
+                    className="w-6 h-6 flex items-center justify-center rounded transition-all text-[#31A8FF] hover:bg-[#31A8FF]/15 active:scale-95"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openFileInPhotoshop(activeFile.filePath);
+                    }}
+                    title="Photoshopで開く (P)"
+                  >
+                    <span className="text-sm font-bold leading-none">P</span>
+                  </button>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    clearSelection();
+                  }}
+                  className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             {/* Content */}

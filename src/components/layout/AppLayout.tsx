@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { TopNav } from "./TopNav";
 import { ViewRouter } from "./ViewRouter";
 import { GuideEditorModal } from "../guide-editor/GuideEditorModal";
-import { SpecSelectionModal } from "../spec-checker/SpecSelectionModal";
+
 import { ConversionToast } from "../spec-checker/ConversionToast";
 import { usePsdStore } from "../../store/psdStore";
 import { useGuideStore } from "../../store/guideStore";
@@ -45,8 +45,6 @@ export function AppLayout() {
       {/* Guide Editor Modal */}
       {isEditorOpen && <GuideEditorModal />}
 
-      {/* Spec Selection Modal */}
-      <SpecSelectionModal />
 
       {/* Photoshop変換完了トースト */}
       <ConversionToast />

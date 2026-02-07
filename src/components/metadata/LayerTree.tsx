@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { LayerNode } from "../../types";
 
 interface LayerTreeProps {
@@ -7,9 +7,11 @@ interface LayerTreeProps {
 }
 
 export function LayerTree({ layers, depth = 0 }: LayerTreeProps) {
+  // ag-psdはbottom-to-top順で返すため、reverseしてPhotoshop表示順（上がforeground）に変換
+  const reversed = useMemo(() => [...layers].reverse(), [layers]);
   return (
     <div className="text-xs space-y-0.5">
-      {layers.map((layer) => (
+      {reversed.map((layer) => (
         <LayerItem key={layer.id} layer={layer} depth={depth} />
       ))}
     </div>

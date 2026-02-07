@@ -73,7 +73,7 @@ async function extractEmbeddedThumbnail(psd: Psd): Promise<string | undefined> {
     if (thumbResource) {
       const thumbData = thumbResource as any;
       if (thumbData.canvas) {
-        return thumbData.canvas.toDataURL("image/jpeg", 0.8);
+        return thumbData.canvas.toDataURL("image/jpeg", 0.92);
       }
       if (thumbData.data && thumbData.data instanceof Uint8Array) {
         const blob = new Blob([thumbData.data], { type: "image/jpeg" });
@@ -202,7 +202,7 @@ async function generateThumbnail(psd: Psd): Promise<string | undefined> {
       // Check if thumbnail has canvas or data
       const thumbData = (thumbResource as any);
       if (thumbData.canvas) {
-        return thumbData.canvas.toDataURL("image/jpeg", 0.8);
+        return thumbData.canvas.toDataURL("image/jpeg", 0.92);
       }
       if (thumbData.data && thumbData.data instanceof Uint8Array) {
         const blob = new Blob([thumbData.data], { type: "image/jpeg" });
@@ -225,16 +225,17 @@ async function generateThumbnail(psd: Psd): Promise<string | undefined> {
         );
         ctx.putImageData(imageData, 0, 0);
 
-        // Scale down for thumbnail
-        const maxSize = 400;
+        // Scale down for thumbnail (high quality)
+        const maxSize = 800;
         const scale = Math.min(maxSize / psd.width, maxSize / psd.height, 1);
         const thumbCanvas = document.createElement("canvas");
         thumbCanvas.width = Math.round(psd.width * scale);
         thumbCanvas.height = Math.round(psd.height * scale);
         const thumbCtx = thumbCanvas.getContext("2d");
         if (thumbCtx) {
+          thumbCtx.imageSmoothingQuality = "high";
           thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
-          return thumbCanvas.toDataURL("image/jpeg", 0.8);
+          return thumbCanvas.toDataURL("image/jpeg", 0.92);
         }
       }
     }
