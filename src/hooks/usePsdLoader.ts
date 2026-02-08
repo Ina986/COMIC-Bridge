@@ -1,16 +1,23 @@
 import { useCallback } from "react";
 import { readDir, readFile, stat } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
 import { useSpecStore } from "../store/specStore";
 import { useViewStore } from "../store/viewStore";
 import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
 import { naturalCompare } from "../lib/naturalSort";
-import { isSupportedFile, isPsdFile } from "../types";
+import { isSupportedFile, isPsdFile, isPdfFile } from "../types";
 import type { PsdFile } from "../types";
+
+interface PdfInfoResult {
+  page_count: number;
+  pages: { width: number; height: number }[];
+}
 
 export function usePsdLoader() {
   const setFiles = usePsdStore((state) => state.setFiles);
   const updateFile = usePsdStore((state) => state.updateFile);
+  const replaceFile = usePsdStore((state) => state.replaceFile);
   const setLoadingStatus = usePsdStore((state) => state.setLoadingStatus);
   const setCurrentFolderPath = usePsdStore((state) => state.setCurrentFolderPath);
   const setErrorMessage = usePsdStore((state) => state.setErrorMessage);
@@ -120,13 +127,86 @@ export function usePsdLoader() {
                 if (!result.thumbnailData) {
                   filesNeedingThumbnail.push(file.id);
                 }
+              } else if (isPdfFile(file.fileName)) {
+                // PDF: ページ情報取得 → ページ数分のエントリーに展開
+                try {
+                  updateFile(file.id, { thumbnailStatus: "loading" });
+                  const fileStat = await stat(file.filePath);
+
+                  const pdfInfo = await invoke<PdfInfoResult>("get_pdf_info", {
+                    filePath: file.filePath,
+                  });
+
+                  if (pdfInfo.page_count === 0) {
+                    updateFile(file.id, {
+                      fileSize: fileStat.size,
+                      thumbnailStatus: "ready",
+                    });
+                    return;
+                  }
+
+                  // Create page entries
+                  const pageFiles: PsdFile[] = pdfInfo.pages.map((page, pageIdx) => ({
+                    id: `${file.id}-p${pageIdx}`,
+                    filePath: file.filePath,
+                    fileName: `${file.fileName} [p${pageIdx + 1}]`,
+                    fileSize: fileStat.size,
+                    modifiedTime: file.modifiedTime,
+                    sourceType: "pdf" as const,
+                    pdfSourcePath: file.filePath,
+                    pdfPageIndex: pageIdx,
+                    metadata: {
+                      width: page.width,
+                      height: page.height,
+                      dpi: 72,
+                      colorMode: "RGB" as const,
+                      bitsPerChannel: 8,
+                      hasGuides: false,
+                      guides: [],
+                      layerCount: 0,
+                      layerTree: [],
+                      hasAlphaChannels: false,
+                      alphaChannelCount: 0,
+                      alphaChannelNames: [],
+                      hasTombo: false,
+                    },
+                    thumbnailStatus: "pending",
+                  }));
+
+                  replaceFile(file.id, pageFiles);
+
+                  // Generate thumbnails for each page
+                  for (const pageFile of pageFiles) {
+                    try {
+                      const thumbnail = await invoke<string>("get_pdf_thumbnail", {
+                        filePath: pageFile.pdfSourcePath,
+                        pageIndex: pageFile.pdfPageIndex,
+                        maxSize: 200,
+                      });
+                      updateFile(pageFile.id, {
+                        thumbnailUrl: `data:image/jpeg;base64,${thumbnail}`,
+                        thumbnailStatus: "ready",
+                      });
+                    } catch (thumbErr) {
+                      console.error(`Failed to generate PDF thumbnail for page ${pageFile.pdfPageIndex}:`, thumbErr);
+                      updateFile(pageFile.id, { thumbnailStatus: "ready" });
+                    }
+                  }
+                } catch (pdfErr) {
+                  console.error(`Failed to load PDF ${file.fileName}:`, pdfErr);
+                  // Fallback: keep as single file entry without preview
+                  updateFile(file.id, {
+                    thumbnailStatus: "ready",
+                    error: pdfErr instanceof Error ? pdfErr.message : "PDF読み込みエラー",
+                  });
+                }
               } else {
-                // 非PSD: ファイルサイズのみ取得（Photoshopが開ける前提）
+                // 非PSD/非PDF: ファイルサイズのみ取得（Photoshopが開ける前提）
                 try {
                   const fileStat = await stat(file.filePath);
                   updateFile(file.id, {
                     fileSize: fileStat.size,
-                    thumbnailStatus: "ready", // サムネイルなしだが正常扱い
+                    thumbnailStatus: "ready",
                   });
                 } catch {
                   updateFile(file.id, { thumbnailStatus: "ready" });
@@ -174,7 +254,7 @@ export function usePsdLoader() {
         selectSpecAndCheck(lastSpec);
       }
     },
-    [setFiles, updateFile, setLoadingStatus, selectSpecAndCheck]
+    [setFiles, updateFile, replaceFile, setLoadingStatus, selectSpecAndCheck]
   );
 
   return { loadFolder, loadFiles };

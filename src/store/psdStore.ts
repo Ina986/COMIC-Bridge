@@ -21,6 +21,7 @@ interface PsdStore {
   addFiles: (files: PsdFile[]) => void;
   updateFile: (id: string, updates: Partial<PsdFile>) => void;
   removeFile: (id: string) => void;
+  replaceFile: (id: string, newFiles: PsdFile[]) => void;
   clearFiles: () => void;
 
   setLoadingStatus: (status: "idle" | "loading" | "error") => void;
@@ -69,6 +70,10 @@ export const usePsdStore = create<PsdStore>((set, get) => ({
       files: state.files.filter((f) => f.id !== id),
       selectedFileIds: state.selectedFileIds.filter((sid) => sid !== id),
       activeFileId: state.activeFileId === id ? null : state.activeFileId,
+    })),
+  replaceFile: (id, newFiles) =>
+    set((state) => ({
+      files: state.files.flatMap((f) => (f.id === id ? newFiles : [f])),
     })),
   clearFiles: () =>
     set({

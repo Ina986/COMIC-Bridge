@@ -1095,9 +1095,16 @@ pub async fn run_photoshop_layer_visibility(
 // Photoshop Split Processing
 // ============================================
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SplitFileInfo {
+    pub path: String,
+    #[serde(rename = "pdfPageIndex")]
+    pub pdf_page_index: i32, // -1 = not a PDF page
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SplitSettings {
-    pub files: Vec<String>,
+    pub files: Vec<SplitFileInfo>,
     pub mode: String, // "even", "uneven", "none"
     #[serde(rename = "outputFormat")]
     pub output_format: String, // "psd", "jpg"
@@ -1109,6 +1116,10 @@ pub struct SplitSettings {
     pub selection_right: i32,
     #[serde(rename = "pageNumbering")]
     pub page_numbering: String, // "rl", "sequential"
+    #[serde(rename = "firstPageBlank")]
+    pub first_page_blank: bool,
+    #[serde(rename = "customBaseName")]
+    pub custom_base_name: String,
     #[serde(rename = "deleteHiddenLayers")]
     pub delete_hidden_layers: bool,
     #[serde(rename = "deleteOffCanvasText")]
@@ -1119,21 +1130,30 @@ pub struct SplitSettings {
     pub output_path: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SplitResponse {
+    pub results: Vec<PhotoshopResult>,
+    #[serde(rename = "outputDir")]
+    pub output_dir: String,
+}
+
 /// Run Photoshop to split spread pages
 #[tauri::command]
 pub async fn run_photoshop_split(
     app_handle: tauri::AppHandle,
-    file_paths: Vec<String>,
+    file_infos: Vec<SplitFileInfo>,
     mode: String,
     output_format: String,
     jpg_quality: u8,
     selection_left: i32,
     selection_right: i32,
     page_numbering: String,
+    first_page_blank: bool,
+    custom_base_name: String,
     delete_hidden_layers: bool,
     delete_off_canvas_text: bool,
     output_dir: String,
-) -> Result<Vec<PhotoshopResult>, String> {
+) -> Result<SplitResponse, String> {
     use std::process::Command;
     use std::io::Write;
 
@@ -1161,22 +1181,54 @@ pub async fn run_photoshop_split(
     };
 
     let temp_dir = std::env::temp_dir();
+
+    // スクリプトをtempにコピー（日本語パスのDDE転送問題を回避）
+    let temp_script = temp_dir.join("split_psd_temp.jsx");
+    fs::copy(&script_path_str, &temp_script)
+        .map_err(|e| format!("Failed to copy script to temp: {}", e))?;
+    let script_to_run = temp_script.to_string_lossy().to_string();
+
     let settings_path = temp_dir.join("psd_split_settings.json");
     let output_path = temp_dir.join("psd_split_results.json");
 
     let _ = fs::remove_file(&output_path);
 
+    // 出力先フォルダが既存なら連番で新規作成
+    let final_output_dir = {
+        let base_path = Path::new(&output_dir);
+        if base_path.exists() {
+            let base = output_dir.clone();
+            let mut counter = 1;
+            loop {
+                let candidate = format!("{} ({})", base, counter);
+                if !Path::new(&candidate).exists() {
+                    break candidate;
+                }
+                counter += 1;
+            }
+        } else {
+            output_dir.clone()
+        }
+    };
+
+    eprintln!("Split - Output dir: {}", final_output_dir);
+
     let settings = SplitSettings {
-        files: file_paths.iter().map(|p| p.replace("\\", "/")).collect(),
+        files: file_infos.iter().map(|fi| SplitFileInfo {
+            path: fi.path.replace("\\", "/"),
+            pdf_page_index: fi.pdf_page_index,
+        }).collect(),
         mode,
         output_format,
         jpg_quality,
         selection_left,
         selection_right,
         page_numbering,
+        first_page_blank,
+        custom_base_name,
         delete_hidden_layers,
         delete_off_canvas_text,
-        output_dir: output_dir.replace("\\", "/"),
+        output_dir: final_output_dir.replace("\\", "/"),
         output_path: output_path.to_string_lossy().to_string().replace("\\", "/"),
     };
 
@@ -1192,15 +1244,20 @@ pub async fn run_photoshop_split(
     drop(settings_file);
 
     eprintln!("Split - Photoshop: {}", ps_path);
-    eprintln!("Split - Script: {}", script_path_str);
-    eprintln!("Split - Files: {}", file_paths.len());
+    eprintln!("Split - Script (source): {}", script_path_str);
+    eprintln!("Split - Script (temp): {}", script_to_run);
+    eprintln!("Split - Files: {}", file_infos.len());
     eprintln!("Split - Mode: {}", settings.mode);
+    eprintln!("Split - Settings path: {}", settings_path.display());
 
-    let _output = Command::new(&ps_path)
+    // spawn() で即座にリターン（output() だと PS が開いている間ブロックする）
+    let _child = Command::new(&ps_path)
         .arg("-r")
-        .arg(&script_path_str)
-        .output()
+        .arg(&script_to_run)
+        .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    eprintln!("Split - Photoshop launched, polling for results...");
 
     // Poll for results (split takes longer per file)
     let max_wait_secs = 300; // 5 minutes for split
@@ -1232,13 +1289,15 @@ pub async fn run_photoshop_split(
 
         let _ = fs::remove_file(&settings_path);
         let _ = fs::remove_file(&output_path);
+        let _ = fs::remove_file(&temp_script);
 
         if let Some(window) = app_handle.get_webview_window("main") {
             let _ = window.set_focus();
         }
 
-        Ok(results)
+        Ok(SplitResponse { results, output_dir: final_output_dir.clone() })
     } else {
+        let _ = fs::remove_file(&temp_script);
         if let Some(window) = app_handle.get_webview_window("main") {
             let _ = window.set_focus();
         }
@@ -1655,6 +1714,187 @@ pub async fn cleanup_preview_files() -> Result<u32, String> {
     }
 
     Ok(cleaned_count)
+}
+
+// ============================================
+// PDF Support
+// ============================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PdfInfoResult {
+    pub page_count: usize,
+    pub pages: Vec<PdfPageInfoResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PdfPageInfoResult {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Get PDF page count and dimensions
+#[tauri::command]
+pub async fn get_pdf_info(file_path: String) -> Result<PdfInfoResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let info = crate::pdf::get_pdf_info_sync(&file_path)?;
+        Ok(PdfInfoResult {
+            page_count: info.page_count,
+            pages: info.pages.iter().map(|p| PdfPageInfoResult {
+                width: p.width_px,
+                height: p.height_px,
+            }).collect(),
+        })
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+/// Generate a high-res preview for a PDF page (same result format as PSD preview)
+#[tauri::command]
+pub async fn get_pdf_preview(
+    file_path: String,
+    page_index: usize,
+    max_size: u32,
+) -> Result<HighResPreviewResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let path = Path::new(&file_path);
+        let modified_secs = get_file_modified_secs(path);
+        let original_name = path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("pdf_preview");
+
+        // Cache key includes page index
+        let cache_key = format!("{}_{}_{}_{}", file_path, modified_secs, page_index, max_size);
+
+        // Check memory cache
+        if let Ok(cache) = get_preview_result_cache().lock() {
+            if let Some(cached) = cache.get(&cache_key) {
+                if Path::new(&cached.file_path).exists() {
+                    return Ok(cached.clone());
+                }
+            }
+        }
+
+        // Check disk cache
+        let temp_dir = std::env::temp_dir();
+        let preview_filename = format!(
+            "manga_pdf_preview_{}_{}_p{}_{}.jpg",
+            original_name, modified_secs, page_index, max_size
+        );
+        let preview_path = temp_dir.join(&preview_filename);
+
+        if preview_path.exists() {
+            let (img, original_width, original_height) =
+                crate::pdf::render_pdf_page_sync(&file_path, page_index, max_size)?;
+            let (preview_width, preview_height) = image::image_dimensions(&preview_path)
+                .unwrap_or((img.width(), img.height()));
+
+            let result = HighResPreviewResult {
+                file_path: preview_path.to_string_lossy().to_string(),
+                original_width,
+                original_height,
+                preview_width,
+                preview_height,
+            };
+
+            if let Ok(mut cache) = get_preview_result_cache().lock() {
+                if cache.len() >= MAX_PREVIEW_CACHE_ENTRIES {
+                    cache.clear();
+                }
+                cache.insert(cache_key, result.clone());
+            }
+
+            return Ok(result);
+        }
+
+        // Full generation
+        let (img, original_width, original_height) =
+            crate::pdf::render_pdf_page_sync(&file_path, page_index, max_size)?;
+
+        let resized = img.resize(max_size, max_size, FilterType::Triangle);
+        let (preview_width, preview_height) = resized.dimensions();
+
+        // Save to disk cache
+        use image::codecs::jpeg::JpegEncoder;
+        let file = File::create(&preview_path)
+            .map_err(|e| format!("Failed to create PDF preview file: {}", e))?;
+        let mut writer = std::io::BufWriter::new(file);
+        let encoder = JpegEncoder::new_with_quality(&mut writer, 85);
+        resized.write_with_encoder(encoder)
+            .map_err(|e| format!("Failed to encode PDF preview JPEG: {}", e))?;
+
+        let result = HighResPreviewResult {
+            file_path: preview_path.to_string_lossy().to_string(),
+            original_width,
+            original_height,
+            preview_width,
+            preview_height,
+        };
+
+        if let Ok(mut cache) = get_preview_result_cache().lock() {
+            if cache.len() >= MAX_PREVIEW_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(cache_key, result.clone());
+        }
+
+        Ok(result)
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+/// Generate a small thumbnail for a PDF page (returns base64 JPEG)
+#[tauri::command]
+pub async fn get_pdf_thumbnail(
+    file_path: String,
+    page_index: usize,
+    max_size: u32,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let (img, _original_width, _original_height) =
+            crate::pdf::render_pdf_page_sync(&file_path, page_index, max_size)?;
+
+        let resized = img.resize(max_size, max_size, FilterType::Triangle);
+
+        // Encode to JPEG in memory
+        use image::codecs::jpeg::JpegEncoder;
+        let mut buffer = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut buffer);
+        let encoder = JpegEncoder::new_with_quality(&mut cursor, 75);
+        resized.write_with_encoder(encoder)
+            .map_err(|e| format!("Failed to encode thumbnail: {}", e))?;
+
+        drop(cursor);
+        Ok(base64_encode(&buffer))
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))?
+}
+
+/// Simple base64 encoder (no external dependency)
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity(data.len() * 4 / 3 + 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((n >> 18) & 0x3F) as usize] as char);
+        result.push(CHARS[((n >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((n >> 6) & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(n & 0x3F) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
 }
 
 // ============================================

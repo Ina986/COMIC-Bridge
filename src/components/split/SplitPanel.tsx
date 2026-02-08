@@ -8,6 +8,7 @@ import {
   type PageNumbering,
 } from "../../store/splitStore";
 import { useSplitProcessor } from "../../hooks/useSplitProcessor";
+import { SplitResultDialog } from "./SplitResultDialog";
 
 export function SplitPanel() {
   const files = usePsdStore((state) => state.files);
@@ -22,10 +23,11 @@ export function SplitPanel() {
   const currentFile = useSplitStore((state) => state.currentFile);
   const results = useSplitStore((state) => state.results);
 
+  const setShowResultDialog = useSplitStore((state) => state.setShowResultDialog);
+
   const { splitSelectedFiles, splitAllFiles } = useSplitProcessor();
 
-  const successCount = results.filter((r) => r.success).length;
-  const totalOutputFiles = results.reduce((acc, r) => acc + r.outputFiles.length, 0);
+  const hasResults = results.length > 0;
 
   // 基準ファイルのメタデータから計算
   const referenceFile = useMemo(() => {
@@ -136,9 +138,10 @@ export function SplitPanel() {
                         <div className="absolute inset-y-0 right-0 w-1.5 bg-[#00bcd4]/15" />
                       </div>
                     </div>
-                    <div className="flex justify-between w-full mt-0.5 px-0.5">
-                      <span className="text-[7px] text-[#00e5ff]/60">外側</span>
+                    <div className="flex w-full mt-0.5 px-0.5">
+                      <span className="text-[7px] text-[#00e5ff]/60 flex-1 text-left">外側</span>
                       <span className="text-[7px] text-text-muted/40">ノド</span>
+                      <span className="flex-1" />
                     </div>
                   </div>
 
@@ -170,21 +173,47 @@ export function SplitPanel() {
         {settings.mode !== "none" && (
           <div className="bg-bg-tertiary rounded-xl p-3">
             <h4 className="text-xs font-medium text-text-muted mb-2">ファイル名</h4>
-            <div className="space-y-1.5">
-              <PageNumberingOption
-                value="rl"
-                label="_R / _L"
-                description="右ページ / 左ページ"
-                current={settings.pageNumbering}
-                onChange={(v) => setSettings({ pageNumbering: v })}
-              />
-              <PageNumberingOption
-                value="sequential"
-                label="連番 (_001, _002...)"
-                description="ファイル順で通し番号"
-                current={settings.pageNumbering}
-                onChange={(v) => setSettings({ pageNumbering: v })}
-              />
+            <div className="space-y-2">
+              <div>
+                <label className="text-[10px] text-text-muted block mb-1">ベースネーム（空欄＝元ファイル名を使用）</label>
+                <input
+                  type="text"
+                  value={settings.customBaseName}
+                  onChange={(e) => setSettings({ customBaseName: e.target.value })}
+                  placeholder="例: 作品名_第1話"
+                  className="w-full px-2.5 py-1.5 text-sm bg-bg-elevated border border-border/50 rounded-lg text-text-primary placeholder:text-text-muted/40 focus:outline-none focus:border-accent-tertiary/50"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <PageNumberingOption
+                  value="rl"
+                  label="_R / _L"
+                  description="右ページ / 左ページ"
+                  current={settings.pageNumbering}
+                  onChange={(v) => setSettings({ pageNumbering: v })}
+                />
+                <PageNumberingOption
+                  value="sequential"
+                  label="連番 (_001, _002...)"
+                  description="ファイル順で通し番号"
+                  current={settings.pageNumbering}
+                  onChange={(v) => setSettings({ pageNumbering: v })}
+                />
+              </div>
+              {settings.pageNumbering === "sequential" && (
+                <label className="flex items-center gap-2.5 cursor-pointer mt-2 p-1.5 rounded-lg hover:bg-bg-elevated/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={settings.firstPageBlank}
+                    onChange={(e) => setSettings({ firstPageBlank: e.target.checked })}
+                    className="rounded accent-accent-tertiary"
+                  />
+                  <div>
+                    <span className="text-sm text-text-primary">1ファイル目の右が白紙</span>
+                    <p className="text-[10px] text-text-muted">白紙を破棄し、左ページから_001で開始</p>
+                  </div>
+                </label>
+              )}
             </div>
           </div>
         )}
@@ -278,40 +307,36 @@ export function SplitPanel() {
           </div>
         )}
 
-        {/* Results */}
-        {results.length > 0 && !isProcessing && (
-          <div className="bg-bg-tertiary rounded-xl p-3">
-            <h4 className="text-xs font-medium text-text-muted mb-2">処理結果</h4>
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="w-2 h-2 rounded-full bg-success" />
-                <span className="text-success">{successCount} ファイル成功</span>
+        {/* Last Results Summary (compact) */}
+        {hasResults && !isProcessing && (
+          <button
+            onClick={() => setShowResultDialog(true)}
+            className="
+              w-full bg-gradient-to-r from-accent-tertiary/10 to-accent-secondary/5
+              rounded-xl p-3 border border-accent-tertiary/30
+              hover:border-accent-tertiary/50 hover:from-accent-tertiary/15 hover:to-accent-secondary/10
+              transition-all text-left group
+            "
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-accent-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-sm font-medium text-text-primary">
+                  処理完了 — {results.filter((r) => r.success).length}/{results.length} 成功
+                </span>
               </div>
-              {totalOutputFiles > 0 && (
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="w-2 h-2 rounded-full bg-accent-tertiary" />
-                  <span className="text-text-secondary">{totalOutputFiles} ファイル出力</span>
-                </div>
-              )}
-              {results.some((r) => !r.success) && (
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="w-2 h-2 rounded-full bg-error" />
-                  <span className="text-error">
-                    {results.filter((r) => !r.success).length} ファイル失敗
-                  </span>
-                </div>
-              )}
-              {results
-                .filter((r) => !r.success && r.error)
-                .slice(0, 3)
-                .map((r, i) => (
-                  <p key={i} className="text-[10px] text-error/80 truncate pl-4">
-                    {r.fileName}: {r.error}
-                  </p>
-                ))}
+              <svg className="w-4 h-4 text-text-muted group-hover:text-accent-tertiary transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
             </div>
-          </div>
+            <p className="text-[10px] text-text-muted mt-1">クリックでレポートを表示</p>
+          </button>
         )}
+
+        {/* Result Dialog (portal) */}
+        <SplitResultDialog />
       </div>
 
       {/* Action Bar */}

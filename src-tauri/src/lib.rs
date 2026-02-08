@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod commands;
+pub mod pdf;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,6 +28,9 @@ pub fn run() {
             commands::open_folder_in_explorer,
             commands::reveal_files_in_explorer,
             commands::open_file_in_photoshop,
+            commands::get_pdf_info,
+            commands::get_pdf_preview,
+            commands::get_pdf_thumbnail,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

@@ -15,6 +15,8 @@ export interface SplitSettings {
   jpgQuality: number;
   selectionBounds: SelectionBounds | null;
   pageNumbering: PageNumbering;
+  firstPageBlank: boolean;
+  customBaseName: string;
   deleteHiddenLayers: boolean;
   deleteOffCanvasText: boolean;
   outputDirectory: string | null;
@@ -34,6 +36,9 @@ interface SplitState {
   totalFiles: number;
   currentFile: string | null;
   results: SplitResult[];
+  lastOutputDir: string | null;
+  processingDurationMs: number | null;
+  showResultDialog: boolean;
 
   // Selection history (undo/redo)
   selectionHistory: (SelectionBounds | null)[];
@@ -46,6 +51,9 @@ interface SplitState {
   setCurrentFile: (fileName: string | null) => void;
   addResult: (result: SplitResult) => void;
   clearResults: () => void;
+  setLastOutputDir: (dir: string | null) => void;
+  setProcessingDuration: (ms: number | null) => void;
+  setShowResultDialog: (show: boolean) => void;
   reset: () => void;
 
   // Selection history actions
@@ -63,7 +71,9 @@ const defaultSettings: SplitSettings = {
   outputFormat: "psd",
   jpgQuality: 95,
   selectionBounds: null,
-  pageNumbering: "rl",
+  pageNumbering: "sequential",
+  firstPageBlank: false,
+  customBaseName: "",
   deleteHiddenLayers: true,
   deleteOffCanvasText: true,
   outputDirectory: null,
@@ -76,6 +86,9 @@ export const useSplitStore = create<SplitState>((set) => ({
   totalFiles: 0,
   currentFile: null,
   results: [],
+  lastOutputDir: null,
+  processingDurationMs: null,
+  showResultDialog: false,
   selectionHistory: [],
   selectionFuture: [],
 
@@ -106,6 +119,12 @@ export const useSplitStore = create<SplitState>((set) => ({
     })),
 
   clearResults: () => set({ results: [] }),
+
+  setLastOutputDir: (dir) => set({ lastOutputDir: dir }),
+
+  setProcessingDuration: (ms) => set({ processingDurationMs: ms }),
+
+  setShowResultDialog: (show) => set({ showResultDialog: show }),
 
   reset: () =>
     set({

@@ -21,6 +21,10 @@ export function isPsdFile(fileName: string): boolean {
   return PSD_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+export function isPdfFile(fileName: string): boolean {
+  return fileName.toLowerCase().endsWith(".pdf");
+}
+
 // PSD File Types
 export interface PsdFile {
   id: string;
@@ -32,6 +36,10 @@ export interface PsdFile {
   thumbnailUrl?: string;
   thumbnailStatus: "pending" | "loading" | "ready" | "error";
   error?: string;
+  // PDF support
+  sourceType?: "psd" | "image" | "pdf";
+  pdfSourcePath?: string;
+  pdfPageIndex?: number;
 }
 
 export interface PsdMetadata {

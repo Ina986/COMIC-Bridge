@@ -23,6 +23,11 @@ function main() {
     var jsonStr = settingsFile.read();
     settingsFile.close();
 
+    // BOMが残っている場合はスキップ
+    if (jsonStr.charCodeAt(0) === 0xFEFF || jsonStr.charCodeAt(0) === 0xEF) {
+        jsonStr = jsonStr.substring(1);
+    }
+
     var settings;
     try {
         settings = parseJSON(jsonStr);
@@ -39,24 +44,60 @@ function main() {
 
     var results = [];
 
+    // Helper: extract file path from file info (supports both string and object format)
+    function getFilePath(fileInfo) {
+        if (typeof fileInfo === "string") return fileInfo;
+        return fileInfo.path;
+    }
+    function getPdfPageIndex(fileInfo) {
+        if (typeof fileInfo === "object" && fileInfo.pdfPageIndex >= 0) return fileInfo.pdfPageIndex;
+        return -1;
+    }
+
     // Detect standard width from reference file (2nd file or 1st if only 1)
     var standardWidth = 0;
     if (settings.files.length > 1 && settings.mode !== "none") {
         var refIndex = Math.min(1, settings.files.length - 1);
         try {
-            var refFile = new File(settings.files[refIndex]);
+            var refPath = getFilePath(settings.files[refIndex]);
+            var refPageIdx = getPdfPageIndex(settings.files[refIndex]);
+            var refFile = new File(refPath);
             if (refFile.exists) {
-                var refDoc = app.open(refFile);
+                var refDoc;
+                if (refPageIdx >= 0 && refPath.match(/\.pdf$/i)) {
+                    var pdfOpts = new PDFOpenOptions();
+                    pdfOpts.page = refPageIdx + 1;
+                    pdfOpts.resolution = 600;
+                    pdfOpts.mode = OpenDocumentMode.RGB;
+                    refDoc = app.open(refFile, pdfOpts);
+                } else {
+                    refDoc = app.open(refFile);
+                }
                 standardWidth = refDoc.width.value;
                 refDoc.close(SaveOptions.DONOTSAVECHANGES);
             }
         } catch (e) {}
     }
 
+    var nextPageNum = 1;
+    var skipFirstRight = (settings.firstPageBlank === true);
     for (var i = 0; i < settings.files.length; i++) {
-        var filePath = settings.files[i];
-        var result = processFile(filePath, settings, outputFolder, i, standardWidth);
+        var filePath = getFilePath(settings.files[i]);
+        var pdfPageIndex = getPdfPageIndex(settings.files[i]);
+        var doSkipRight = (skipFirstRight && i === 0);
+        var result = processFile(filePath, pdfPageIndex, settings, outputFolder, i, standardWidth, nextPageNum, doSkipRight);
         results.push(result);
+
+        // 出力ファイル数でページ番号を進める（SKIPPEDは除外）
+        var outputCount = 0;
+        for (var j = 0; j < result.changes.length; j++) {
+            if (result.changes[j].indexOf("SKIPPED") === -1) {
+                outputCount++;
+            }
+        }
+        if (outputCount > 0) {
+            nextPageNum += outputCount;
+        }
     }
 
     var outputFile = new File(settings.outputPath);
@@ -75,13 +116,12 @@ function zeroPad(num, length) {
     return s;
 }
 
-function getPageNames(baseName, settings, fileIndex) {
+function getPageNames(baseName, settings, startPageNum) {
     if (settings.pageNumbering === "sequential") {
-        var pageNum = fileIndex * 2;
         return {
-            right: baseName + "_" + zeroPad(pageNum + 1, 3),
-            left: baseName + "_" + zeroPad(pageNum + 2, 3),
-            single: baseName + "_" + zeroPad(fileIndex + 1, 3)
+            right: baseName + "_" + zeroPad(startPageNum, 3),
+            left: baseName + "_" + zeroPad(startPageNum + 1, 3),
+            single: baseName + "_" + zeroPad(startPageNum, 3)
         };
     }
     return {
@@ -91,7 +131,7 @@ function getPageNames(baseName, settings, fileIndex) {
     };
 }
 
-function processFile(filePath, settings, outputFolder, fileIndex, standardWidth) {
+function processFile(filePath, pdfPageIndex, settings, outputFolder, fileIndex, standardWidth, startPageNum, skipRightPage) {
     var result = {
         filePath: filePath,
         success: false,
@@ -108,11 +148,32 @@ function processFile(filePath, settings, outputFolder, fileIndex, standardWidth)
             return result;
         }
 
-        doc = app.open(file);
+        // 既に分割済みファイル(_L/_R)はスキップ
+        var checkName = decodeURI(file.name).replace(/\.[^.]+$/, '');
+        if (checkName.match(/_(L|R)$/)) {
+            result.success = true;
+            result.changes.push("SKIPPED (already split)");
+            return result;
+        }
+
+        // PDFはページ指定でオープン
+        if (pdfPageIndex >= 0 && filePath.match(/\.pdf$/i)) {
+            var pdfOpts = new PDFOpenOptions();
+            pdfOpts.page = pdfPageIndex + 1;  // 1-based
+            pdfOpts.resolution = 600;
+            pdfOpts.mode = OpenDocumentMode.RGB;
+            pdfOpts.antiAlias = true;
+            pdfOpts.constrainProportions = true;
+            doc = app.open(file, pdfOpts);
+        } else {
+            doc = app.open(file);
+        }
 
         var originalWidth = doc.width.value;
         var originalHeight = doc.height.value;
-        var baseName = file.name.replace(/\.[^.]+$/, '');
+        var baseName = (settings.customBaseName && settings.customBaseName !== "")
+            ? settings.customBaseName
+            : decodeURI(file.name).replace(/\.[^.]+$/, '');
 
         // Detect single page (first/last file that is <70% of standard width)
         var isSinglePage = false;
@@ -126,14 +187,14 @@ function processFile(filePath, settings, outputFolder, fileIndex, standardWidth)
         if (settings.mode === "none") {
             // No split - just save in target format
             if (settings.deleteHiddenLayers) deleteHiddenLayers(doc);
-            var names = getPageNames(baseName, settings, fileIndex);
+            var names = getPageNames(baseName, settings, startPageNum);
             saveDocument(doc, outputFolder, names.single, settings);
             result.changes.push(names.single + "." + settings.outputFormat);
             doc.close(SaveOptions.DONOTSAVECHANGES);
         } else if (isSinglePage) {
             // Single page: resize canvas if uneven mode has target width
             if (settings.deleteHiddenLayers) deleteHiddenLayers(doc);
-            var names = getPageNames(baseName, settings, fileIndex);
+            var names = getPageNames(baseName, settings, startPageNum);
 
             if (settings.mode === "uneven") {
                 var halfWidth = Math.floor(standardWidth / 2);
@@ -150,9 +211,9 @@ function processFile(filePath, settings, outputFolder, fileIndex, standardWidth)
             result.changes.push(names.single + "." + settings.outputFormat);
             doc.close(SaveOptions.DONOTSAVECHANGES);
         } else if (settings.mode === "even") {
-            processEvenSplit(doc, baseName, outputFolder, settings, result, fileIndex);
+            processEvenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage);
         } else if (settings.mode === "uneven") {
-            processUnevenSplit(doc, baseName, outputFolder, settings, result, fileIndex);
+            processUnevenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage);
         }
 
         doc = null;
@@ -171,11 +232,28 @@ function processFile(filePath, settings, outputFolder, fileIndex, standardWidth)
 /* -----------------------------------------------------
   Even Split (center)
  ----------------------------------------------------- */
-function processEvenSplit(doc, baseName, outputFolder, settings, result, fileIndex) {
+function processEvenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage) {
     var originalWidth = doc.width.value;
     var originalHeight = doc.height.value;
     var halfWidth = Math.floor(originalWidth / 2);
-    var names = getPageNames(baseName, settings, fileIndex);
+
+    if (skipRightPage) {
+        // 白紙右ページを破棄 — 左ページのみ保存（連番の最初）
+        var names = getPageNames(baseName, settings, startPageNum);
+        var leftDoc = doc.duplicate();
+        if (settings.deleteHiddenLayers) deleteHiddenLayers(leftDoc);
+        if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(leftDoc, "right");
+        leftDoc.crop([0, 0, halfWidth, originalHeight]);
+
+        saveDocument(leftDoc, outputFolder, names.single, settings);
+        leftDoc.close(SaveOptions.DONOTSAVECHANGES);
+        result.changes.push(names.single + "." + settings.outputFormat);
+
+        doc.close(SaveOptions.DONOTSAVECHANGES);
+        return;
+    }
+
+    var names = getPageNames(baseName, settings, startPageNum);
 
     // Right page (even number in manga reading order)
     var rightDoc = doc.duplicate();
@@ -203,11 +281,10 @@ function processEvenSplit(doc, baseName, outputFolder, settings, result, fileInd
 /* -----------------------------------------------------
   Uneven Split (margin-adjusted)
  ----------------------------------------------------- */
-function processUnevenSplit(doc, baseName, outputFolder, settings, result, fileIndex) {
+function processUnevenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage) {
     var originalWidth = doc.width.value;
     var originalHeight = doc.height.value;
     var halfWidth = Math.floor(originalWidth / 2);
-    var names = getPageNames(baseName, settings, fileIndex);
 
     // 元スクリプト(bunkatsu_ver1.13.jsx)準拠のマージン計算
     var outerMargin = settings.selectionLeft || 0;
@@ -229,6 +306,25 @@ function processUnevenSplit(doc, baseName, outputFolder, settings, result, fileI
     }
 
     var finalOutputWidth = halfWidth + marginToAdd;
+
+    if (skipRightPage) {
+        // 白紙右ページを破棄 — 左ページのみ保存
+        var names = getPageNames(baseName, settings, startPageNum);
+        var leftDoc = doc.duplicate();
+        if (settings.deleteHiddenLayers) deleteHiddenLayers(leftDoc);
+        if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(leftDoc, "right");
+        leftDoc.crop([0, 0, halfWidth, originalHeight]);
+        leftDoc.resizeCanvas(UnitValue(finalOutputWidth, "px"), leftDoc.height, AnchorPosition.MIDDLELEFT);
+
+        saveDocument(leftDoc, outputFolder, names.single, settings);
+        leftDoc.close(SaveOptions.DONOTSAVECHANGES);
+        result.changes.push(names.single + "." + settings.outputFormat);
+
+        doc.close(SaveOptions.DONOTSAVECHANGES);
+        return;
+    }
+
+    var names = getPageNames(baseName, settings, startPageNum);
 
     // Right page: crop right half → resizeCanvas to add inner padding on left
     var rightDoc = doc.duplicate();

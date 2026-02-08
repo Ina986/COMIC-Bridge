@@ -13,6 +13,8 @@ interface HighResPreviewResult {
 interface UseHighResPreviewOptions {
   maxSize?: number;
   enabled?: boolean;
+  pdfPageIndex?: number;
+  pdfSourcePath?: string;
 }
 
 interface UseHighResPreviewReturn {
@@ -27,16 +29,17 @@ interface UseHighResPreviewReturn {
 /**
  * High-resolution preview hook for the guide editor.
  * Loads a high-quality preview image from Rust backend.
+ * Supports both PSD/image files and PDF pages.
  *
- * @param filePath - Path to the PSD file
- * @param options - Configuration options
+ * @param filePath - Path to the file
+ * @param options - Configuration options (including optional PDF page info)
  * @returns Preview state and controls
  */
 export function useHighResPreview(
   filePath: string | undefined,
   options: UseHighResPreviewOptions = {}
 ): UseHighResPreviewReturn {
-  const { maxSize = 1200, enabled = true } = options;
+  const { maxSize = 1200, enabled = true, pdfPageIndex, pdfSourcePath } = options;
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [originalSize, setOriginalSize] = useState<{
@@ -63,10 +66,22 @@ export function useHighResPreview(
     setError(null);
 
     try {
-      const result = await invoke<HighResPreviewResult>("get_high_res_preview", {
-        filePath,
-        maxSize,
-      });
+      let result: HighResPreviewResult;
+
+      if (pdfPageIndex !== undefined && pdfSourcePath) {
+        // PDF page preview
+        result = await invoke<HighResPreviewResult>("get_pdf_preview", {
+          filePath: pdfSourcePath,
+          pageIndex: pdfPageIndex,
+          maxSize,
+        });
+      } else {
+        // PSD/image preview
+        result = await invoke<HighResPreviewResult>("get_high_res_preview", {
+          filePath,
+          maxSize,
+        });
+      }
 
       // Convert file path to asset:// URL for display
       const assetUrl = convertFileSrc(result.file_path);
@@ -89,7 +104,7 @@ export function useHighResPreview(
     } finally {
       setIsLoading(false);
     }
-  }, [filePath, maxSize, enabled]);
+  }, [filePath, maxSize, enabled, pdfPageIndex, pdfSourcePath]);
 
   // Load preview when filePath changes
   useEffect(() => {

@@ -1,4 +1,8 @@
-export function DropZone() {
+interface DropZoneProps {
+  showPdf?: boolean;
+}
+
+export function DropZone({ showPdf = false }: DropZoneProps) {
   // ブラウザのデフォルトdrag挙動を防止
   const preventDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -50,6 +54,11 @@ export function DropZone() {
           <span className="px-3 py-1 bg-manga-lavender/20 text-manga-lavender text-xs rounded-full">
             .psb
           </span>
+          {showPdf && (
+            <span className="px-3 py-1 bg-manga-lavender/20 text-manga-lavender text-xs rounded-full">
+              .pdf
+            </span>
+          )}
         </div>
       </div>
     </div>

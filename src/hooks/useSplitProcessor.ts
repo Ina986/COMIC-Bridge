@@ -11,6 +11,11 @@ interface PhotoshopResult {
   error: string | null;
 }
 
+interface SplitResponse {
+  results: PhotoshopResult[];
+  outputDir: string;
+}
+
 export function useSplitProcessor() {
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
@@ -20,6 +25,9 @@ export function useSplitProcessor() {
   const setCurrentFile = useSplitStore((state) => state.setCurrentFile);
   const addResult = useSplitStore((state) => state.addResult);
   const clearResults = useSplitStore((state) => state.clearResults);
+  const setLastOutputDir = useSplitStore((state) => state.setLastOutputDir);
+  const setProcessingDuration = useSplitStore((state) => state.setProcessingDuration);
+  const setShowResultDialog = useSplitStore((state) => state.setShowResultDialog);
 
   // 出力ディレクトリを準備
   const getOutputDir = useCallback(async (): Promise<string> => {
@@ -27,7 +35,7 @@ export function useSplitProcessor() {
       return settings.outputDirectory;
     }
     const desktop = await desktopDir();
-    return await join(desktop, "manga-psd-output", "split");
+    return await join(desktop, "Script_Output", "分割ファイル_出力");
   }, [settings.outputDirectory]);
 
   // ファイルを一括処理（Photoshop JSX経由）
@@ -37,18 +45,23 @@ export function useSplitProcessor() {
     setIsProcessing(true);
     clearResults();
     setProgress(0, targetFiles.length);
+    setProcessingDuration(null);
+    const startTime = Date.now();
 
     try {
       const outputDir = await getOutputDir();
-      const filePaths = targetFiles.map((f) => f.filePath);
+      const fileInfos = targetFiles.map((f) => ({
+        path: f.filePath,
+        pdfPageIndex: f.pdfPageIndex ?? -1,
+      }));
 
       setCurrentFile("Photoshopで処理中...");
 
       // Tauriコマンドを実行（全ファイル一括）
-      const psResults = await invoke<PhotoshopResult[]>(
+      const response = await invoke<SplitResponse>(
         "run_photoshop_split",
         {
-          filePaths,
+          fileInfos,
           mode: settings.mode,
           outputFormat: settings.outputFormat,
           jpgQuality: settings.outputFormat === "jpg"
@@ -57,11 +70,16 @@ export function useSplitProcessor() {
           selectionLeft: settings.selectionBounds?.left ?? 0,
           selectionRight: settings.selectionBounds?.right ?? 0,
           pageNumbering: settings.pageNumbering,
+          firstPageBlank: settings.firstPageBlank,
+          customBaseName: settings.customBaseName || "",
           deleteHiddenLayers: settings.deleteHiddenLayers,
           deleteOffCanvasText: settings.deleteOffCanvasText,
           outputDir,
         }
       );
+
+      const psResults = response.results;
+      setLastOutputDir(response.outputDir);
 
       // 結果を処理
       for (let i = 0; i < psResults.length; i++) {
@@ -89,8 +107,10 @@ export function useSplitProcessor() {
         error: error instanceof Error ? error.message : "Photoshopの実行に失敗しました",
       });
     } finally {
+      setProcessingDuration(Date.now() - startTime);
       setIsProcessing(false);
       setCurrentFile(null);
+      setShowResultDialog(true);
     }
   }, [
     settings,
@@ -100,6 +120,9 @@ export function useSplitProcessor() {
     setCurrentFile,
     setProgress,
     addResult,
+    setLastOutputDir,
+    setProcessingDuration,
+    setShowResultDialog,
   ]);
 
   // 選択ファイルのみ処理
