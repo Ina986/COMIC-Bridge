@@ -27,7 +27,7 @@
 ## 主要機能
 
 ### 1. PSD読み込み・プレビュー
-- ドラッグ&ドロップでファイル/フォルダ読み込み（グローバルD&D: AppLayout常時リスナー）
+- ドラッグ&ドロップでファイル/フォルダ読み込み（グローバルD&D: AppLayout常時リスナー、全対応形式を受付）
 - 自然順ソート: ファイル名の数字部分を数値比較（"1巻 (2)" < "1巻 (10)"）
 - 埋め込みサムネイル表示（高速）
 - メタデータ抽出（サイズ、DPI、カラーモード、ビット深度、レイヤー構造、αチャンネル等）
@@ -110,8 +110,13 @@
 - **不均等分割**: ノド（綴じ）側に余白を追加して均等化（`outerMargin`設定）
 - **分割なし**: フォーマット変換のみ
 - 単ページ自動検出: 先頭/末尾ファイルが標準幅の70%未満なら分割スキップ
+- ページ番号: `_R/_L` または連番 `_001, _002...`
 - オプション: 非表示レイヤー削除、はみ出しテキスト除去
 - 出力形式: PSD / JPG（品質0-100%、JSX側は0-12スケールに変換）
+- **マルチフォーマット対応**: PSD/PSB以外にJPG, PNG, TIFF, PDF, BMP, GIF, EPSも読み込み可（Photoshopが開ける全形式）
+- **実行ボタン分離**: 「選択のみ (N)」「全て実行 (N)」の2ボタンで対象を明示
+- **SplitPreview**: 定規ドラッグで垂直ガイド操作、ズーム/パン、Undo/Redo対応
+- **splitStore**: `selectionHistory`/`selectionFuture`でUndo/Redo。`startDragSelection()`でドラッグ中は履歴スパム防止
 - Photoshop JSX経由で全ファイル一括処理（`split_psd.jsx`、タイムアウト5分）
 
 ## UI構成
@@ -200,7 +205,8 @@ src/
 │   │   ├── ReplacePairingModal.tsx
 │   │   └── ReplaceToast.tsx
 │   ├── split/             # 見開き分割
-│   │   └── SplitPanel.tsx
+│   │   ├── SplitPanel.tsx
+│   │   └── SplitPreview.tsx       # 定規ドラッグ・ガイド操作・ズーム/パン
 │   └── ui/                # 共通UIコンポーネント
 │       ├── Modal.tsx
 │       └── PopButton.tsx
@@ -249,6 +255,11 @@ src-tauri/
 ## 重要な型定義
 
 ```typescript
+// 対応ファイル形式 (types/index.ts)
+const IMAGE_EXTENSIONS = [".psd", ".psb", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".pdf", ".gif", ".eps"];
+const PSD_EXTENSIONS = [".psd", ".psb"];  // ag-psdでパース可能なもの
+// isSupportedFile(fileName) / isPsdFile(fileName) ヘルパー関数あり
+
 // PSDメタデータ
 interface PsdMetadata {
   width: number;
@@ -336,6 +347,8 @@ useEffect(() => {
 10. **`<button>`は`<label>`のlabelable要素**: `<button>`を`<label>`内に配置するとクリック時に二重トグルが発生する。カスタムCheckBoxには`<div role="checkbox">`を使用
 11. **JSX詳細レポート（差替え）**: `result.changes`に`"  → レイヤー「name」"`/`"  → グループ「name」"`/`"  → テキストフォルダ「name」"`形式で個別マッチを記録。フロント側`extractMatchedNames()`で正規表現パース
 12. **JSX詳細レポート（レイヤー制御）**: `changedNames`に`"テキスト「name」∈「parent」"`形式で親フォルダ情報付きで記録。フロント側`extractMatchedItems()`→`buildTree()`でツリー構築。親フォルダが結果に含まれない場合はコンテキストとして`グループ`ノード（G）を自動生成
+13. **Photoshopスクリプト実行パターン**: 全コマンド共通で「直接パス + `.output()` + ポーリング」を使用。`.spawn()`やtemp copyは問題を起こすので使わない
+14. **非PSDファイルの読み込み**: `isPsdFile()`で判定し、PSD以外は`stat()`でファイルサイズのみ取得。ag-psdパースはスキップ。Photoshopが開ける前提でファイル一覧に表示
 
 ## 高速PSD読み込み（Rust側）
 
