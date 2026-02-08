@@ -1,5 +1,6 @@
 import type { PsdFile } from "../../types";
 import { useGuideStore } from "../../store/guideStore";
+import { useSpecStore } from "../../store/specStore";
 
 interface GuideSectionPanelProps {
   file: PsdFile;
@@ -8,8 +9,12 @@ interface GuideSectionPanelProps {
 export function GuideSectionPanel({ file }: GuideSectionPanelProps) {
   const openEditor = useGuideStore((state) => state.openEditor);
   const guides = useGuideStore((state) => state.guides);
+  const activeSpecId = useSpecStore((state) => state.activeSpecId);
+  const checkResults = useSpecStore((state) => state.checkResults);
 
   const hasGuides = file.metadata?.hasGuides;
+  const fileCheckResult = checkResults.get(file.id);
+  const hasSpecNG = fileCheckResult && !fileCheckResult.passed;
   const hCount = file.metadata?.guides?.filter((g) => g.direction === "horizontal").length ?? 0;
   const vCount = file.metadata?.guides?.filter((g) => g.direction === "vertical").length ?? 0;
 
@@ -55,6 +60,11 @@ export function GuideSectionPanel({ file }: GuideSectionPanelProps) {
           </svg>
           ガイド編集を開く
         </button>
+        {activeSpecId && hasSpecNG && (
+          <p className="mt-1.5 text-[11px] text-accent">
+            適用時に仕様修正も同時実行されます
+          </p>
+        )}
       </div>
     </div>
   );

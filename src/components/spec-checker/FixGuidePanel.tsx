@@ -1,7 +1,9 @@
 import type { SpecCheckResult } from "../../types";
 import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
+import { useGuideStore } from "../../store/guideStore";
 import { usePhotoshopConverter } from "../../hooks/usePhotoshopConverter";
+import { usePreparePsd } from "../../hooks/usePreparePsd";
 import { PopButton } from "../ui/PopButton";
 
 interface FixGuidePanelProps {
@@ -26,10 +28,13 @@ const fixDescriptions: Record<string, string> = {
 };
 
 export function FixGuidePanel({ checkResult }: FixGuidePanelProps) {
+  const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
   const checkResults = useSpecStore((state) => state.checkResults);
   const isConverting = useSpecStore((state) => state.isConverting);
-  const { convertWithPhotoshop, isPhotoshopInstalled } = usePhotoshopConverter();
+  const guides = useGuideStore((state) => state.guides);
+  const { isPhotoshopInstalled } = usePhotoshopConverter();
+  const { isProcessing, prepareFiles } = usePreparePsd();
 
   // 失敗したルールを取得
   const failedRules = checkResult.results.filter((r) => !r.passed);
@@ -43,14 +48,25 @@ export function FixGuidePanel({ checkResult }: FixGuidePanelProps) {
     return result && !result.passed;
   }).length;
 
+  // ガイドなしファイルの有無
+  const hasNoGuideFiles = files.some((f) => f.metadata && !f.metadata.hasGuides);
+  const willApplyGuides = hasNoGuideFiles && guides.length > 0;
+
   // 選択中のファイルのみ変換
   const handleConvertSelected = async () => {
-    await convertWithPhotoshop(selectedFileIds);
+    await prepareFiles({
+      fixSpec: true,
+      applyGuides: willApplyGuides,
+      fileIds: selectedFileIds,
+    });
   };
 
   // 全NGファイル変換
   const handleConvertAll = async () => {
-    await convertWithPhotoshop();
+    await prepareFiles({
+      fixSpec: true,
+      applyGuides: willApplyGuides,
+    });
   };
 
   if (failedRules.length === 0) {
@@ -131,12 +147,17 @@ export function FixGuidePanel({ checkResult }: FixGuidePanelProps) {
             Photoshopがインストールされていないか、パスが見つかりません
           </div>
         )}
+        {willApplyGuides && (
+          <div className="text-xs bg-guide-v/10 border border-guide-v/20 rounded-lg px-3 py-2 text-guide-v">
+            ガイドなしファイルにガイドも同時適用
+          </div>
+        )}
         <PopButton
           variant="primary"
           className="w-full"
           onClick={handleConvertSelected}
-          disabled={!isPhotoshopInstalled || isConverting || selectedNgCount === 0}
-          loading={isConverting}
+          disabled={!isPhotoshopInstalled || isConverting || isProcessing || selectedNgCount === 0}
+          loading={isConverting || isProcessing}
         >
           {selectedNgCount <= 1 ? "この1件を変換" : `選択中の${selectedNgCount}件を変換`}
         </PopButton>
@@ -145,8 +166,8 @@ export function FixGuidePanel({ checkResult }: FixGuidePanelProps) {
             variant="secondary"
             className="w-full"
             onClick={handleConvertAll}
-            disabled={!isPhotoshopInstalled || isConverting}
-            loading={isConverting}
+            disabled={!isPhotoshopInstalled || isConverting || isProcessing}
+            loading={isConverting || isProcessing}
           >
             NGすべて変換 ({ngFileCount}件)
           </PopButton>
