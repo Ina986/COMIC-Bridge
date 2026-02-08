@@ -1103,8 +1103,12 @@ pub struct SplitSettings {
     pub output_format: String, // "psd", "jpg"
     #[serde(rename = "jpgQuality")]
     pub jpg_quality: u8,
-    #[serde(rename = "outerMargin")]
-    pub outer_margin: i32,
+    #[serde(rename = "selectionLeft")]
+    pub selection_left: i32,
+    #[serde(rename = "selectionRight")]
+    pub selection_right: i32,
+    #[serde(rename = "pageNumbering")]
+    pub page_numbering: String, // "rl", "sequential"
     #[serde(rename = "deleteHiddenLayers")]
     pub delete_hidden_layers: bool,
     #[serde(rename = "deleteOffCanvasText")]
@@ -1123,7 +1127,9 @@ pub async fn run_photoshop_split(
     mode: String,
     output_format: String,
     jpg_quality: u8,
-    outer_margin: i32,
+    selection_left: i32,
+    selection_right: i32,
+    page_numbering: String,
     delete_hidden_layers: bool,
     delete_off_canvas_text: bool,
     output_dir: String,
@@ -1165,7 +1171,9 @@ pub async fn run_photoshop_split(
         mode,
         output_format,
         jpg_quality,
-        outer_margin,
+        selection_left,
+        selection_right,
+        page_numbering,
         delete_hidden_layers,
         delete_off_canvas_text,
         output_dir: output_dir.replace("\\", "/"),
@@ -1181,6 +1189,7 @@ pub async fn run_photoshop_split(
         .map_err(|e| format!("Failed to write BOM: {}", e))?;
     settings_file.write_all(settings_json.as_bytes())
         .map_err(|e| format!("Failed to write settings: {}", e))?;
+    drop(settings_file);
 
     eprintln!("Split - Photoshop: {}", ps_path);
     eprintln!("Split - Script: {}", script_path_str);
@@ -1957,29 +1966,151 @@ pub async fn run_photoshop_replace(
     }
 }
 
-/// フォルダをエクスプローラーで開く
+/// ファイルをエクスプローラーで選択状態で開く（単一ファイル、後方互換）
 #[tauri::command]
 pub async fn open_folder_in_explorer(folder_path: String) -> Result<(), String> {
-    use std::process::Command;
+    reveal_files_in_explorer(vec![folder_path]).await
+}
 
-    let path = Path::new(&folder_path);
-    if !path.exists() {
-        return Err(format!("Folder not found: {}", folder_path));
+/// 複数ファイルをエクスプローラーで選択状態で開く
+#[tauri::command]
+pub async fn reveal_files_in_explorer(file_paths: Vec<String>) -> Result<(), String> {
+    if file_paths.is_empty() {
+        return Ok(());
     }
 
     #[cfg(target_os = "windows")]
-    Command::new("explorer")
-        .arg(path)
-        .spawn()
-        .map_err(|e| format!("Failed to open folder: {}", e))?;
+    {
+        if file_paths.len() == 1 {
+            let path = Path::new(&file_paths[0]);
+            if !path.exists() {
+                return Err(format!("Path not found: {}", file_paths[0]));
+            }
+            if path.is_file() {
+                std::process::Command::new("explorer")
+                    .arg("/select,")
+                    .arg(path)
+                    .spawn()
+                    .map_err(|e| format!("Failed to open explorer: {}", e))?;
+            } else {
+                std::process::Command::new("explorer")
+                    .arg(path)
+                    .spawn()
+                    .map_err(|e| format!("Failed to open explorer: {}", e))?;
+            }
+        } else {
+            win_shell::reveal_multiple_files(&file_paths)?;
+        }
+    }
 
     #[cfg(target_os = "macos")]
-    Command::new("open")
-        .arg(path)
-        .spawn()
-        .map_err(|e| format!("Failed to open folder: {}", e))?;
+    {
+        let first = &file_paths[0];
+        let path = Path::new(first);
+        if !path.exists() {
+            return Err(format!("Path not found: {}", first));
+        }
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to open Finder: {}", e))?;
+    }
 
     Ok(())
+}
+
+/// Windows Shell API (SHOpenFolderAndSelectItems) で複数ファイルを選択状態で表示
+#[cfg(target_os = "windows")]
+mod win_shell {
+    use std::ffi::c_void;
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use std::ptr;
+
+    #[repr(C)]
+    struct ITEMIDLIST {
+        _data: [u8; 0],
+    }
+
+    #[link(name = "ole32")]
+    extern "system" {
+        fn CoInitializeEx(pv_reserved: *mut c_void, dw_co_init: u32) -> i32;
+        fn CoUninitialize();
+    }
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SHParseDisplayName(
+            psz_name: *const u16,
+            pbc: *mut c_void,
+            ppidl: *mut *mut ITEMIDLIST,
+            sfgao_in: u32,
+            psfgao_out: *mut u32,
+        ) -> i32;
+        fn SHOpenFolderAndSelectItems(
+            pidl_folder: *const ITEMIDLIST,
+            cidl: u32,
+            apidl: *const *const ITEMIDLIST,
+            dw_flags: u32,
+        ) -> i32;
+        fn ILFree(pidl: *mut ITEMIDLIST);
+    }
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    fn parse_pidl(path_str: &str) -> Option<*mut ITEMIDLIST> {
+        let wide = to_wide(path_str);
+        let mut pidl: *mut ITEMIDLIST = ptr::null_mut();
+        let hr = unsafe {
+            SHParseDisplayName(wide.as_ptr(), ptr::null_mut(), &mut pidl, 0, ptr::null_mut())
+        };
+        if hr == 0 && !pidl.is_null() { Some(pidl) } else { None }
+    }
+
+    pub fn reveal_multiple_files(file_paths: &[String]) -> Result<(), String> {
+        unsafe { CoInitializeEx(ptr::null_mut(), 0x2); }
+
+        let folder = Path::new(&file_paths[0])
+            .parent()
+            .ok_or("Cannot determine parent folder")?
+            .to_string_lossy()
+            .to_string();
+
+        let folder_pidl = parse_pidl(&folder)
+            .ok_or_else(|| format!("Failed to parse folder: {}", folder))?;
+
+        let mut item_pidls: Vec<*const ITEMIDLIST> = Vec::new();
+        for path in file_paths {
+            if !Path::new(path).exists() { continue; }
+            if let Some(pidl) = parse_pidl(path) {
+                item_pidls.push(pidl as *const _);
+            }
+        }
+
+        let hr = unsafe {
+            SHOpenFolderAndSelectItems(
+                folder_pidl as *const _,
+                item_pidls.len() as u32,
+                if item_pidls.is_empty() { ptr::null() } else { item_pidls.as_ptr() },
+                0,
+            )
+        };
+
+        unsafe {
+            for pidl in &item_pidls { ILFree(*pidl as *mut _); }
+            ILFree(folder_pidl);
+            CoUninitialize();
+        }
+
+        if hr != 0 {
+            return Err(format!("SHOpenFolderAndSelectItems failed: HRESULT {:#x}", hr));
+        }
+        Ok(())
+    }
 }
 
 /// Open a file in Photoshop

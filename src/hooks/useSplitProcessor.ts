@@ -30,13 +30,8 @@ export function useSplitProcessor() {
     return await join(desktop, "manga-psd-output", "split");
   }, [settings.outputDirectory]);
 
-  // 選択ファイルを一括処理（Photoshop JSX経由）
-  const splitSelectedFiles = useCallback(async () => {
-    const targetFiles =
-      selectedFileIds.length > 0
-        ? files.filter((f) => selectedFileIds.includes(f.id))
-        : files;
-
+  // ファイルを一括処理（Photoshop JSX経由）
+  const processFiles = useCallback(async (targetFiles: typeof files) => {
     if (targetFiles.length === 0) return;
 
     setIsProcessing(true);
@@ -59,7 +54,9 @@ export function useSplitProcessor() {
           jpgQuality: settings.outputFormat === "jpg"
             ? Math.round((settings.jpgQuality / 100) * 12)
             : 12,
-          outerMargin: settings.outerMargin,
+          selectionLeft: settings.selectionBounds?.left ?? 0,
+          selectionRight: settings.selectionBounds?.right ?? 0,
+          pageNumbering: settings.pageNumbering,
           deleteHiddenLayers: settings.deleteHiddenLayers,
           deleteOffCanvasText: settings.deleteOffCanvasText,
           outputDir,
@@ -96,8 +93,6 @@ export function useSplitProcessor() {
       setCurrentFile(null);
     }
   }, [
-    files,
-    selectedFileIds,
     settings,
     setIsProcessing,
     clearResults,
@@ -107,7 +102,19 @@ export function useSplitProcessor() {
     addResult,
   ]);
 
+  // 選択ファイルのみ処理
+  const splitSelectedFiles = useCallback(async () => {
+    const selected = files.filter((f) => selectedFileIds.includes(f.id));
+    await processFiles(selected);
+  }, [files, selectedFileIds, processFiles]);
+
+  // 全ファイル処理
+  const splitAllFiles = useCallback(async () => {
+    await processFiles(files);
+  }, [files, processFiles]);
+
   return {
     splitSelectedFiles,
+    splitAllFiles,
   };
 }

@@ -2,12 +2,19 @@ import { create } from "zustand";
 
 export type SplitMode = "even" | "uneven" | "none";
 export type OutputFormat = "psd" | "jpg";
+export type PageNumbering = "rl" | "sequential";
+
+export interface SelectionBounds {
+  left: number;   // 選択範囲の左端 (画像px)
+  right: number;  // 選択範囲の右端 (画像px)
+}
 
 export interface SplitSettings {
   mode: SplitMode;
   outputFormat: OutputFormat;
   jpgQuality: number;
-  outerMargin: number; // ノド余白 (px) - 不均等分割時のみ
+  selectionBounds: SelectionBounds | null;
+  pageNumbering: PageNumbering;
   deleteHiddenLayers: boolean;
   deleteOffCanvasText: boolean;
   outputDirectory: string | null;
@@ -28,6 +35,10 @@ interface SplitState {
   currentFile: string | null;
   results: SplitResult[];
 
+  // Selection history (undo/redo)
+  selectionHistory: (SelectionBounds | null)[];
+  selectionFuture: (SelectionBounds | null)[];
+
   // Actions
   setSettings: (settings: Partial<SplitSettings>) => void;
   setIsProcessing: (value: boolean) => void;
@@ -36,13 +47,23 @@ interface SplitState {
   addResult: (result: SplitResult) => void;
   clearResults: () => void;
   reset: () => void;
+
+  // Selection history actions
+  pushSelectionHistory: () => void;
+  undoSelection: () => void;
+  redoSelection: () => void;
+
+  // Direct setters (for real-time drag — no history push)
+  startDragSelection: () => void;
+  setSelectionBoundsDirect: (bounds: SelectionBounds | null) => void;
 }
 
 const defaultSettings: SplitSettings = {
   mode: "even",
   outputFormat: "psd",
   jpgQuality: 95,
-  outerMargin: 0,
+  selectionBounds: null,
+  pageNumbering: "rl",
   deleteHiddenLayers: true,
   deleteOffCanvasText: true,
   outputDirectory: null,
@@ -55,11 +76,22 @@ export const useSplitStore = create<SplitState>((set) => ({
   totalFiles: 0,
   currentFile: null,
   results: [],
+  selectionHistory: [],
+  selectionFuture: [],
 
   setSettings: (newSettings) =>
-    set((state) => ({
-      settings: { ...state.settings, ...newSettings },
-    })),
+    set((state) => {
+      // selectionBoundsが変更される場合、履歴に保存
+      if ("selectionBounds" in newSettings) {
+        const history = [...state.selectionHistory.slice(-19), state.settings.selectionBounds];
+        return {
+          settings: { ...state.settings, ...newSettings },
+          selectionHistory: history,
+          selectionFuture: [],
+        };
+      }
+      return { settings: { ...state.settings, ...newSettings } };
+    }),
 
   setIsProcessing: (value) => set({ isProcessing: value }),
 
@@ -83,4 +115,62 @@ export const useSplitStore = create<SplitState>((set) => ({
       currentFile: null,
       results: [],
     }),
+
+  pushSelectionHistory: () =>
+    set((state) => ({
+      selectionHistory: [...state.selectionHistory.slice(-19), state.settings.selectionBounds],
+    })),
+
+  undoSelection: () =>
+    set((state) => {
+      if (state.selectionHistory.length === 0) return state;
+      const previous = state.selectionHistory[state.selectionHistory.length - 1];
+      return {
+        settings: { ...state.settings, selectionBounds: previous },
+        selectionHistory: state.selectionHistory.slice(0, -1),
+        selectionFuture: [state.settings.selectionBounds, ...state.selectionFuture],
+      };
+    }),
+
+  redoSelection: () =>
+    set((state) => {
+      if (state.selectionFuture.length === 0) return state;
+      const next = state.selectionFuture[0];
+      return {
+        settings: { ...state.settings, selectionBounds: next },
+        selectionHistory: [...state.selectionHistory, state.settings.selectionBounds],
+        selectionFuture: state.selectionFuture.slice(1),
+      };
+    }),
+
+  startDragSelection: () =>
+    set((state) => ({
+      selectionHistory: [...state.selectionHistory.slice(-19), state.settings.selectionBounds],
+      selectionFuture: [],
+    })),
+
+  setSelectionBoundsDirect: (bounds) =>
+    set((state) => ({
+      settings: { ...state.settings, selectionBounds: bounds },
+    })),
 }));
+
+/** 元スクリプト(bunkatsu_ver1.13.jsx)準拠のマージン計算 */
+export function computeMargins(bounds: SelectionBounds, docWidth: number) {
+  const halfWidth = Math.floor(docWidth / 2);
+  const outerMargin = bounds.left;
+  const innerMargin = halfWidth - bounds.right;
+  const marginToAdd = Math.max(0, outerMargin - innerMargin);
+  const finalWidth = halfWidth + marginToAdd;
+  const overlapPx = Math.max(0, bounds.right - halfWidth);
+  const overlapPercent = halfWidth > 0 ? (overlapPx / halfWidth) * 100 : 0;
+  return {
+    outerMargin,
+    innerMargin,
+    marginToAdd,
+    finalWidth,
+    overlapPercent,
+    hasOverlap: overlapPercent > 0,
+    hasExcessiveOverlap: overlapPercent > 5,
+  };
+}

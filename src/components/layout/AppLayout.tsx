@@ -8,6 +8,7 @@ import { usePsdStore } from "../../store/psdStore";
 import { useGuideStore } from "../../store/guideStore";
 import { useSpecChecker } from "../../hooks/useSpecChecker";
 import { useGlobalDragDrop } from "../../hooks/useGlobalDragDrop";
+import { useOpenFolderShortcut } from "../../hooks/useOpenFolder";
 
 export function AppLayout() {
   const isEditorOpen = useGuideStore((state) => state.isEditorOpen);
@@ -18,6 +19,9 @@ export function AppLayout() {
 
   // グローバルドラッグ＆ドロップ（常時有効）
   useGlobalDragDrop();
+
+  // Fキーでフォルダを開く（全タブ共通）
+  useOpenFolderShortcut();
 
   // サムネ領域外クリックで複数選択を解除
   const handleMouseDown = useCallback(

@@ -1,10 +1,11 @@
 import { useCallback } from "react";
-import { readDir, readFile } from "@tauri-apps/plugin-fs";
+import { readDir, readFile, stat } from "@tauri-apps/plugin-fs";
 import { usePsdStore } from "../store/psdStore";
 import { useSpecStore } from "../store/specStore";
 import { useViewStore } from "../store/viewStore";
 import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
 import { naturalCompare } from "../lib/naturalSort";
+import { isSupportedFile, isPsdFile } from "../types";
 import type { PsdFile } from "../types";
 
 export function usePsdLoader() {
@@ -24,24 +25,21 @@ export function usePsdLoader() {
 
       try {
         const entries = await readDir(folderPath);
-        const psdPaths: string[] = [];
+        const imagePaths: string[] = [];
 
         for (const entry of entries) {
-          if (entry.isFile && entry.name) {
-            const name = entry.name.toLowerCase();
-            if (name.endsWith(".psd") || name.endsWith(".psb")) {
-              psdPaths.push(`${folderPath}\\${entry.name}`);
-            }
+          if (entry.isFile && entry.name && isSupportedFile(entry.name)) {
+            imagePaths.push(`${folderPath}\\${entry.name}`);
           }
         }
 
-        if (psdPaths.length === 0) {
+        if (imagePaths.length === 0) {
           setFiles([]);
           setLoadingStatus("idle");
           return;
         }
 
-        await loadFilesInternal(psdPaths);
+        await loadFilesInternal(imagePaths);
       } catch (error) {
         console.error("Failed to load folder:", error);
         setErrorMessage(error instanceof Error ? error.message : "フォルダの読み込みに失敗しました");
@@ -92,36 +90,47 @@ export function usePsdLoader() {
       setLoadingStatus("idle");
 
       // Load metadata and thumbnails in parallel (with limit)
-      // 高速版を使用 - 埋め込みサムネイルがあれば使用、なければ後でフォールバック
-      const PARALLEL_LIMIT = 6; // 高速版は並列数を増やせる
-      const filesNeedingThumbnail: string[] = []; // サムネイルがなかったファイル
+      const PARALLEL_LIMIT = 6;
+      const filesNeedingThumbnail: string[] = []; // PSDでサムネイルがなかったファイル
 
       for (let i = 0; i < initialFiles.length; i += PARALLEL_LIMIT) {
         const chunk = initialFiles.slice(i, i + PARALLEL_LIMIT);
         await Promise.all(
           chunk.map(async (file) => {
             try {
-              updateFile(file.id, { thumbnailStatus: "loading" });
+              if (isPsdFile(file.fileName)) {
+                // PSD/PSB: ag-psdでパース
+                updateFile(file.id, { thumbnailStatus: "loading" });
 
-              const buffer = await readFile(file.filePath);
-              const arrayBuffer = buffer.buffer.slice(
-                buffer.byteOffset,
-                buffer.byteOffset + buffer.byteLength
-              );
+                const buffer = await readFile(file.filePath);
+                const arrayBuffer = buffer.buffer.slice(
+                  buffer.byteOffset,
+                  buffer.byteOffset + buffer.byteLength
+                );
 
-              // 高速版で読み込み（合成画像をスキップ）
-              const result = await parsePsdBufferFast(arrayBuffer);
+                const result = await parsePsdBufferFast(arrayBuffer);
 
-              updateFile(file.id, {
-                metadata: result.metadata,
-                thumbnailUrl: result.thumbnailData,
-                thumbnailStatus: result.thumbnailData ? "ready" : "pending",
-                fileSize: buffer.byteLength,
-              });
+                updateFile(file.id, {
+                  metadata: result.metadata,
+                  thumbnailUrl: result.thumbnailData,
+                  thumbnailStatus: result.thumbnailData ? "ready" : "pending",
+                  fileSize: buffer.byteLength,
+                });
 
-              // サムネイルがなければ後で再読み込みリストに追加
-              if (!result.thumbnailData) {
-                filesNeedingThumbnail.push(file.id);
+                if (!result.thumbnailData) {
+                  filesNeedingThumbnail.push(file.id);
+                }
+              } else {
+                // 非PSD: ファイルサイズのみ取得（Photoshopが開ける前提）
+                try {
+                  const fileStat = await stat(file.filePath);
+                  updateFile(file.id, {
+                    fileSize: fileStat.size,
+                    thumbnailStatus: "ready", // サムネイルなしだが正常扱い
+                  });
+                } catch {
+                  updateFile(file.id, { thumbnailStatus: "ready" });
+                }
               }
             } catch (error) {
               console.error(`Failed to load ${file.fileName}:`, error);
@@ -134,7 +143,7 @@ export function usePsdLoader() {
         );
       }
 
-      // サムネイルがなかったファイルはフル読み込みでフォールバック（バックグラウンド）
+      // PSDでサムネイルがなかったファイルはフル読み込みでフォールバック
       if (filesNeedingThumbnail.length > 0) {
         const files = usePsdStore.getState().files;
         for (const fileId of filesNeedingThumbnail) {
@@ -148,7 +157,6 @@ export function usePsdLoader() {
               buffer.byteOffset + buffer.byteLength
             );
 
-            // フル版で読み込み（合成画像から生成）
             const result = await parsePsdBuffer(arrayBuffer);
             updateFile(file.id, {
               thumbnailUrl: result.thumbnailData,

@@ -1,5 +1,8 @@
+import { useMemo } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
+import { usePageNumberCheck } from "../../hooks/usePageNumberCheck";
+import { useCanvasSizeCheck } from "../../hooks/useCanvasSizeCheck";
 
 export function CompactFileList({ className = "" }: { className?: string }) {
   const files = usePsdStore((state) => state.files);
@@ -10,6 +13,33 @@ export function CompactFileList({ className = "" }: { className?: string }) {
   const selectAll = usePsdStore((state) => state.selectAll);
   const clearSelection = usePsdStore((state) => state.clearSelection);
   const checkResults = useSpecStore((state) => state.checkResults);
+  const { pageNumbers, missingNumbers } = usePageNumberCheck();
+  const { outlierFileIds } = useCanvasSizeCheck();
+
+  // トンボ混在判定
+  const hasTomboMix = useMemo(() => {
+    let has = 0, no = 0;
+    for (const file of files) {
+      if (!file.metadata) continue;
+      if (file.metadata.hasTombo) has++;
+      else no++;
+      if (has > 0 && no > 0) return true;
+    }
+    return false;
+  }, [files]);
+
+  // 各ファイル間の欠番を計算
+  const getGapAfter = (currentIndex: number): number[] => {
+    if (currentIndex >= files.length - 1) return [];
+    const currentNum = pageNumbers.get(files[currentIndex].id);
+    const nextNum = pageNumbers.get(files[currentIndex + 1].id);
+    if (currentNum === null || currentNum === undefined || nextNum === null || nextNum === undefined) return [];
+    const gaps: number[] = [];
+    for (let i = currentNum + 1; i < nextNum; i++) {
+      if (missingNumbers.includes(i)) gaps.push(i);
+    }
+    return gaps;
+  };
 
   const handleClick = (fileId: string, e: React.MouseEvent) => {
     if (e.shiftKey) {
@@ -48,59 +78,77 @@ export function CompactFileList({ className = "" }: { className?: string }) {
 
       {/* File List */}
       <div className="flex-1 overflow-auto">
-        {files.map((file) => {
+        {files.map((file, index) => {
           const isSelected = selectedFileIds.includes(file.id);
           const isActive = activeFileId === file.id;
           const checkResult = checkResults.get(file.id);
           const hasError = checkResult && !checkResult.passed;
+          const isCaution = !hasError && (
+            outlierFileIds.has(file.id) ||
+            (hasTomboMix && file.metadata && !file.metadata.hasTombo)
+          );
+          const gaps = getGapAfter(index);
 
           return (
-            <div
-              key={file.id}
-              className={`
-                flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors
-                border-b border-border/30 text-xs
-                ${isActive
-                  ? "bg-accent/15"
-                  : isSelected
-                    ? "bg-accent/8"
-                    : "hover:bg-bg-tertiary/50"
-                }
-              `}
-              onClick={(e) => handleClick(file.id, e)}
-            >
-              {/* Selection indicator */}
+            <div key={file.id}>
               <div
-                className={`w-3 h-3 rounded flex items-center justify-center flex-shrink-0
-                  ${isSelected
-                    ? "bg-gradient-to-br from-accent to-accent-secondary"
-                    : "border border-text-muted/30"
+                className={`
+                  flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors
+                  border-b border-border/30 text-xs
+                  ${isActive
+                    ? "bg-accent/15"
+                    : isSelected
+                      ? "bg-accent/8"
+                      : "hover:bg-bg-tertiary/50"
                   }
                 `}
+                onClick={(e) => handleClick(file.id, e)}
               >
-                {isSelected && (
-                  <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
+                {/* Selection indicator */}
+                <div
+                  className={`w-3 h-3 rounded flex items-center justify-center flex-shrink-0
+                    ${isSelected
+                      ? "bg-gradient-to-br from-accent to-accent-secondary"
+                      : "border border-text-muted/30"
+                    }
+                  `}
+                >
+                  {isSelected && (
+                    <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+
+                {/* Status dot */}
+                {hasError ? (
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-error" />
+                ) : isCaution ? (
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-warning" />
+                ) : checkResult ? (
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-success" />
+                ) : null}
+
+                {/* Filename */}
+                <span
+                  className={`truncate ${hasError ? "text-error/80" : "text-text-primary"}`}
+                  title={file.fileName}
+                >
+                  {file.fileName}
+                </span>
               </div>
 
-              {/* Status dot */}
-              {checkResult && (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    checkResult.passed ? "bg-success" : "bg-error"
-                  }`}
-                />
+              {/* 欠番ギャップインジケータ */}
+              {gaps.length > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-warning/5 border-b border-warning/20">
+                  <svg className="w-3 h-3 text-warning flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-[10px] text-warning">
+                    {gaps.length === 1 ? `p.${gaps[0]} 欠番` : `p.${gaps[0]}〜${gaps[gaps.length - 1]} 欠番 (${gaps.length}件)`}
+                  </span>
+                </div>
               )}
-
-              {/* Filename */}
-              <span
-                className={`truncate ${hasError ? "text-error/80" : "text-text-primary"}`}
-                title={file.fileName}
-              >
-                {file.fileName}
-              </span>
             </div>
           );
         })}

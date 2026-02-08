@@ -6,6 +6,9 @@ import { useSpecChecker } from "../../hooks/useSpecChecker";
 import { usePhotoshopConverter } from "../../hooks/usePhotoshopConverter";
 import { usePreparePsd } from "../../hooks/usePreparePsd";
 import { usePhotoshopShortcut, useOpenInPhotoshop } from "../../hooks/useOpenInPhotoshop";
+import { useOpenFolder } from "../../hooks/useOpenFolder";
+import { useCanvasSizeCheck } from "../../hooks/useCanvasSizeCheck";
+import { usePageNumberCheck } from "../../hooks/usePageNumberCheck";
 import { PreviewGrid } from "../preview/PreviewGrid";
 import { CompactFileList } from "../common/CompactFileList";
 import { MetadataPanel } from "../metadata/MetadataPanel";
@@ -42,6 +45,9 @@ export function SpecCheckView() {
   const { isPhotoshopInstalled, isConverting } = usePhotoshopConverter();
   const { isProcessing, prepareFiles } = usePreparePsd();
   const { openFileInPhotoshop } = useOpenInPhotoshop();
+  const { openFolderForFile, revealFiles } = useOpenFolder();
+  const { outlierFileIds, majoritySize } = useCanvasSizeCheck();
+  const { missingNumbers } = usePageNumberCheck();
   usePhotoshopShortcut();
 
   // アクティブな仕様から変換設定を自動設定
@@ -85,20 +91,46 @@ export function SpecCheckView() {
     }
   }, [conversionResults.length]);
 
+  // トンボ混在判定
+  const hasTomboMix = useMemo(() => {
+    let has = 0, no = 0;
+    for (const file of files) {
+      if (!file.metadata) continue;
+      if (file.metadata.hasTombo) has++;
+      else no++;
+      if (has > 0 && no > 0) return true;
+    }
+    return false;
+  }, [files]);
+
   const stats = useMemo(() => {
     let passed = 0;
     let failed = 0;
     let unchecked = 0;
     let noGuides = 0;
+    let hasTombo = 0;
+    let noTombo = 0;
+    let caution = 0;
     files.forEach((file) => {
       const result = checkResults.get(file.id);
+      const isNG = result && !result.passed;
       if (!result) unchecked++;
       else if (result.passed) passed++;
       else failed++;
-      if (file.metadata && !file.metadata.hasGuides) noGuides++;
+      if (file.metadata) {
+        if (!file.metadata.hasGuides) noGuides++;
+        if (file.metadata.hasTombo) hasTombo++;
+        else noTombo++;
+      }
+      // 注意判定: NGでない + (サイズ外れ値 OR トンボ混在でトンボなし)
+      if (!isNG) {
+        const isSizeOutlier = outlierFileIds.has(file.id);
+        const isTomboMissing = hasTomboMix && file.metadata && !file.metadata.hasTombo;
+        if (isSizeOutlier || isTomboMissing) caution++;
+      }
     });
-    return { passed, failed, unchecked, noGuides };
-  }, [files, checkResults]);
+    return { passed, failed, unchecked, noGuides, hasTombo, noTombo, caution };
+  }, [files, checkResults, outlierFileIds, hasTomboMix]);
 
   // 手動再チェック
   const handleRecheck = () => {
@@ -167,6 +199,13 @@ export function SpecCheckView() {
                 <span className="text-xs font-medium text-error">{stats.failed}</span>
                 <span className="text-xs text-text-muted">NG</span>
               </div>
+              {stats.caution > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-warning" />
+                  <span className="text-xs font-medium text-warning">{stats.caution}</span>
+                  <span className="text-xs text-text-muted">注意</span>
+                </div>
+              )}
             </>
           )}
           {stats.noGuides > 0 && (
@@ -176,6 +215,39 @@ export function SpecCheckView() {
                 <span className="w-2 h-2 rounded-full bg-warning" />
                 <span className="text-xs font-medium text-warning">{stats.noGuides}</span>
                 <span className="text-xs text-text-muted">ガイドなし</span>
+              </div>
+            </>
+          )}
+          {/* トンボ混在警告（一部あり/一部なしの場合のみ表示） */}
+          {stats.hasTombo > 0 && stats.noTombo > 0 && (
+            <>
+              <div className="w-px h-3 bg-border flex-shrink-0" />
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-manga-peach" />
+                <span className="text-xs font-medium text-manga-peach">{stats.noTombo}</span>
+                <span className="text-xs text-text-muted">トンボなし</span>
+              </div>
+            </>
+          )}
+          {/* キャンバスサイズ不一致 */}
+          {outlierFileIds.size > 0 && (
+            <>
+              <div className="w-px h-3 bg-border flex-shrink-0" />
+              <div className="flex items-center gap-1" title={`多数派: ${majoritySize}`}>
+                <span className="w-2 h-2 rounded-full bg-warning" />
+                <span className="text-xs font-medium text-warning">{outlierFileIds.size}</span>
+                <span className="text-xs text-text-muted">サイズ不一致</span>
+              </div>
+            </>
+          )}
+          {/* ページ番号欠番 */}
+          {missingNumbers.length > 0 && (
+            <>
+              <div className="w-px h-3 bg-border flex-shrink-0" />
+              <div className="flex items-center gap-1" title={`欠番: ${missingNumbers.join(", ")}`}>
+                <span className="w-2 h-2 rounded-full bg-warning" />
+                <span className="text-xs font-medium text-warning">{missingNumbers.length}</span>
+                <span className="text-xs text-text-muted">欠番</span>
               </div>
             </>
           )}
@@ -304,6 +376,26 @@ export function SpecCheckView() {
                 <span className="text-xs font-medium text-text-primary truncate flex-1">
                   {activeFile.fileName}
                 </span>
+                {activeFile.filePath && (
+                  <button
+                    className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all text-text-muted hover:text-text-primary hover:bg-bg-tertiary active:scale-95"
+                    onClick={() => {
+                      if (selectedFileIds.length > 1) {
+                        const paths = selectedFileIds
+                          .map((id) => files.find((f) => f.id === id)?.filePath)
+                          .filter((p): p is string => !!p);
+                        revealFiles(paths);
+                      } else {
+                        openFolderForFile(activeFile.filePath);
+                      }
+                    }}
+                    title={selectedFileIds.length > 1 ? `${selectedFileIds.length}件をエクスプローラーで選択 (F)` : "フォルダを開く (F)"}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                  </button>
+                )}
                 {isPhotoshopInstalled && activeFile.filePath && (
                   <button
                     className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all text-[#31A8FF] hover:bg-[#31A8FF]/15 active:scale-95"
@@ -361,7 +453,7 @@ export function SpecCheckView() {
             <div className="absolute bottom-6 right-6 flex flex-col items-end gap-4 z-10">
               {stats.noGuides > 0 && (
                 <button
-                  className="h-14 px-7 text-base font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center gap-3 bg-bg-secondary/95 backdrop-blur-md border-2 border-guide-v/50 text-guide-v hover:bg-guide-v/15 hover:border-guide-v/70 hover:shadow-[0_8px_30px_rgba(0,188,212,0.25)] active:scale-[0.97]"
+                  className="h-16 min-w-[220px] px-8 text-lg font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center justify-center gap-3 bg-bg-secondary/95 backdrop-blur-md border-2 border-guide-v/50 text-guide-v hover:bg-guide-v/15 hover:border-guide-v/70 hover:shadow-[0_8px_30px_rgba(0,188,212,0.25)] active:scale-[0.97]"
                   onClick={openEditor}
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -422,7 +514,7 @@ export function SpecCheckView() {
                     </div>
                   )}
                   <button
-                    className="h-14 px-7 text-base font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center gap-3 text-white bg-gradient-to-r from-[#31A8FF] to-[#0066CC] shadow-[0_6px_25px_rgba(49,168,255,0.4)] hover:shadow-[0_8px_35px_rgba(49,168,255,0.55)] hover:brightness-110 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="h-16 min-w-[220px] px-8 text-lg font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center justify-center gap-3 text-white bg-gradient-to-r from-[#31A8FF] to-[#0066CC] shadow-[0_6px_25px_rgba(49,168,255,0.4)] hover:shadow-[0_8px_35px_rgba(49,168,255,0.55)] hover:brightness-110 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={() => {
                       if (stats.noGuides > 0 && guides.length === 0) {
                         setShowGuidePrompt(true);

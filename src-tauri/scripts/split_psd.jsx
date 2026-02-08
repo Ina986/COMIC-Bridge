@@ -69,6 +69,28 @@ function main() {
 /* -----------------------------------------------------
   File Processing
  ----------------------------------------------------- */
+function zeroPad(num, length) {
+    var s = String(num);
+    while (s.length < length) s = "0" + s;
+    return s;
+}
+
+function getPageNames(baseName, settings, fileIndex) {
+    if (settings.pageNumbering === "sequential") {
+        var pageNum = fileIndex * 2;
+        return {
+            right: baseName + "_" + zeroPad(pageNum + 1, 3),
+            left: baseName + "_" + zeroPad(pageNum + 2, 3),
+            single: baseName + "_" + zeroPad(fileIndex + 1, 3)
+        };
+    }
+    return {
+        right: baseName + "_R",
+        left: baseName + "_L",
+        single: baseName + "_001"
+    };
+}
+
 function processFile(filePath, settings, outputFolder, fileIndex, standardWidth) {
     var result = {
         filePath: filePath,
@@ -101,18 +123,36 @@ function processFile(filePath, settings, outputFolder, fileIndex, standardWidth)
             }
         }
 
-        if (settings.mode === "none" || isSinglePage) {
+        if (settings.mode === "none") {
             // No split - just save in target format
             if (settings.deleteHiddenLayers) deleteHiddenLayers(doc);
+            var names = getPageNames(baseName, settings, fileIndex);
+            saveDocument(doc, outputFolder, names.single, settings);
+            result.changes.push(names.single + "." + settings.outputFormat);
+            doc.close(SaveOptions.DONOTSAVECHANGES);
+        } else if (isSinglePage) {
+            // Single page: resize canvas if uneven mode has target width
+            if (settings.deleteHiddenLayers) deleteHiddenLayers(doc);
+            var names = getPageNames(baseName, settings, fileIndex);
 
-            var outName = baseName + "_001";
-            saveDocument(doc, outputFolder, outName, settings);
-            result.changes.push("Saved as " + outName + "." + settings.outputFormat);
+            if (settings.mode === "uneven") {
+                var halfWidth = Math.floor(standardWidth / 2);
+                var outerMargin = settings.selectionLeft;
+                var innerMargin = halfWidth - settings.selectionRight;
+                var marginToAdd = Math.max(0, outerMargin - innerMargin);
+                var targetWidth = halfWidth + marginToAdd;
+                if (originalWidth < targetWidth) {
+                    doc.resizeCanvas(UnitValue(targetWidth, "px"), doc.height, AnchorPosition.MIDDLECENTER);
+                }
+            }
+
+            saveDocument(doc, outputFolder, names.single, settings);
+            result.changes.push(names.single + "." + settings.outputFormat);
             doc.close(SaveOptions.DONOTSAVECHANGES);
         } else if (settings.mode === "even") {
-            processEvenSplit(doc, baseName, outputFolder, settings, result);
+            processEvenSplit(doc, baseName, outputFolder, settings, result, fileIndex);
         } else if (settings.mode === "uneven") {
-            processUnevenSplit(doc, baseName, outputFolder, settings, result);
+            processUnevenSplit(doc, baseName, outputFolder, settings, result, fileIndex);
         }
 
         doc = null;
@@ -131,10 +171,11 @@ function processFile(filePath, settings, outputFolder, fileIndex, standardWidth)
 /* -----------------------------------------------------
   Even Split (center)
  ----------------------------------------------------- */
-function processEvenSplit(doc, baseName, outputFolder, settings, result) {
+function processEvenSplit(doc, baseName, outputFolder, settings, result, fileIndex) {
     var originalWidth = doc.width.value;
     var originalHeight = doc.height.value;
     var halfWidth = Math.floor(originalWidth / 2);
+    var names = getPageNames(baseName, settings, fileIndex);
 
     // Right page (even number in manga reading order)
     var rightDoc = doc.duplicate();
@@ -142,10 +183,9 @@ function processEvenSplit(doc, baseName, outputFolder, settings, result) {
     if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(rightDoc, "left");
     rightDoc.crop([originalWidth - halfWidth, 0, originalWidth, originalHeight]);
 
-    var rightName = baseName + "_R";
-    saveDocument(rightDoc, outputFolder, rightName, settings);
+    saveDocument(rightDoc, outputFolder, names.right, settings);
     rightDoc.close(SaveOptions.DONOTSAVECHANGES);
-    result.changes.push(rightName + "." + settings.outputFormat);
+    result.changes.push(names.right + "." + settings.outputFormat);
 
     // Left page (odd number in manga reading order)
     var leftDoc = doc.duplicate();
@@ -153,10 +193,9 @@ function processEvenSplit(doc, baseName, outputFolder, settings, result) {
     if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(leftDoc, "right");
     leftDoc.crop([0, 0, halfWidth, originalHeight]);
 
-    var leftName = baseName + "_L";
-    saveDocument(leftDoc, outputFolder, leftName, settings);
+    saveDocument(leftDoc, outputFolder, names.left, settings);
     leftDoc.close(SaveOptions.DONOTSAVECHANGES);
-    result.changes.push(leftName + "." + settings.outputFormat);
+    result.changes.push(names.left + "." + settings.outputFormat);
 
     doc.close(SaveOptions.DONOTSAVECHANGES);
 }
@@ -164,41 +203,54 @@ function processEvenSplit(doc, baseName, outputFolder, settings, result) {
 /* -----------------------------------------------------
   Uneven Split (margin-adjusted)
  ----------------------------------------------------- */
-function processUnevenSplit(doc, baseName, outputFolder, settings, result) {
+function processUnevenSplit(doc, baseName, outputFolder, settings, result, fileIndex) {
     var originalWidth = doc.width.value;
     var originalHeight = doc.height.value;
     var halfWidth = Math.floor(originalWidth / 2);
+    var names = getPageNames(baseName, settings, fileIndex);
 
-    // outerMargin: the desired gutter padding (px)
-    // finalOutputWidth = halfWidth + outerMargin
-    var outerMargin = settings.outerMargin || 0;
-    var finalOutputWidth = halfWidth + outerMargin;
+    // 元スクリプト(bunkatsu_ver1.13.jsx)準拠のマージン計算
+    var outerMargin = settings.selectionLeft || 0;
+    var innerMargin = halfWidth - (settings.selectionRight || 0);
+    var marginToAdd = Math.max(0, outerMargin - innerMargin);
 
-    // Right page
+    // 超過チェック: 選択範囲が中央を超えている場合
+    var overlapPx = Math.max(0, (settings.selectionRight || 0) - halfWidth);
+    var overlapPercent = halfWidth > 0 ? (overlapPx / halfWidth) * 100 : 0;
+
+    if (overlapPercent > 5) {
+        throw new Error("Selection exceeds center by " + overlapPercent.toFixed(1) + "% (limit: 5%)");
+    }
+
+    // 超過が5%以内の場合は自動補正: innerMargin=0, marginToAdd=outerMargin
+    if (overlapPx > 0) {
+        innerMargin = 0;
+        marginToAdd = outerMargin;
+    }
+
+    var finalOutputWidth = halfWidth + marginToAdd;
+
+    // Right page: crop right half → resizeCanvas to add inner padding on left
     var rightDoc = doc.duplicate();
     if (settings.deleteHiddenLayers) deleteHiddenLayers(rightDoc);
     if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(rightDoc, "left");
     rightDoc.crop([originalWidth - halfWidth, 0, originalWidth, originalHeight]);
-    // Add gutter padding on the left (inner) side
-    rightDoc.resizeCanvas(finalOutputWidth, rightDoc.height, AnchorPosition.MIDDLERIGHT);
+    rightDoc.resizeCanvas(UnitValue(finalOutputWidth, "px"), rightDoc.height, AnchorPosition.MIDDLERIGHT);
 
-    var rightName = baseName + "_R";
-    saveDocument(rightDoc, outputFolder, rightName, settings);
+    saveDocument(rightDoc, outputFolder, names.right, settings);
     rightDoc.close(SaveOptions.DONOTSAVECHANGES);
-    result.changes.push(rightName + "." + settings.outputFormat);
+    result.changes.push(names.right + "." + settings.outputFormat);
 
-    // Left page
+    // Left page: crop left half → resizeCanvas to add inner padding on right
     var leftDoc = doc.duplicate();
     if (settings.deleteHiddenLayers) deleteHiddenLayers(leftDoc);
     if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(leftDoc, "right");
     leftDoc.crop([0, 0, halfWidth, originalHeight]);
-    // Add gutter padding on the right (inner) side
-    leftDoc.resizeCanvas(finalOutputWidth, leftDoc.height, AnchorPosition.MIDDLELEFT);
+    leftDoc.resizeCanvas(UnitValue(finalOutputWidth, "px"), leftDoc.height, AnchorPosition.MIDDLELEFT);
 
-    var leftName = baseName + "_L";
-    saveDocument(leftDoc, outputFolder, leftName, settings);
+    saveDocument(leftDoc, outputFolder, names.left, settings);
     leftDoc.close(SaveOptions.DONOTSAVECHANGES);
-    result.changes.push(leftName + "." + settings.outputFormat);
+    result.changes.push(names.left + "." + settings.outputFormat);
 
     doc.close(SaveOptions.DONOTSAVECHANGES);
 }

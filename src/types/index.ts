@@ -1,3 +1,26 @@
+// Supported file extensions
+export const PSD_EXTENSIONS = [".psd", ".psb"] as const;
+export const IMAGE_EXTENSIONS = [
+  ".psd", ".psb",
+  ".jpg", ".jpeg",
+  ".png",
+  ".tif", ".tiff",
+  ".bmp",
+  ".pdf",
+  ".gif",
+  ".eps",
+] as const;
+
+export function isSupportedFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+export function isPsdFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return PSD_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 // PSD File Types
 export interface PsdFile {
   id: string;
@@ -24,6 +47,7 @@ export interface PsdMetadata {
   hasAlphaChannels: boolean;
   alphaChannelCount: number;
   alphaChannelNames: string[];
+  hasTombo: boolean;
 }
 
 export type ColorMode =

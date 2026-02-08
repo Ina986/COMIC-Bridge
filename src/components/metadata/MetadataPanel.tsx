@@ -1,11 +1,15 @@
 import type { PsdFile } from "../../types";
 import { LayerTree } from "./LayerTree";
+import { useCanvasSizeCheck } from "../../hooks/useCanvasSizeCheck";
 
 interface MetadataPanelProps {
   file: PsdFile;
 }
 
 export function MetadataPanel({ file }: MetadataPanelProps) {
+  const { outlierFileIds, majoritySize } = useCanvasSizeCheck();
+  const isCanvasOutlier = outlierFileIds.has(file.id);
+
   return (
     <div className="p-4 space-y-5">
       {file.metadata ? (
@@ -37,7 +41,7 @@ export function MetadataPanel({ file }: MetadataPanelProps) {
           </div>
 
           {/* Canvas Size */}
-          <div className="bg-bg-tertiary rounded-xl p-3">
+          <div className={`bg-bg-tertiary rounded-xl p-3 ${isCanvasOutlier ? "ring-1 ring-warning/50" : ""}`}>
             <h3 className="text-xs font-medium text-text-muted mb-2 flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -55,6 +59,33 @@ export function MetadataPanel({ file }: MetadataPanelProps) {
                 {file.metadata.dpi} dpi
               </span>
             </div>
+            {isCanvasOutlier && majoritySize && (
+              <div className="mt-2 text-xs text-warning flex items-center gap-1.5">
+                <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                多数派サイズ: {majoritySize} と異なります
+              </div>
+            )}
+          </div>
+
+          {/* トンボ */}
+          <div className="bg-bg-tertiary rounded-xl p-3">
+            <h3 className="text-xs font-medium text-text-muted mb-2 flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h4M4 4v4M20 4h-4M20 4v4M4 20h4M4 20v-4M20 20h-4M20 20v-4" />
+              </svg>
+              トンボ
+            </h3>
+            {file.metadata.hasTombo ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-manga-peach/20 text-manga-peach">
+                あり
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-text-muted/20 text-text-muted">
+                なし
+              </span>
+            )}
           </div>
 
           {/* Layer Tree */}

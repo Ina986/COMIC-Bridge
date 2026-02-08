@@ -8,6 +8,10 @@ interface ThumbnailCardProps {
   isSelected: boolean;
   isActive: boolean;
   onClick: (e: React.MouseEvent) => void;
+  isCanvasOutlier?: boolean;
+  majoritySize?: string;
+  isCaution?: boolean;
+  cautionReasons?: string[];
 }
 
 // ルールタイプの日本語表示
@@ -25,6 +29,10 @@ export function ThumbnailCard({
   isSelected,
   isActive,
   onClick,
+  isCanvasOutlier,
+  majoritySize,
+  isCaution,
+  cautionReasons,
 }: ThumbnailCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const checkResults = useSpecStore((state) => state.checkResults);
@@ -51,7 +59,8 @@ export function ThumbnailCard({
           : "hover:ring-1 hover:ring-accent/30"
         }
         ${hasError ? "ring-2 ring-error shadow-glow-error" : ""}
-        ${isPassed && isChecked ? "ring-1 ring-success/30" : ""}
+        ${!hasError && isCaution ? "ring-2 ring-warning/60" : ""}
+        ${isPassed && isChecked && !isCaution ? "ring-1 ring-success/30" : ""}
       `}
       style={{ aspectRatio: "1 / 1.4142" }} // A4/B5 aspect ratio
       onClick={onClick}
@@ -141,6 +150,11 @@ export function ThumbnailCard({
                 Guide
               </span>
             )}
+            {file.metadata.hasTombo && (
+              <span className="text-[10px] text-manga-peach bg-manga-peach/20 px-1.5 py-0.5 rounded-md">
+                トンボ
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -163,48 +177,108 @@ export function ThumbnailCard({
         )}
       </div>
 
-      {/* Spec Check Indicator */}
-      {isChecked && (
-        hasError ? (
-          <div className="absolute top-3 right-3 w-6 h-6 bg-error rounded-lg flex items-center justify-center shadow-lg animate-pulse">
-            <span className="text-white text-xs font-bold">!</span>
-          </div>
-        ) : isPassed ? (
-          <div className="absolute top-3 right-3 w-6 h-6 bg-success rounded-lg flex items-center justify-center shadow-lg">
-            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          </div>
-        ) : null
+      {/* Caution Badges (stacked vertically) */}
+      {(isCanvasOutlier || cautionReasons?.includes("tombo")) && (
+        <div className="absolute top-10 left-3 flex flex-col gap-1">
+          {isCanvasOutlier && (
+            <div className="px-1.5 py-0.5 rounded-md bg-warning/90 text-white text-[9px] font-bold shadow-sm w-fit">
+              サイズ異
+            </div>
+          )}
+          {cautionReasons?.includes("tombo") && (
+            <div className="px-1.5 py-0.5 rounded-md bg-warning/90 text-white text-[9px] font-bold shadow-sm w-fit">
+              トンボなし？
+            </div>
+          )}
+        </div>
       )}
+
+      {/* Spec Check / Caution Indicator */}
+      {hasError ? (
+        <div className="absolute top-3 right-3 w-6 h-6 bg-error rounded-lg flex items-center justify-center shadow-lg animate-pulse">
+          <span className="text-white text-xs font-bold">!</span>
+        </div>
+      ) : isCaution ? (
+        <div className="absolute top-3 right-3 w-6 h-6 bg-warning rounded-lg flex items-center justify-center shadow-lg">
+          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+        </div>
+      ) : isChecked && isPassed ? (
+        <div className="absolute top-3 right-3 w-6 h-6 bg-success rounded-lg flex items-center justify-center shadow-lg">
+          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+        </div>
+      ) : null}
 
       {/* NG Reason Overlay on Hover */}
       {hasError && isHovered && checkResult && (
-        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center p-4 rounded-2xl z-10">
+        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center px-3 py-4 rounded-2xl z-10">
           <div className="text-error font-bold text-lg mb-3">NG</div>
-          <div className="space-y-2 text-center">
+          <div className="space-y-2 text-center w-full">
             {checkResult.results
               .filter((r) => !r.passed)
               .map((r, i) => (
-                <div key={i} className="text-sm">
-                  <span className="text-text-secondary">
-                    {ruleTypeLabels[r.rule.type] || r.rule.type}:
-                  </span>
-                  <span className="text-error ml-1">
-                    {String(r.actualValue)}
-                  </span>
-                  <span className="text-text-muted mx-1">→</span>
-                  <span className="text-success">
-                    {String(r.rule.value)}
-                  </span>
+                <div key={i} className="text-xs">
+                  <div className="text-white/80">
+                    {ruleTypeLabels[r.rule.type] || r.rule.type}
+                  </div>
+                  <div>
+                    <span className="text-error font-medium">
+                      {String(r.actualValue)}
+                    </span>
+                    <span className="text-white/50 mx-1">→</span>
+                    <span className="text-success font-medium">
+                      {String(r.rule.value)}
+                    </span>
+                  </div>
                 </div>
               ))}
+            {isCanvasOutlier && file.metadata && majoritySize && (
+              <div className="text-xs">
+                <div className="text-white/80">サイズ</div>
+                <div>
+                  <span className="text-warning font-medium">
+                    {file.metadata.width}×{file.metadata.height}
+                  </span>
+                  <span className="text-white/50 mx-1">→</span>
+                  <span className="text-white/70">{majoritySize}</span>
+                </div>
+              </div>
+            )}
           </div>
           {checkResult.matchedSpec && (
-            <div className="mt-3 text-xs text-text-muted">
+            <div className="mt-3 text-[10px] text-white/50 truncate max-w-full">
               仕様: {checkResult.matchedSpec}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Caution Overlay on Hover (when no spec error but has caution) */}
+      {!hasError && isCaution && isHovered && file.metadata && (
+        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center p-4 rounded-2xl z-10">
+          <div className="text-warning font-bold text-base mb-3">要確認</div>
+          <div className="space-y-2.5 text-center">
+            {isCanvasOutlier && majoritySize && (
+              <div>
+                <div className="text-sm whitespace-nowrap">
+                  <span className="text-white/80">サイズ:</span>
+                  <span className="text-warning font-medium ml-1">{file.metadata.width}×{file.metadata.height}</span>
+                </div>
+                <div className="text-xs text-white/50 mt-1">
+                  多数派: <span className="text-white/70">{majoritySize}</span>
+                </div>
+              </div>
+            )}
+            {cautionReasons?.includes("tombo") && (
+              <div className="text-sm whitespace-nowrap">
+                <span className="text-white/80">トンボ:</span>
+                <span className="text-warning font-medium ml-1">なし？</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { usePsdLoader } from "./usePsdLoader";
 import { useViewStore } from "../store/viewStore";
+import { isSupportedFile } from "../types";
 
 /**
  * グローバルなドラッグ＆ドロップリスナー
@@ -25,29 +26,25 @@ export function useGlobalDragDrop() {
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
 
-          const psdFiles: string[] = [];
+          const imageFiles: string[] = [];
 
           for (const path of paths) {
             try {
               const entries = await readDir(path);
               for (const entry of entries) {
-                if (entry.isFile && entry.name) {
-                  const name = entry.name.toLowerCase();
-                  if (name.endsWith(".psd") || name.endsWith(".psb")) {
-                    psdFiles.push(`${path}\\${entry.name}`);
-                  }
+                if (entry.isFile && entry.name && isSupportedFile(entry.name)) {
+                  imageFiles.push(`${path}\\${entry.name}`);
                 }
               }
             } catch {
-              const lowerPath = path.toLowerCase();
-              if (lowerPath.endsWith(".psd") || lowerPath.endsWith(".psb")) {
-                psdFiles.push(path);
+              if (isSupportedFile(path)) {
+                imageFiles.push(path);
               }
             }
           }
 
-          if (psdFiles.length > 0) {
-            await loadFiles(psdFiles);
+          if (imageFiles.length > 0) {
+            await loadFiles(imageFiles);
           }
         }
       });

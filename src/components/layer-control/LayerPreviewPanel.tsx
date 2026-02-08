@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useLayerStore, PRESET_CONDITIONS } from "../../store/layerStore";
+import { useOpenFolder } from "../../hooks/useOpenFolder";
 import { classifyLayerRisk, isTextFolder, type MatchRisk } from "../../lib/layerMatcher";
 import type { LayerNode } from "../../types";
 import type { PsdFile } from "../../types";
@@ -79,6 +80,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
   const selectedConditions = useLayerStore((s) => s.selectedConditions);
   const customConditions = useLayerStore((s) => s.customConditions);
   const actionMode = useLayerStore((s) => s.actionMode);
+  const { openFolderForFile, revealFiles } = useOpenFolder();
 
   // Local checked state for multi-select within the layer tree
   const [checkedFileIds, setCheckedFileIds] = useState<Set<string>>(new Set());
@@ -214,8 +216,32 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
           <span className="text-[10px] text-text-muted ml-auto flex-shrink-0">
             {isMulti ? `${targetFiles.length} ファイル` : `${targetFiles[0].metadata?.layerCount ?? 0} レイヤー`}
           </span>
+          {!isMulti && (
+            <FolderButton onClick={() => openFolderForFile(targetFiles[0].filePath)} />
+          )}
           {!isMulti && onOpenInPhotoshop && (
             <PsButton onClick={() => onOpenInPhotoshop(targetFiles[0].filePath)} />
+          )}
+          {isMulti && checkedFileIds.size > 0 && (
+            <button
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-text-muted hover:text-text-primary bg-bg-tertiary/50 hover:bg-bg-tertiary transition-colors flex-shrink-0"
+              onClick={() => {
+                const paths = fileAnnotations
+                  .filter((fa) => checkedFileIds.has(fa.file.id))
+                  .map((fa) => fa.file.filePath);
+                if (paths.length > 1) {
+                  revealFiles(paths);
+                } else if (paths.length === 1) {
+                  openFolderForFile(paths[0]);
+                }
+              }}
+              title={`${checkedFileIds.size}件をエクスプローラーで選択 (F)`}
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              {checkedFileIds.size}件
+            </button>
           )}
           {isMulti && checkedFileIds.size > 0 && onOpenInPhotoshop && (
             <button
@@ -286,6 +312,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                 isChecked={checkedFileIds.has(fa.file.id)}
                 onToggleCheck={(shiftKey) => handleCheck(fa.file.id, shiftKey)}
                 onOpenInPhotoshop={onOpenInPhotoshop ? () => onOpenInPhotoshop(fa.file.filePath) : undefined}
+                onOpenFolder={() => openFolderForFile(fa.file.filePath)}
               />
             ))}
           </div>
@@ -337,13 +364,14 @@ function SingleFileTree({ annotation, hasConditions, isHideMode }: {
 
 // --- File column (multi-file) ---
 
-function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggleCheck, onOpenInPhotoshop }: {
+function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggleCheck, onOpenInPhotoshop, onOpenFolder }: {
   annotation: FileAnnotation;
   hasConditions: boolean;
   isHideMode: boolean;
   isChecked: boolean;
   onToggleCheck: (shiftKey: boolean) => void;
   onOpenInPhotoshop?: () => void;
+  onOpenFolder?: () => void;
 }) {
   const { file, layerTree, annotatedTree, stats } = annotation;
 
@@ -396,6 +424,13 @@ function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggle
         <span className="text-[9px] text-text-muted/60 flex-shrink-0">
           {file.metadata?.layerCount ?? 0}
         </span>
+        {onOpenFolder && (
+          <FolderButton
+            onClick={(e) => { e.stopPropagation(); onOpenFolder(); }}
+            compact
+            className="opacity-0 group-hover:opacity-100"
+          />
+        )}
         {onOpenInPhotoshop && (
           <PsButton
             onClick={(e) => { e.stopPropagation(); onOpenInPhotoshop(); }}
@@ -652,6 +687,29 @@ function WarnIcon({ className }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
     </svg>
+  );
+}
+
+function FolderButton({ onClick, compact, className }: {
+  onClick: (e: React.MouseEvent) => void;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      className={`
+        flex-shrink-0 flex items-center justify-center rounded transition-all
+        text-text-muted hover:text-text-primary hover:bg-bg-tertiary active:scale-95
+        ${compact ? "w-5 h-5" : "w-6 h-6"}
+        ${className ?? ""}
+      `}
+      onClick={onClick}
+      title="フォルダを開く (F)"
+    >
+      <svg className={compact ? "w-3 h-3" : "w-3.5 h-3.5"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+      </svg>
+    </button>
   );
 }
 

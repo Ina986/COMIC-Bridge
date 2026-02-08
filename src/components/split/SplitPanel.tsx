@@ -1,9 +1,17 @@
+import { useMemo } from "react";
 import { usePsdStore } from "../../store/psdStore";
-import { useSplitStore, type SplitMode, type OutputFormat } from "../../store/splitStore";
+import {
+  useSplitStore,
+  computeMargins,
+  type SplitMode,
+  type OutputFormat,
+  type PageNumbering,
+} from "../../store/splitStore";
 import { useSplitProcessor } from "../../hooks/useSplitProcessor";
 
 export function SplitPanel() {
   const files = usePsdStore((state) => state.files);
+  const activeFileId = usePsdStore((state) => state.activeFileId);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
 
   const settings = useSplitStore((state) => state.settings);
@@ -14,17 +22,31 @@ export function SplitPanel() {
   const currentFile = useSplitStore((state) => state.currentFile);
   const results = useSplitStore((state) => state.results);
 
-  const { splitSelectedFiles } = useSplitProcessor();
-
-  const targetCount = selectedFileIds.length > 0 ? selectedFileIds.length : files.length;
+  const { splitSelectedFiles, splitAllFiles } = useSplitProcessor();
 
   const successCount = results.filter((r) => r.success).length;
   const totalOutputFiles = results.reduce((acc, r) => acc + r.outputFiles.length, 0);
 
+  // 基準ファイルのメタデータから計算
+  const referenceFile = useMemo(() => {
+    if (activeFileId) return files.find((f) => f.id === activeFileId);
+    return files.length > 1 ? files[1] : files[0];
+  }, [files, activeFileId]);
+
+  const margins = useMemo(() => {
+    if (!settings.selectionBounds || !referenceFile?.metadata) return null;
+    return computeMargins(settings.selectionBounds, referenceFile.metadata.width);
+  }, [settings.selectionBounds, referenceFile]);
+
+  // 不均等モードのバリデーション
+  const canExecuteUneven =
+    settings.mode !== "uneven" ||
+    (settings.selectionBounds !== null && (!margins || !margins.hasExcessiveOverlap));
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-white/5">
+      <div className="px-4 py-3 border-b border-border">
         <h3 className="text-sm font-display font-medium text-text-primary flex items-center gap-2">
           <svg className="w-4 h-4 text-accent-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -52,7 +74,7 @@ export function SplitPanel() {
             <ModeOption
               mode="uneven"
               label="不均等分割"
-              description="ノド側に余白を追加して均等化"
+              description="選択範囲から余白を自動計算"
               currentMode={settings.mode}
               onChange={(mode) => setSettings({ mode })}
             />
@@ -66,23 +88,104 @@ export function SplitPanel() {
           </div>
         </div>
 
-        {/* Uneven Split Settings */}
+        {/* Computed Margins (uneven mode) */}
         {settings.mode === "uneven" && (
           <div className="bg-bg-tertiary rounded-xl p-3">
-            <h4 className="text-xs font-medium text-text-muted mb-2">ノド余白</h4>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                value={settings.outerMargin}
-                onChange={(e) => setSettings({ outerMargin: parseInt(e.target.value) || 0 })}
-                className="flex-1 bg-bg-elevated border border-white/10 rounded-lg px-3 py-2 text-sm text-text-primary focus:border-accent-tertiary focus:outline-none"
-                min={0}
+            <h4 className="text-xs font-medium text-text-muted mb-2">余白計算</h4>
+            {margins ? (
+              <div className="space-y-1.5">
+                <MarginRow label="外側余白" value={`${margins.outerMargin}px`} />
+                <MarginRow label="ノド余白" value={`${margins.innerMargin}px`} />
+                <div className="border-t border-border/30 my-1" />
+                <MarginRow label="追加余白" value={`${margins.marginToAdd}px`} highlight />
+                <MarginRow label="出力幅" value={`${margins.finalWidth}px`} accent />
+
+                {margins.hasExcessiveOverlap && (
+                  <div className="mt-2 px-2 py-1.5 rounded-lg bg-error/10 border border-error/30">
+                    <p className="text-[10px] text-error font-medium">
+                      選択範囲が中央を{margins.overlapPercent.toFixed(1)}%超過（上限5%）
+                    </p>
+                  </div>
+                )}
+                {margins.hasOverlap && !margins.hasExcessiveOverlap && (
+                  <div className="mt-2 px-2 py-1.5 rounded-lg bg-warning/10 border border-warning/30">
+                    <p className="text-[10px] text-warning">
+                      中央をわずかに超過（{margins.overlapPercent.toFixed(1)}%）。自動補正されます
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  綴じ側（ノド）の余白が外側より狭い場合、分割後に余白を追加して均等化します。
+                </p>
+                {/* Visual diagram */}
+                <div className="flex items-center justify-center gap-3 py-1.5">
+                  {/* Spread (before) */}
+                  <div className="flex flex-col items-center">
+                    <span className="text-[8px] text-text-muted mb-1">見開き</span>
+                    <div className="flex border border-text-muted/30 rounded-sm overflow-hidden">
+                      <div className="w-10 h-14 relative">
+                        <div className="absolute inset-y-0 left-0 w-1.5 bg-[#00e5ff]/15" />
+                        <div className="absolute inset-y-0 right-0 w-0.5 bg-[#00e5ff]/10" />
+                      </div>
+                      <div className="w-px bg-text-muted/20" />
+                      <div className="w-10 h-14 relative">
+                        <div className="absolute inset-y-0 left-0 w-0.5 bg-[#00bcd4]/10" />
+                        <div className="absolute inset-y-0 right-0 w-1.5 bg-[#00bcd4]/15" />
+                      </div>
+                    </div>
+                    <div className="flex justify-between w-full mt-0.5 px-0.5">
+                      <span className="text-[7px] text-[#00e5ff]/60">外側</span>
+                      <span className="text-[7px] text-text-muted/40">ノド</span>
+                    </div>
+                  </div>
+
+                  {/* Arrow */}
+                  <svg className="w-4 h-4 text-text-muted/50 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+
+                  {/* Output (after) */}
+                  <div className="flex flex-col items-center">
+                    <span className="text-[8px] text-text-muted mb-1">出力</span>
+                    <div className="flex gap-1">
+                      <div className="w-9 h-14 border border-[#00e5ff]/40 rounded-sm bg-[#00e5ff]/5" />
+                      <div className="w-9 h-14 border border-[#00bcd4]/40 rounded-sm bg-[#00bcd4]/5" />
+                    </div>
+                    <span className="text-[8px] text-[#00e5ff] mt-0.5">同じ幅</span>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-text-muted text-center">
+                  定規からドラッグでコンテンツ範囲を指定
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Page Numbering */}
+        {settings.mode !== "none" && (
+          <div className="bg-bg-tertiary rounded-xl p-3">
+            <h4 className="text-xs font-medium text-text-muted mb-2">ファイル名</h4>
+            <div className="space-y-1.5">
+              <PageNumberingOption
+                value="rl"
+                label="_R / _L"
+                description="右ページ / 左ページ"
+                current={settings.pageNumbering}
+                onChange={(v) => setSettings({ pageNumbering: v })}
               />
-              <span className="text-xs text-text-muted">px</span>
+              <PageNumberingOption
+                value="sequential"
+                label="連番 (_001, _002...)"
+                description="ファイル順で通し番号"
+                current={settings.pageNumbering}
+                onChange={(v) => setSettings({ pageNumbering: v })}
+              />
             </div>
-            <p className="text-[10px] text-text-muted mt-1.5">
-              ノド（綴じ）側に追加する余白。左右の余白が均等になるように調整されます
-            </p>
           </div>
         )}
 
@@ -198,7 +301,6 @@ export function SplitPanel() {
                   </span>
                 </div>
               )}
-              {/* Error details */}
               {results
                 .filter((r) => !r.success && r.error)
                 .slice(0, 3)
@@ -213,66 +315,86 @@ export function SplitPanel() {
       </div>
 
       {/* Action Bar */}
-      <div className="p-3 border-t border-white/5 space-y-2">
-        <div className="flex items-center justify-between text-xs text-text-muted">
-          <span>対象: {targetCount} ファイル</span>
-          <span>
-            {settings.mode === "none"
-              ? "変換のみ"
-              : settings.mode === "uneven"
-                ? "不均等分割"
-                : "均等分割"}
-          </span>
-        </div>
-        <button
-          onClick={splitSelectedFiles}
-          disabled={isProcessing || files.length === 0}
-          className="
-            w-full px-4 py-3 text-sm font-medium rounded-xl text-white
-            bg-gradient-to-r from-accent-tertiary to-accent-secondary
-            shadow-[0_4px_15px_rgba(0,212,170,0.3)]
-            hover:shadow-[0_6px_20px_rgba(0,212,170,0.4)]
-            hover:-translate-y-0.5
-            transition-all duration-200
-            disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
-            flex items-center justify-center gap-2
-          "
-        >
-          {isProcessing ? (
-            <>
-              <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              Photoshopで処理中...
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <div className="p-3 border-t border-border space-y-2">
+        {isProcessing ? (
+          <button
+            disabled
+            className="
+              w-full px-4 py-3 text-sm font-medium rounded-xl text-white
+              bg-gradient-to-r from-accent-tertiary to-accent-secondary
+              opacity-80 cursor-not-allowed
+              flex items-center justify-center gap-2
+            "
+          >
+            <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            Photoshopで処理中...
+          </button>
+        ) : (
+          <div className="flex gap-2">
+            {/* 選択ファイルのみ */}
+            <button
+              onClick={splitSelectedFiles}
+              disabled={selectedFileIds.length === 0 || !canExecuteUneven}
+              className="
+                flex-1 px-3 py-2.5 text-sm font-medium rounded-xl
+                bg-bg-tertiary text-text-primary
+                border border-accent-tertiary/40
+                hover:bg-accent-tertiary/10 hover:border-accent-tertiary/60
+                transition-all duration-200
+                disabled:opacity-40 disabled:cursor-not-allowed
+                flex items-center justify-center gap-1.5
+              "
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+              <span>選択のみ ({selectedFileIds.length})</span>
+            </button>
+
+            {/* 全ファイル */}
+            <button
+              onClick={splitAllFiles}
+              disabled={files.length === 0 || !canExecuteUneven}
+              className="
+                flex-1 px-3 py-2.5 text-sm font-medium rounded-xl text-white
+                bg-gradient-to-r from-accent-tertiary to-accent-secondary
+                shadow-[0_3px_12px_rgba(0,212,170,0.25)]
+                hover:shadow-[0_5px_16px_rgba(0,212,170,0.35)]
+                hover:-translate-y-0.5
+                transition-all duration-200
+                disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none
+                flex items-center justify-center gap-1.5
+              "
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
               </svg>
-              分割を実行
-            </>
-          )}
-        </button>
+              <span>全て実行 ({files.length})</span>
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center justify-center text-[10px] text-text-muted">
+          {settings.mode === "none"
+            ? "変換のみ"
+            : settings.mode === "uneven"
+              ? "不均等分割"
+              : "均等分割"}
+        </div>
       </div>
     </div>
   );
 }
 
-// Mode Option Component
+// --- Sub-components ---
+
 function ModeOption({
-  mode,
-  label,
-  description,
-  currentMode,
-  onChange,
+  mode, label, description, currentMode, onChange,
 }: {
-  mode: SplitMode;
-  label: string;
-  description: string;
-  currentMode: SplitMode;
-  onChange: (mode: SplitMode) => void;
+  mode: SplitMode; label: string; description: string;
+  currentMode: SplitMode; onChange: (mode: SplitMode) => void;
 }) {
   const isSelected = currentMode === mode;
-
   return (
     <div
       className={`
@@ -284,18 +406,11 @@ function ModeOption({
       `}
       onClick={() => onChange(mode)}
     >
-      <div
-        className={`
-          w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200
-          ${isSelected
-            ? "border-accent-tertiary bg-accent-tertiary"
-            : "border-text-muted/50"
-          }
-        `}
-      >
-        {isSelected && (
-          <div className="w-2 h-2 rounded-full bg-white" />
-        )}
+      <div className={`
+        w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200
+        ${isSelected ? "border-accent-tertiary bg-accent-tertiary" : "border-text-muted/50"}
+      `}>
+        {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
       </div>
       <div className="flex-1">
         <span className="text-sm text-text-primary">{label}</span>
@@ -305,20 +420,13 @@ function ModeOption({
   );
 }
 
-// Format Button Component
 function FormatButton({
-  format,
-  label,
-  currentFormat,
-  onChange,
+  format, label, currentFormat, onChange,
 }: {
-  format: OutputFormat;
-  label: string;
-  currentFormat: OutputFormat;
-  onChange: (format: OutputFormat) => void;
+  format: OutputFormat; label: string;
+  currentFormat: OutputFormat; onChange: (format: OutputFormat) => void;
 }) {
   const isSelected = currentFormat === format;
-
   return (
     <button
       className={`
@@ -332,5 +440,43 @@ function FormatButton({
     >
       {label}
     </button>
+  );
+}
+
+function PageNumberingOption({
+  value, label, description, current, onChange,
+}: {
+  value: PageNumbering; label: string; description: string;
+  current: PageNumbering; onChange: (v: PageNumbering) => void;
+}) {
+  const isSelected = current === value;
+  return (
+    <label className="flex items-center gap-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-bg-elevated/50 transition-colors">
+      <div className={`
+        w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all
+        ${isSelected ? "border-accent-tertiary bg-accent-tertiary" : "border-text-muted/40"}
+      `}>
+        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+      </div>
+      <div className="flex-1" onClick={() => onChange(value)}>
+        <span className="text-sm text-text-primary">{label}</span>
+        <p className="text-[10px] text-text-muted">{description}</p>
+      </div>
+    </label>
+  );
+}
+
+function MarginRow({ label, value, highlight, accent }: {
+  label: string; value: string; highlight?: boolean; accent?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-text-muted">{label}</span>
+      <span className={
+        accent ? "text-accent-tertiary font-medium"
+        : highlight ? "text-text-primary font-medium"
+        : "text-text-secondary"
+      }>{value}</span>
+    </div>
   );
 }

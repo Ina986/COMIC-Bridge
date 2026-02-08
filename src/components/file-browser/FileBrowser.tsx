@@ -32,11 +32,15 @@ export function FileBrowser() {
         multiple: true,
         filters: [
           {
-            name: "PSD Files",
+            name: "画像ファイル",
+            extensions: ["psd", "psb", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "pdf", "gif", "eps"],
+          },
+          {
+            name: "PSD/PSB",
             extensions: ["psd", "psb"],
           },
         ],
-        title: "PSDファイルを選択",
+        title: "ファイルを選択",
       });
 
       if (selected && Array.isArray(selected) && selected.length > 0) {

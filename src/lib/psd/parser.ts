@@ -105,7 +105,19 @@ export function extractMetadata(psd: Psd): PsdMetadata {
     hasAlphaChannels: alphaChannelInfo.count > 0,
     alphaChannelCount: alphaChannelInfo.count,
     alphaChannelNames: alphaChannelInfo.names,
+    hasTombo: detectTombo(layerTree),
   };
+}
+
+/**
+ * レイヤーツリーを再帰走査して「トンボ」を名前に含むレイヤー/グループを検出
+ */
+function detectTombo(layers: LayerNode[]): boolean {
+  for (const node of layers) {
+    if (node.name.includes("トンボ")) return true;
+    if (node.children && detectTombo(node.children)) return true;
+  }
+  return false;
 }
 
 /**
