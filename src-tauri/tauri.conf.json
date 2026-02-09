@@ -44,10 +44,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "scripts/*",
-      { "icons/icon.ico": "comic-bridge.ico" }
-    ],
+    "resources": {
+      "scripts/*": "scripts/",
+      "icons/icon.ico": "comic-bridge.ico"
+    },
     "windows": {
       "nsis": {
         "languages": ["Japanese"],
