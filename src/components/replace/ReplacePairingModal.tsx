@@ -536,7 +536,8 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
                 const parts = firstSuccess.outputFile
                   .replace(/\//g, "\\")
                   .split("\\");
-                parts.pop();
+                parts.pop(); // ファイル名を除去
+                if (settings.mode === "batch") parts.pop(); // バッチ時はサブフォルダも除去して親へ
                 const outputFolder = parts.join("\\");
                 return (
                   <button

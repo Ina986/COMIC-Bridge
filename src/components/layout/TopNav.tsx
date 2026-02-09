@@ -1,6 +1,8 @@
+import { createPortal } from "react-dom";
 import { useViewStore, type AppView } from "../../store/viewStore";
 import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
+import { useAppUpdater } from "../../hooks/useAppUpdater";
 
 const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
@@ -46,6 +48,7 @@ export function TopNav() {
   const setActiveView = useViewStore((s) => s.setActiveView);
   const files = usePsdStore((s) => s.files);
   const checkResults = useSpecStore((s) => s.checkResults);
+  const updater = useAppUpdater();
 
   const passedCount = Array.from(checkResults.values()).filter((r) => r.passed).length;
   const failedCount = Array.from(checkResults.values()).filter((r) => !r.passed).length;
@@ -110,6 +113,77 @@ export function TopNav() {
           )}
         </div>
       )}
+
+      {/* Version + Update */}
+      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+        {updater.appVersion && (
+          <span className="text-[10px] text-text-muted/60 font-mono">
+            v{updater.appVersion}
+          </span>
+        )}
+        {updater.phase === "available" ? (
+          <button
+            onClick={() => updater.downloadAndInstall()}
+            className="relative flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-accent-tertiary bg-accent-tertiary/10 rounded-lg hover:bg-accent-tertiary/20 transition-colors"
+          >
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent-tertiary animate-pulse" />
+            v{updater.updateInfo?.version}
+          </button>
+        ) : updater.phase === "checking" ? (
+          <svg className="w-3.5 h-3.5 text-text-muted animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        ) : updater.phase === "up-to-date" ? (
+          <span className="text-[10px] text-accent-tertiary">
+            <svg className="w-3 h-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </span>
+        ) : null}
+      </div>
+
+      {/* Update Dialog (downloading / ready / error) */}
+      {(updater.phase === "downloading" || updater.phase === "ready" || updater.phase === "error") &&
+        createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-bg-secondary border border-border rounded-2xl p-8 shadow-xl max-w-sm text-center space-y-4">
+              {updater.phase === "downloading" && (
+                <>
+                  <svg className="w-12 h-12 mx-auto text-accent animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <h3 className="text-base font-bold text-text-primary">アップデート中...</h3>
+                  <p className="text-xs text-text-muted">ダウンロードしています。しばらくお待ちください。</p>
+                </>
+              )}
+              {updater.phase === "ready" && (
+                <>
+                  <svg className="w-12 h-12 mx-auto text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <h3 className="text-base font-bold text-text-primary">インストール完了</h3>
+                  <p className="text-xs text-text-muted">アプリを再起動します...</p>
+                </>
+              )}
+              {updater.phase === "error" && (
+                <>
+                  <svg className="w-12 h-12 mx-auto text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <h3 className="text-base font-bold text-text-primary">アップデート失敗</h3>
+                  <p className="text-xs text-text-muted">{updater.error}</p>
+                  <button
+                    onClick={updater.dismiss}
+                    className="px-4 py-2 text-xs font-medium text-white bg-gradient-to-r from-accent to-accent-secondary rounded-xl hover:-translate-y-0.5 transition-all"
+                  >
+                    閉じる
+                  </button>
+                </>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </nav>
   );
 }

@@ -7,6 +7,7 @@ export function ReplaceToast() {
   const results = useReplaceStore((s) => s.results);
   const setPhase = useReplaceStore((s) => s.setPhase);
   const isModalOpen = useReplaceStore((s) => s.isModalOpen);
+  const mode = useReplaceStore((s) => s.settings.mode);
 
   const [toast, setToast] = useState<{
     type: "success" | "error" | "partial";
@@ -42,7 +43,8 @@ export function ReplaceToast() {
       if (firstSuccess?.outputFile) {
         // ファイルパスから親フォルダを取得
         const parts = firstSuccess.outputFile.replace(/\//g, "\\").split("\\");
-        parts.pop();
+        parts.pop(); // ファイル名を除去
+        if (mode === "batch") parts.pop(); // バッチ時はサブフォルダも除去して親へ
         outputFolder = parts.join("\\");
       }
 
@@ -97,7 +99,8 @@ export function ReplaceToast() {
       let outputFolder: string | null = null;
       if (firstSuccess?.outputFile) {
         const parts = firstSuccess.outputFile.replace(/\//g, "\\").split("\\");
-        parts.pop();
+        parts.pop(); // ファイル名を除去
+        if (mode === "batch") parts.pop(); // バッチ時はサブフォルダも除去して親へ
         outputFolder = parts.join("\\");
       }
 

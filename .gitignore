@@ -26,6 +26,7 @@ npm-debug.log*
 
 # Tauri
 src-tauri/target/
+src-tauri/.tauri/
 
 # PDFium binary (downloaded separately)
 src-tauri/resources/pdfium/
