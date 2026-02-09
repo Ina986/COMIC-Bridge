@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useReplaceStore } from "../../store/replaceStore";
 import { useReplaceProcessor } from "../../hooks/useReplaceProcessor";
@@ -22,8 +21,6 @@ export function ReplacePanel() {
   const isModalOpen = useReplaceStore((s) => s.isModalOpen);
 
   const { scanAndPair, executeReplacement } = useReplaceProcessor();
-
-  const [generalOpen, setGeneralOpen] = useState(false);
 
   const batchFolders = useReplaceStore((s) => s.batchFolders);
 
@@ -111,6 +108,20 @@ export function ReplacePanel() {
               color="accent-secondary"
             />
           </div>
+          {settings.mode !== "batch" && (
+            <div className="mt-2 pt-2 border-t border-white/5">
+              <CheckBox
+                checked={settings.subfolderSettings.mode === "advanced"}
+                onChange={(v) =>
+                  setSubfolderMode(v ? "advanced" : "none")
+                }
+              >
+                <span className="text-[10px] text-text-secondary">
+                  サブフォルダ対応
+                </span>
+              </CheckBox>
+            </div>
+          )}
         </div>
 
         {/* Mode Selection */}
@@ -179,6 +190,17 @@ export function ReplacePanel() {
                     </CheckBox>
                   </div>
                 )}
+
+                <div className="pt-1 mt-1 border-t border-accent/15">
+                  <CheckBox
+                    checked={settings.generalSettings.roundFontSize}
+                    onChange={(v) => setGeneralSettings({ roundFontSize: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      フォントサイズを丸める
+                    </span>
+                  </CheckBox>
+                </div>
               </div>
             )}
 
@@ -289,6 +311,17 @@ export function ReplacePanel() {
                     </CheckBox>
                   </div>
                 )}
+
+                <div className="pt-1 mt-1 border-t border-accent-secondary/15">
+                  <CheckBox
+                    checked={settings.generalSettings.skipResize}
+                    onChange={(v) => setGeneralSettings({ skipResize: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      サイズ変更を行わない
+                    </span>
+                  </CheckBox>
+                </div>
               </div>
             )}
 
@@ -303,77 +336,35 @@ export function ReplacePanel() {
               onSelect={setMode}
             />
             {settings.mode === "batch" && (
-              <div className="ml-3 pl-3 border-l-2 border-accent-tertiary/30">
+              <div className="ml-3 pl-3 border-l-2 border-accent-tertiary/30 space-y-2">
                 <p className="text-[10px] text-text-muted">
                   画像データフォルダのサブフォルダ（白消し、棒消し等）を
                   自動検出して植字データに一括適用します。
                   特定名レイヤー・グループの部分一致が自動で有効になります。
                 </p>
+                <div className="pt-1 border-t border-accent-tertiary/15 space-y-1.5">
+                  <CheckBox
+                    checked={settings.generalSettings.roundFontSize}
+                    onChange={(v) => setGeneralSettings({ roundFontSize: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      フォントサイズを丸める
+                    </span>
+                  </CheckBox>
+                  <CheckBox
+                    checked={settings.generalSettings.skipResize}
+                    onChange={(v) => setGeneralSettings({ skipResize: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      サイズ変更を行わない
+                    </span>
+                  </CheckBox>
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* General Settings (collapsible) */}
-        <div className="bg-bg-tertiary rounded-xl">
-          <button
-            className="w-full p-3 flex items-center justify-between text-xs font-medium text-text-muted hover:text-text-secondary transition-colors"
-            onClick={() => setGeneralOpen(!generalOpen)}
-          >
-            <span>全般設定</span>
-            <svg
-              className={`w-3.5 h-3.5 transition-transform duration-200 ${generalOpen ? "rotate-180" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
-          </button>
-          {generalOpen && (
-            <div className="px-3 pb-3 space-y-3">
-              {/* Subfolder */}
-              {settings.mode !== "batch" && (
-                <CheckBox
-                  checked={settings.subfolderSettings.mode === "advanced"}
-                  onChange={(v) =>
-                    setSubfolderMode(v ? "advanced" : "none")
-                  }
-                >
-                  <span className="text-xs text-text-primary">
-                    サブフォルダ対応
-                  </span>
-                </CheckBox>
-              )}
-
-              {/* Skip Resize */}
-              <CheckBox
-                checked={settings.generalSettings.skipResize}
-                onChange={(v) => setGeneralSettings({ skipResize: v })}
-              >
-                <span className="text-xs text-text-primary">
-                  サイズ変更を行わない
-                </span>
-              </CheckBox>
-
-              {/* Round Font Size */}
-              <CheckBox
-                checked={settings.generalSettings.roundFontSize}
-                onChange={(v) => setGeneralSettings({ roundFontSize: v })}
-              >
-                <span className="text-xs text-text-primary">
-                  フォントサイズを丸める
-                </span>
-              </CheckBox>
-
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Action Bar */}

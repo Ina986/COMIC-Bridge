@@ -301,36 +301,44 @@ export function ReplaceDropZone() {
           />
         </div>
 
-        {/* === 中央矢印（モードで方向変化 + 準備完了表示） === */}
-        <div className="flex-shrink-0 flex flex-col items-center justify-center gap-1.5">
-          <div className={`
-            w-10 h-10 rounded-full flex items-center justify-center
-            transition-all duration-500
-            ${isReady
-              ? "bg-gradient-to-br from-accent-tertiary to-accent-secondary shadow-[0_0_16px_rgba(0,212,170,0.3)]"
-              : "bg-bg-tertiary"
-            }
-          `}>
-            {isReady ? (
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        {/* === 中央ステータス + 矢印 === */}
+        <div className="flex-shrink-0 flex flex-col items-center justify-center gap-3 px-1">
+          {isReady ? (
+            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-accent-tertiary/15">
+              <svg className="w-3 h-3 text-accent-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
-            ) : (
-              <svg className="w-5 h-5 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                {settings.mode === "text" ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
-                )}
-              </svg>
-            )}
-          </div>
-          <span className={`text-[10px] font-medium transition-colors duration-500 ${isReady ? "text-accent-tertiary" : "text-text-muted"}`}>
-            {isReady
-              ? "準備完了"
-              : settings.mode === "text" ? "テキスト差替え" : settings.mode === "batch" ? "一括差替え" : "画像差替え"
+              <span className="text-[10px] font-medium text-accent-tertiary">準備完了</span>
+            </span>
+          ) : (
+            <span className="text-[10px] font-medium text-text-muted">
+              {settings.mode === "text" ? "テキスト差替え" : settings.mode === "batch" ? "一括差替え" : "画像差替え"}
+            </span>
+          )}
+
+          {/* 大きな方向矢印 */}
+          <div className={`
+            w-14 h-14 rounded-full flex items-center justify-center
+            transition-all duration-500
+            ${isReady
+              ? "bg-accent-tertiary/15 border-2 border-accent-tertiary/30"
+              : "bg-bg-tertiary border border-border/50 opacity-30 scale-90"
             }
-          </span>
+          `}>
+            <svg
+              className={`w-7 h-7 ${isReady ? "text-accent-tertiary" : "text-text-muted"}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              {settings.mode === "text" ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7m0 0l-7 7m7-7H4" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7m0 0l7-7m-7 7h16" />
+              )}
+            </svg>
+          </div>
         </div>
 
         {/* === 画像データ（右） === */}

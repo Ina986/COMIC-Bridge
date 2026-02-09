@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useReplaceStore } from "../../store/replaceStore";
@@ -106,19 +106,20 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
     setPairingDialogMode("manual");
   };
 
-  // マッチ詳細データを構築（出力先ファイル名を表示）
-  const matchDetails =
-    phase === "complete"
-      ? results
-          .filter((r) => r.success)
-          .map((r) => ({
-            fileName: isReversed
-              ? r.sourceName || r.targetName
-              : r.targetName || r.sourceName,
-            matched: extractMatchedNames(r.operations),
-          }))
-          .filter((d) => d.matched.length > 0)
-      : [];
+  // Per-result matched names for inline display in result table
+  const resultMatchMap = useMemo(() => {
+    if (phase !== "complete") return new Map<number, string[]>();
+    const map = new Map<number, string[]>();
+    for (const r of results) {
+      if (r.success) {
+        const names = extractMatchedNames(r.operations);
+        if (names.length > 0) {
+          map.set(r.pairIndex, names);
+        }
+      }
+    }
+    return map;
+  }, [phase, results]);
 
   const modalContent = (
     <div
@@ -317,53 +318,6 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
             </div>
           )}
 
-          {/* Match Details (after completion) */}
-          {phase === "complete" && matchDetails.length > 0 && (
-            <div className="bg-accent-secondary/5 rounded-xl border border-accent-secondary/20 overflow-hidden">
-              <div className="px-4 py-2.5 bg-accent-secondary/10 border-b border-accent-secondary/15">
-                <h4 className="text-xs font-medium text-accent-secondary flex items-center gap-1.5">
-                  <svg
-                    className="w-3.5 h-3.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                    />
-                  </svg>
-                  マッチ詳細 — {matchDetails.length}/{successCount}{" "}
-                  ファイルでマッチ
-                </h4>
-              </div>
-              <div className="divide-y divide-accent-secondary/10">
-                {matchDetails.map((d, idx) => (
-                  <div key={idx} className="px-4 py-2 flex items-start gap-3">
-                    <span
-                      className="text-xs text-text-primary font-medium flex-shrink-0 min-w-[140px] truncate"
-                      title={d.fileName}
-                    >
-                      {d.fileName}
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      {d.matched.map((name, nIdx) => (
-                        <span
-                          key={nIdx}
-                          className="px-1.5 py-0.5 text-[10px] rounded bg-accent-secondary/15 text-accent-secondary"
-                        >
-                          {name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Results File Pair Table (processing/complete) */}
           {(phase === "processing" || phase === "complete") && (
             <div className="border border-border rounded-xl overflow-hidden">
@@ -430,8 +384,22 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
                                 />
                               </svg>
                             </td>
-                            <td className="px-3 py-2 text-xs text-text-primary truncate max-w-[200px]">
-                              {isReversed ? pair.sourceName : pair.targetName}
+                            <td className="px-3 py-2 text-xs">
+                              <div className="text-text-primary truncate max-w-[200px]">
+                                {isReversed ? pair.sourceName : pair.targetName}
+                              </div>
+                              {resultMatchMap.has(pair.pairIndex) && (
+                                <div className="flex flex-wrap gap-0.5 mt-0.5">
+                                  {resultMatchMap.get(pair.pairIndex)!.map((name, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-1 py-0 text-[9px] rounded bg-accent-secondary/15 text-accent-secondary"
+                                    >
+                                      {name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-center">
                               {result ? (

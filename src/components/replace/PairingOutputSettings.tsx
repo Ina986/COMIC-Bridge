@@ -4,7 +4,23 @@ import { useReplaceStore } from "../../store/replaceStore";
 export function PairingOutputSettings() {
   const settings = useReplaceStore((s) => s.settings);
   const setGeneralSettings = useReplaceStore((s) => s.setGeneralSettings);
+  const pairingJobs = useReplaceStore((s) => s.pairingJobs);
+  const pairingDialogMode = useReplaceStore((s) => s.pairingDialogMode);
+  const manualPairs = useReplaceStore((s) => s.manualPairs);
   const [isOpen, setIsOpen] = useState(false);
+
+  // Example file name for preview
+  const firstPair =
+    pairingDialogMode === "manual"
+      ? manualPairs[0]
+      : pairingJobs[0]?.pairs[0];
+  const exampleName = firstPair
+    ? settings.generalSettings.saveFileName === "target"
+      ? firstPair.targetName
+      : firstPair.sourceName
+    : "example_001.psd";
+  const folderName =
+    settings.generalSettings.outputFolderName.trim() || "YYYYMMDD_HHmmss";
 
   return (
     <div className="border-t border-border">
@@ -26,6 +42,22 @@ export function PairingOutputSettings() {
 
       {isOpen && (
         <div className="px-4 pb-3 space-y-3">
+          {/* Output Folder Name */}
+          <div>
+            <label className="text-[10px] text-text-muted mb-1 block">
+              出力フォルダ名
+            </label>
+            <input
+              type="text"
+              value={settings.generalSettings.outputFolderName}
+              onChange={(e) =>
+                setGeneralSettings({ outputFolderName: e.target.value })
+              }
+              placeholder="空欄＝日時で自動生成"
+              className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted/50 focus:border-accent focus:outline-none"
+            />
+          </div>
+
           {/* Save File Name */}
           <div>
             <label className="text-[10px] text-text-muted mb-1 block">
@@ -55,23 +87,15 @@ export function PairingOutputSettings() {
             </div>
           </div>
 
-          {/* Output Folder Name */}
-          <div>
-            <label className="text-[10px] text-text-muted mb-1 block">
-              出力フォルダ名
-            </label>
-            <input
-              type="text"
-              value={settings.generalSettings.outputFolderName}
-              onChange={(e) =>
-                setGeneralSettings({ outputFolderName: e.target.value })
-              }
-              placeholder="空欄＝日時で自動生成"
-              className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted/50 focus:border-accent focus:outline-none"
-            />
-            <p className="text-[9px] text-text-muted/60 mt-0.5">
-              デスクトップ/Script_Output/差替えファイル_出力/ 以下
-            </p>
+          {/* Output Preview */}
+          <div className="px-3 py-2 bg-bg-elevated/50 rounded-lg border border-white/5">
+            <div className="text-[9px] text-text-muted mb-0.5">出力パス例:</div>
+            <div className="text-[10px] text-text-secondary font-mono truncate">
+              {"~/Desktop/Script_Output/差替えファイル_出力/"}
+              <span className="text-accent">{folderName}</span>
+              {"/"}
+              <span className="text-accent">{exampleName}</span>
+            </div>
           </div>
         </div>
       )}

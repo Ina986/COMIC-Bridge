@@ -11,6 +11,63 @@ function getFileName(fullPath: string) {
   return fullPath.split(/[\\/]/).pop() || "";
 }
 
+function getBaseName(fullPath: string) {
+  const name = fullPath.split(/[\\/]/).pop() || "";
+  return name.replace(/\.(psd|psb|tif|tiff|jpg|jpeg|png|bmp|gif|eps|pdf)$/i, "");
+}
+
+function getPageNumber(fileName: string): number | null {
+  const decoded = decodeURIComponent(fileName);
+  const patterns = [
+    /_p(\d+)/i,
+    /page(?:[ _-])?(\d+)/i,
+    /(?:^|[._-])(\d+)\.[a-z0-9]+$/i,
+    /^(\d+)(?:[._-])/i,
+    /(?:[._-])(\d+)(?=[._a-zA-Z-])/i,
+    /(\d+)/,
+  ];
+  for (const pattern of patterns) {
+    const match = decoded.match(pattern);
+    if (match?.[1]) return parseInt(match[1], 10);
+  }
+  return null;
+}
+
+function getMatchKeyInfo(
+  sourceName: string,
+  targetName: string,
+  pairIndex: number,
+  mode: PairingMode,
+  linkChar: string
+): { label: string; className: string } {
+  switch (mode) {
+    case "fileOrder":
+      return { label: `#${pairIndex + 1}`, className: "text-text-muted/70 bg-white/5" };
+    case "numericKey": {
+      const srcNum = getPageNumber(sourceName);
+      const tgtNum = getPageNumber(targetName);
+      const isMatch = srcNum !== null && tgtNum !== null && srcNum === tgtNum;
+      return {
+        label: srcNum !== null ? `p${srcNum}` : "?",
+        className: isMatch
+          ? "text-accent bg-accent/10"
+          : "text-warning bg-warning/10",
+      };
+    }
+    case "linkCharManual":
+    case "linkCharAuto": {
+      if (linkChar) {
+        const base = getBaseName(sourceName);
+        const idx = base.indexOf(linkChar);
+        const key = idx >= 0 ? base.substring(0, idx) : base;
+        const display = key.length > 8 ? key.substring(0, 6) + "…" : key;
+        return { label: display || linkChar, className: "text-success bg-success/10" };
+      }
+      return { label: "—", className: "text-text-muted bg-white/5" };
+    }
+  }
+}
+
 const PAIRING_MODES: { value: PairingMode; label: string; short: string }[] = [
   { value: "fileOrder", label: "ファイル順", short: "ファイル順" },
   { value: "numericKey", label: "数字キー", short: "数字" },
@@ -29,6 +86,7 @@ export function PairingAutoTab({ isReversed, onRescan }: Props) {
   const settings = useReplaceStore((s) => s.settings);
   const setPairingMode = useReplaceStore((s) => s.setPairingMode);
   const setLinkCharacter = useReplaceStore((s) => s.setLinkCharacter);
+  const detectedLinkChar = useReplaceStore((s) => s.detectedLinkChar);
 
   const [isRescanning, setIsRescanning] = useState(false);
 
@@ -285,6 +343,29 @@ export function PairingAutoTab({ isReversed, onRescan }: Props) {
         )}
       </div>
 
+      {/* Match Summary Bar — 分母は差し替え元（左列）ファイル数 */}
+      {allLeftFiles.length > 0 && (
+        <div className="flex items-center gap-3 px-1">
+          <div className="flex-1 bg-bg-elevated rounded-full h-1.5 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                totalPairsCount >= allLeftFiles.length
+                  ? "bg-success"
+                  : totalPairsCount > allLeftFiles.length * 0.5
+                    ? "bg-accent"
+                    : "bg-warning"
+              }`}
+              style={{ width: `${Math.min((totalPairsCount / allLeftFiles.length) * 100, 100)}%` }}
+            />
+          </div>
+          <span className={`text-[10px] whitespace-nowrap ${
+            totalPairsCount < allLeftFiles.length ? "text-warning" : "text-text-muted"
+          }`}>
+            {totalPairsCount}/{allLeftFiles.length} マッチ済み
+          </span>
+        </div>
+      )}
+
       {/* Pair Table */}
       <div className={`border border-border rounded-xl overflow-hidden transition-opacity duration-200 ${isRescanning ? "opacity-50 pointer-events-none" : ""}`}>
         {isRescanning && (
@@ -355,6 +436,16 @@ export function PairingAutoTab({ isReversed, onRescan }: Props) {
                     ? pair.sourceName
                     : pair.targetName;
 
+                  const matchKey = getMatchKeyInfo(
+                    pair.sourceName,
+                    pair.targetName,
+                    pair.pairIndex,
+                    settings.pairingSettings.mode,
+                    settings.pairingSettings.mode === "linkCharManual"
+                      ? settings.pairingSettings.linkCharacter
+                      : detectedLinkChar || ""
+                  );
+
                   return (
                     <tr
                       key={pair.pairIndex}
@@ -379,20 +470,28 @@ export function PairingAutoTab({ isReversed, onRescan }: Props) {
                         leftFile,
                         leftName
                       )}
-                      <td className="px-3 py-2 text-center text-text-muted">
-                        <svg
-                          className="w-3 h-3 inline"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M13 7l5 5m0 0l-5 5m5-5H6"
-                          />
-                        </svg>
+                      <td className="px-1 py-2 text-center">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <svg
+                            className="w-3 h-3 text-text-muted"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M13 7l5 5m0 0l-5 5m5-5H6"
+                            />
+                          </svg>
+                          <span
+                            className={`text-[8px] leading-none px-1 py-0.5 rounded ${matchKey.className}`}
+                            title={`マッチキー: ${matchKey.label}`}
+                          >
+                            {matchKey.label}
+                          </span>
+                        </div>
                       </td>
                       {renderFileCell(
                         pair.pairIndex,
