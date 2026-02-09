@@ -24,6 +24,7 @@ export function useAppUpdater() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
+  const [showPrompt, setShowPrompt] = useState(false);
   const startupChecked = useRef(false);
 
   // 現在のバージョンを取得
@@ -55,6 +56,7 @@ export function useAppUpdater() {
           raw: update,
         });
         setPhase("available");
+        if (silent) setShowPrompt(true);
       } else {
         setPhase(silent ? "idle" : "up-to-date");
         if (!silent) {
@@ -92,13 +94,19 @@ export function useAppUpdater() {
     setError(null);
   }, []);
 
+  const dismissPrompt = useCallback(() => {
+    setShowPrompt(false);
+  }, []);
+
   return {
     phase,
     updateInfo,
     error,
     appVersion,
+    showPrompt,
     checkForUpdate,
     downloadAndInstall,
     dismiss,
+    dismissPrompt,
   };
 }

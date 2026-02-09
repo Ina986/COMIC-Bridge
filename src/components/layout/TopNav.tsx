@@ -142,6 +142,46 @@ export function TopNav() {
         ) : null}
       </div>
 
+      {/* Update Prompt Dialog (shown on startup when update available) */}
+      {updater.showPrompt && updater.updateInfo &&
+        createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-bg-secondary border border-border rounded-2xl p-8 shadow-xl max-w-sm text-center space-y-4">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-accent to-accent-secondary flex items-center justify-center shadow-lg">
+                <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-text-primary">アップデートがあります</h3>
+                <p className="text-xs text-text-muted mt-1">
+                  v{updater.appVersion} → <span className="text-accent-tertiary font-semibold">v{updater.updateInfo.version}</span>
+                </p>
+              </div>
+              {updater.updateInfo.body && (
+                <p className="text-xs text-text-secondary text-left bg-bg-tertiary rounded-lg p-3 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                  {updater.updateInfo.body}
+                </p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => updater.dismissPrompt()}
+                  className="flex-1 px-4 py-2.5 text-xs font-medium text-text-secondary bg-bg-tertiary rounded-xl hover:bg-bg-tertiary/80 transition-colors"
+                >
+                  あとで
+                </button>
+                <button
+                  onClick={() => { updater.dismissPrompt(); updater.downloadAndInstall(); }}
+                  className="flex-1 px-4 py-2.5 text-xs font-medium text-white bg-gradient-to-r from-accent to-accent-secondary rounded-xl hover:-translate-y-0.5 transition-all shadow-sm"
+                >
+                  アップデートする
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
       {/* Update Dialog (downloading / ready / error) */}
       {(updater.phase === "downloading" || updater.phase === "ready" || updater.phase === "error") &&
         createPortal(
