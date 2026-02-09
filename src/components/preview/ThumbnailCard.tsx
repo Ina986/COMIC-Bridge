@@ -49,7 +49,7 @@ export function ThumbnailCard({
   return (
     <div
       className={`
-        group relative bg-bg-tertiary rounded-2xl overflow-hidden cursor-pointer
+        group relative bg-bg-tertiary rounded-2xl overflow-hidden cursor-pointer select-none
         transition-all duration-200 shadow-card border border-border
         hover:-translate-y-1 hover:shadow-elevated
         ${isActive

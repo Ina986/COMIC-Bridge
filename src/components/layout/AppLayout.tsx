@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { TopNav } from "./TopNav";
 import { ViewRouter } from "./ViewRouter";
 import { GuideEditorModal } from "../guide-editor/GuideEditorModal";
@@ -13,6 +13,8 @@ import { useOpenFolderShortcut } from "../../hooks/useOpenFolder";
 export function AppLayout() {
   const isEditorOpen = useGuideStore((state) => state.isEditorOpen);
   const clearSelection = usePsdStore((state) => state.clearSelection);
+  const selectAll = usePsdStore((state) => state.selectAll);
+  const files = usePsdStore((state) => state.files);
 
   // 自動チェック機能を有効化
   useSpecChecker();
@@ -22,6 +24,20 @@ export function AppLayout() {
 
   // Fキーでフォルダを開く（全タブ共通）
   useOpenFolderShortcut();
+
+  // Ctrl+A で全選択
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        e.preventDefault();
+        if (files.length > 0) selectAll();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [files.length, selectAll]);
 
   // サムネ領域外クリックで複数選択を解除
   const handleMouseDown = useCallback(

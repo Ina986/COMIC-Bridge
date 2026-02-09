@@ -21,7 +21,7 @@ export function SpecCardList() {
   };
 
   return (
-    <div className="h-full overflow-auto p-2 space-y-1">
+    <div className="h-full overflow-auto p-2 space-y-1 select-none">
       {files.map((file) => (
         <SpecCard
           key={file.id}

@@ -26,7 +26,7 @@ export function PreviewList() {
   };
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="h-full overflow-auto select-none">
       {/* Header */}
       <div className="sticky top-0 bg-bg-secondary border-b border-text-muted/10 px-4 py-2 grid grid-cols-[auto_1fr_100px_100px_80px_80px_60px] gap-4 text-xs font-medium text-text-muted">
         <div className="w-12">サムネ</div>

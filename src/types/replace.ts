@@ -1,3 +1,14 @@
+// === ダイアログモード ===
+export type PairingDialogMode = "auto" | "manual";
+
+// === スキャン済みファイルグループ ===
+export interface ScannedFileGroup {
+  groupKey: string;        // ジョブ識別子（"通常処理", サブフォルダ名等）
+  sourceFiles: string[];   // フルパス、ソート済み
+  targetFiles: string[];   // フルパス、ソート済み
+  outputDirSuffix: string; // outBase以降のパス（"" or "/{name}_差替え後PSD"）
+}
+
 // === 差替えモード ===
 export type ReplaceMode = "text" | "image" | "batch";
 export type TextSubMode = "textLayers" | "namedGroup";

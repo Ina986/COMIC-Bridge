@@ -224,6 +224,22 @@ function duplicateLayerSet(sourceLayerSet, targetDoc, placement) {
     } catch (e) { return null; }
 }
 
+// レイヤーのカラーラベルを「なし」にリセット
+// （duplicate()でドキュメント間複製すると赤ラベルが付く問題の対策）
+function clearLayerColor(layer) {
+    try {
+        app.activeDocument.activeLayer = layer;
+        var desc = new ActionDescriptor();
+        var ref = new ActionReference();
+        ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
+        desc.putReference(charIDToTypeID("null"), ref);
+        var descSet = new ActionDescriptor();
+        descSet.putEnumerated(charIDToTypeID("Clr "), charIDToTypeID("Clr "), charIDToTypeID("None"));
+        desc.putObject(charIDToTypeID("T   "), charIDToTypeID("Lyr "), descSet);
+        executeAction(charIDToTypeID("setd"), desc, DialogModes.NO);
+    } catch (e) {}
+}
+
 // 背景/最下層レイヤーのロックを解除して削除
 function unlockAndRemoveLayer(layer) {
     try {
@@ -482,6 +498,7 @@ function processPair(pair, opts) {
                         var dupFolder = duplicateLayerSet(srcSet, targetDoc, placement);
                         if (dupFolder) {
                             setActiveDocument(targetDoc);
+                            clearLayerColor(dupFolder);
                             removeNonTextLayersFromFolder(dupFolder);
                             if (needFontSizeAdjustment) {
                                 try { scaleTextFontSizes(dupFolder, scaleX, scaleY, opts.shouldRoundFontSize); } catch (e) {}
@@ -596,7 +613,9 @@ function processPair(pair, opts) {
                     }
                     setActiveDocument(sourceDoc);
                     var dupGroup = relative ? sGroup.duplicate(relative, placement) : sGroup.duplicate(tContainer, placement);
-                    if (opts.skipResize) { setActiveDocument(targetDoc); dupGroup.translate(centerOffsetX, centerOffsetY); }
+                    setActiveDocument(targetDoc);
+                    clearLayerColor(dupGroup);
+                    if (opts.skipResize) { dupGroup.translate(centerOffsetX, centerOffsetY); }
                     result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + sGroup.name + "\u300D");
                     tgCount++;
                 } catch (e) {}
@@ -634,7 +653,9 @@ function processPair(pair, opts) {
                         }
                         setActiveDocument(sourceDoc);
                         var dupGroup = relative ? sGroup.duplicate(relative, placement) : sGroup.duplicate(tContainer, placement);
-                        if (opts.skipResize) { setActiveDocument(targetDoc); dupGroup.translate(centerOffsetX, centerOffsetY); }
+                        setActiveDocument(targetDoc);
+                        clearLayerColor(dupGroup);
+                        if (opts.skipResize) { dupGroup.translate(centerOffsetX, centerOffsetY); }
                         result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + sGroup.name + "\u300D");
                         igCount++;
                     } catch (e) {}
@@ -663,7 +684,9 @@ function processPair(pair, opts) {
                         }
                         setActiveDocument(targetDoc);
                         var dupBGroup = bRelative ? bGroup.duplicate(bRelative, bPlacement) : bGroup.duplicate(bContainer, bPlacement);
-                        if (opts.skipResize) { setActiveDocument(sourceDoc); dupBGroup.translate(-centerOffsetX, -centerOffsetY); }
+                        setActiveDocument(sourceDoc);
+                        clearLayerColor(dupBGroup);
+                        if (opts.skipResize) { dupBGroup.translate(-centerOffsetX, -centerOffsetY); }
                         result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + bGroup.name + "\u300D");
                         igCount++;
                     } catch (e) {}
@@ -691,7 +714,9 @@ function processPair(pair, opts) {
                         }
                         setActiveDocument(targetDoc);
                         var dupIGroup = iRelative ? iGroup.duplicate(iRelative, iPlacement) : iGroup.duplicate(iContainer, iPlacement);
-                        if (opts.skipResize) { setActiveDocument(sourceDoc); dupIGroup.translate(-centerOffsetX, -centerOffsetY); }
+                        setActiveDocument(sourceDoc);
+                        clearLayerColor(dupIGroup);
+                        if (opts.skipResize) { dupIGroup.translate(-centerOffsetX, -centerOffsetY); }
                         result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + iGroup.name + "\u300D");
                         igCount++;
                     } catch (e) {}

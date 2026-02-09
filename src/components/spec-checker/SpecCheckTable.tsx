@@ -21,7 +21,7 @@ export function SpecCheckTable() {
   };
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="h-full overflow-auto select-none">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-bg-secondary border-b border-border px-3 py-2 grid grid-cols-[32px_36px_1fr_100px_80px_80px_60px_60px_70px] gap-3 text-xs font-medium text-text-muted">
         <div />

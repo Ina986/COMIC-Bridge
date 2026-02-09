@@ -38,7 +38,7 @@ export function FileList() {
   }
 
   return (
-    <div className="py-1">
+    <div className="py-1 select-none">
       {files.map((file) => {
         const isSelected = selectedFileIds.includes(file.id);
         const isActive = activeFileId === file.id;

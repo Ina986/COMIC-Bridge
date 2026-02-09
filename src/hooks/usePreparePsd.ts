@@ -88,7 +88,7 @@ export function usePreparePsd() {
           return result && !result.passed;
         })();
 
-        const needsGuide = applyGuides && file.metadata && !file.metadata.hasGuides && guides.length > 0;
+        const needsGuide = applyGuides && guides.length > 0;
 
         return needsSpec || needsGuide;
       });
@@ -115,8 +115,7 @@ export function usePreparePsd() {
         const anyNeedsBoth = fixSpec && applyGuides && targetFiles.some((file) => {
           const result = checkResults.get(file.id);
           const hasSpecIssue = result && !result.passed;
-          const hasGuideIssue = file.metadata && !file.metadata.hasGuides && guides.length > 0;
-          return hasSpecIssue && hasGuideIssue;
+          return hasSpecIssue && guides.length > 0;
         });
 
         let results: PhotoshopResult[];
@@ -233,7 +232,7 @@ export function usePreparePsd() {
     const fileSettings: PrepareFileSettings[] = targetFiles.map((file) => {
       const result = checkResults.get(file.id);
       const failedChecks = result?.results.filter((r) => !r.passed) ?? [];
-      const needsGuide = applyGuides && file.metadata && !file.metadata.hasGuides && guideList.length > 0;
+      const needsGuide = applyGuides && guideList.length > 0;
 
       return {
         path: file.filePath,
@@ -305,12 +304,8 @@ export function usePreparePsd() {
     targetFiles: typeof files,
     guideList: Guide[]
   ): Promise<PhotoshopResult[]> => {
-    const noGuideFiles = targetFiles.filter(
-      (f) => f.metadata && !f.metadata.hasGuides
-    );
-
     return await invoke<PhotoshopResult[]>("run_photoshop_guide_apply", {
-      filePaths: noGuideFiles.map((f) => f.filePath),
+      filePaths: targetFiles.map((f) => f.filePath),
       guides: guideList.map((g) => ({
         direction: g.direction,
         position: g.position,

@@ -2,23 +2,26 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useReplaceStore } from "../../store/replaceStore";
+import { PairingAutoTab } from "./PairingAutoTab";
+import { PairingManualTab } from "./PairingManualTab";
+import { PairingOutputSettings } from "./PairingOutputSettings";
 
 interface Props {
   onExecute: () => Promise<void>;
+  onRescan: () => Promise<void>;
 }
 
 /** operationsからマッチしたレイヤー/グループ名を抽出 */
 function extractMatchedNames(operations: string[]): string[] {
   const names: string[] = [];
   for (const op of operations) {
-    // "  → レイヤー「白消し_01」" or "  → グループ「棒消し」" or "  → テキストフォルダ「text」"
     const m = op.match(/^\s+→\s+(?:レイヤー|グループ|テキストフォルダ)「(.+?)」$/);
     if (m) names.push(m[1]);
   }
   return names;
 }
 
-export function ReplacePairingModal({ onExecute }: Props) {
+export function ReplacePairingModal({ onExecute, onRescan }: Props) {
   const closeModal = useReplaceStore((s) => s.closeModal);
   const pairingJobs = useReplaceStore((s) => s.pairingJobs);
   const phase = useReplaceStore((s) => s.phase);
@@ -28,6 +31,11 @@ export function ReplacePairingModal({ onExecute }: Props) {
   const results = useReplaceStore((s) => s.results);
   const settings = useReplaceStore((s) => s.settings);
   const detectedLinkChar = useReplaceStore((s) => s.detectedLinkChar);
+  const pairingDialogMode = useReplaceStore((s) => s.pairingDialogMode);
+  const setPairingDialogMode = useReplaceStore((s) => s.setPairingDialogMode);
+  const excludedPairIndices = useReplaceStore((s) => s.excludedPairIndices);
+  const manualPairs = useReplaceStore((s) => s.manualPairs);
+  const setManualPairs = useReplaceStore((s) => s.setManualPairs);
 
   const totalPairsCount = pairingJobs.reduce(
     (acc, job) => acc + job.pairs.length,
@@ -35,6 +43,12 @@ export function ReplacePairingModal({ onExecute }: Props) {
   );
   const successCount = results.filter((r) => r.success).length;
   const errorCount = results.filter((r) => !r.success).length;
+
+  // 有効ペア数（実行ボタン用）
+  const activePairCount =
+    pairingDialogMode === "auto"
+      ? totalPairsCount - excludedPairIndices.size
+      : manualPairs.length;
 
   // ESC to close (only when not processing)
   useEffect(() => {
@@ -79,20 +93,32 @@ export function ReplacePairingModal({ onExecute }: Props) {
     }
   };
 
+  // image / batch モードではレイヤーコピー方向が逆（画像→植字）
+  const isReversed = settings.mode === "image" || settings.mode === "batch";
+
   const handleExecute = async () => {
     await onExecute();
   };
 
-  // マッチ詳細データを構築
-  const matchDetails = phase === "complete"
-    ? results
-        .filter((r) => r.success)
-        .map((r) => ({
-          fileName: r.targetName || r.sourceName,
-          matched: extractMatchedNames(r.operations),
-        }))
-        .filter((d) => d.matched.length > 0)
-    : [];
+  // 自動→手動モード切替: ペアをクリアして一から手動で選べるようにする
+  const switchToManualMode = () => {
+    setManualPairs([]);
+    setPairingDialogMode("manual");
+  };
+
+  // マッチ詳細データを構築（出力先ファイル名を表示）
+  const matchDetails =
+    phase === "complete"
+      ? results
+          .filter((r) => r.success)
+          .map((r) => ({
+            fileName: isReversed
+              ? r.sourceName || r.targetName
+              : r.targetName || r.sourceName,
+            matched: extractMatchedNames(r.operations),
+          }))
+          .filter((d) => d.matched.length > 0)
+      : [];
 
   const modalContent = (
     <div
@@ -138,43 +164,80 @@ export function ReplacePairingModal({ onExecute }: Props) {
           )}
         </div>
 
+        {/* Tab Switcher (idle phase only) */}
+        {phase === "idle" && (
+          <div className="flex border-b border-border flex-shrink-0">
+            <button
+              onClick={() => setPairingDialogMode("auto")}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                pairingDialogMode === "auto"
+                  ? "border-accent text-accent"
+                  : "border-transparent text-text-muted hover:text-text-primary"
+              }`}
+            >
+              自動ペアリング
+            </button>
+            <button
+              onClick={switchToManualMode}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                pairingDialogMode === "manual"
+                  ? "border-accent text-accent"
+                  : "border-transparent text-text-muted hover:text-text-primary"
+              }`}
+            >
+              手動マッチ
+            </button>
+          </div>
+        )}
+
         {/* Content */}
         <div className="flex-1 overflow-auto p-6 space-y-4">
-          {/* Operation Summary */}
-          <div className="bg-bg-tertiary rounded-xl p-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-text-muted text-xs">モード</span>
-                <p className="text-text-primary font-medium">
-                  {getModeLabel()}
-                </p>
-              </div>
-              <div>
-                <span className="text-text-muted text-xs">方向</span>
-                <p className="text-text-primary font-medium">
-                  {getDirectionLabel()}
-                </p>
-              </div>
-              <div>
-                <span className="text-text-muted text-xs">ペア数</span>
-                <p className="text-text-primary font-medium">
-                  {totalPairsCount} ペア
-                  {pairingJobs.length > 1 &&
-                    ` (${pairingJobs.length} ジョブ)`}
-                </p>
-              </div>
-              {detectedLinkChar && (
+          {/* Operation Summary (idle only) */}
+          {phase === "idle" && (
+            <div className="bg-bg-tertiary rounded-xl p-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <span className="text-text-muted text-xs">
-                    検出リンク文字
-                  </span>
-                  <p className="text-accent font-medium">
-                    「{detectedLinkChar}」
+                  <span className="text-text-muted text-xs">モード</span>
+                  <p className="text-text-primary font-medium">
+                    {getModeLabel()}
                   </p>
                 </div>
-              )}
+                <div>
+                  <span className="text-text-muted text-xs">方向</span>
+                  <p className="text-text-primary font-medium">
+                    {getDirectionLabel()}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-text-muted text-xs">ペア数</span>
+                  <p className="text-text-primary font-medium">
+                    {activePairCount} ペア
+                    {pairingDialogMode === "auto" &&
+                      pairingJobs.length > 1 &&
+                      ` (${pairingJobs.length} ジョブ)`}
+                  </p>
+                </div>
+                {detectedLinkChar && (
+                  <div>
+                    <span className="text-text-muted text-xs">
+                      検出リンク文字
+                    </span>
+                    <p className="text-accent font-medium">
+                      「{detectedLinkChar}」
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Idle phase: Tab content */}
+          {phase === "idle" && pairingDialogMode === "auto" && (
+            <PairingAutoTab isReversed={isReversed} onRescan={onRescan} />
+          )}
+          {phase === "idle" && pairingDialogMode === "manual" && (
+            <PairingManualTab isReversed={isReversed} />
+          )}
 
           {/* Progress (during processing) */}
           {phase === "processing" && (
@@ -259,16 +322,30 @@ export function ReplacePairingModal({ onExecute }: Props) {
             <div className="bg-accent-secondary/5 rounded-xl border border-accent-secondary/20 overflow-hidden">
               <div className="px-4 py-2.5 bg-accent-secondary/10 border-b border-accent-secondary/15">
                 <h4 className="text-xs font-medium text-accent-secondary flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                    />
                   </svg>
-                  マッチ詳細 — {matchDetails.length}/{successCount} ファイルでマッチ
+                  マッチ詳細 — {matchDetails.length}/{successCount}{" "}
+                  ファイルでマッチ
                 </h4>
               </div>
               <div className="divide-y divide-accent-secondary/10">
                 {matchDetails.map((d, idx) => (
                   <div key={idx} className="px-4 py-2 flex items-start gap-3">
-                    <span className="text-xs text-text-primary font-medium flex-shrink-0 min-w-[140px] truncate" title={d.fileName}>
+                    <span
+                      className="text-xs text-text-primary font-medium flex-shrink-0 min-w-[140px] truncate"
+                      title={d.fileName}
+                    >
                       {d.fileName}
                     </span>
                     <div className="flex flex-wrap gap-1">
@@ -287,77 +364,75 @@ export function ReplacePairingModal({ onExecute }: Props) {
             </div>
           )}
 
-          {/* File Pair Table */}
-          <div className="border border-border rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-bg-tertiary">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-text-muted w-10">
-                    #
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-text-muted">
-                    植字データ
-                  </th>
-                  <th className="px-3 py-2 text-center text-xs font-medium text-text-muted w-8">
-                    &nbsp;
-                  </th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-text-muted">
-                    画像データ
-                  </th>
-                  {(phase === "processing" || phase === "complete") && (
+          {/* Results File Pair Table (processing/complete) */}
+          {(phase === "processing" || phase === "complete") && (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-bg-tertiary">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-text-muted w-10">
+                      #
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-text-muted">
+                      {isReversed ? "画像データ" : "植字データ"}
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-text-muted w-8">
+                      &nbsp;
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-text-muted">
+                      {isReversed ? "植字データ" : "画像データ"}
+                    </th>
                     <th className="px-3 py-2 text-center text-xs font-medium text-text-muted w-16">
                       状態
                     </th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {pairingJobs.map((job, jobIdx) => (
-                  <>
-                    {pairingJobs.length > 1 && (
-                      <tr key={`job-${jobIdx}`}>
-                        <td
-                          colSpan={phase === "processing" || phase === "complete" ? 5 : 4}
-                          className="px-3 py-1.5 bg-accent/5 text-[10px] font-medium text-accent"
-                        >
-                          {job.description}
-                        </td>
-                      </tr>
-                    )}
-                    {job.pairs.map((pair) => {
-                      const result = results.find(
-                        (r) => r.pairIndex === pair.pairIndex
-                      );
-                      return (
-                        <tr
-                          key={pair.pairIndex}
-                          className="border-t border-border/50 hover:bg-bg-tertiary/50"
-                        >
-                          <td className="px-3 py-2 text-xs text-text-muted">
-                            {pair.pairIndex + 1}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pairingJobs.map((job, jobIdx) => (
+                    <>
+                      {pairingJobs.length > 1 && (
+                        <tr key={`job-${jobIdx}`}>
+                          <td
+                            colSpan={5}
+                            className="px-3 py-1.5 bg-accent/5 text-[10px] font-medium text-accent"
+                          >
+                            {job.description}
                           </td>
-                          <td className="px-3 py-2 text-xs text-text-primary truncate max-w-[200px]">
-                            {pair.sourceName}
-                          </td>
-                          <td className="px-3 py-2 text-center text-text-muted">
-                            <svg
-                              className="w-3 h-3 inline"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M13 7l5 5m0 0l-5 5m5-5H6"
-                              />
-                            </svg>
-                          </td>
-                          <td className="px-3 py-2 text-xs text-text-primary truncate max-w-[200px]">
-                            {pair.targetName}
-                          </td>
-                          {(phase === "processing" || phase === "complete") && (
+                        </tr>
+                      )}
+                      {job.pairs.map((pair) => {
+                        const result = results.find(
+                          (r) => r.pairIndex === pair.pairIndex
+                        );
+                        return (
+                          <tr
+                            key={pair.pairIndex}
+                            className="border-t border-border/50 hover:bg-bg-tertiary/50"
+                          >
+                            <td className="px-3 py-2 text-xs text-text-muted">
+                              {pair.pairIndex + 1}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-text-primary truncate max-w-[200px]">
+                              {isReversed ? pair.targetName : pair.sourceName}
+                            </td>
+                            <td className="px-3 py-2 text-center text-text-muted">
+                              <svg
+                                className="w-3 h-3 inline"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M13 7l5 5m0 0l-5 5m5-5H6"
+                                />
+                              </svg>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-text-primary truncate max-w-[200px]">
+                              {isReversed ? pair.sourceName : pair.targetName}
+                            </td>
                             <td className="px-3 py-2 text-center">
                               {result ? (
                                 result.success ? (
@@ -400,15 +475,15 @@ export function ReplacePairingModal({ onExecute }: Props) {
                                 <div className="w-3 h-3 mx-auto rounded-full border border-text-muted/20" />
                               )}
                             </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                          </tr>
+                        );
+                      })}
+                    </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Error Details */}
           {phase === "complete" && errorCount > 0 && (
@@ -425,13 +500,17 @@ export function ReplacePairingModal({ onExecute }: Props) {
                       key={r.pairIndex}
                       className="text-[10px] text-error/80 truncate"
                     >
-                      {r.sourceName} → {r.targetName}: {r.error}
+                      {isReversed ? r.targetName : r.sourceName} →{" "}
+                      {isReversed ? r.sourceName : r.targetName}: {r.error}
                     </p>
                   ))}
               </div>
             </div>
           )}
         </div>
+
+        {/* Output Settings (idle phase only) */}
+        {phase === "idle" && <PairingOutputSettings />}
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-border flex items-center justify-end gap-3 flex-shrink-0">
@@ -445,7 +524,7 @@ export function ReplacePairingModal({ onExecute }: Props) {
               </button>
               <button
                 onClick={handleExecute}
-                disabled={totalPairsCount === 0}
+                disabled={activePairCount === 0}
                 className="
                   px-6 py-2.5 text-sm font-medium rounded-xl text-white
                   bg-gradient-to-r from-accent to-accent-secondary
@@ -475,25 +554,43 @@ export function ReplacePairingModal({ onExecute }: Props) {
                     d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                {totalPairsCount} ペアを処理
+                {activePairCount} ペアを処理
               </button>
             </>
           )}
           {phase === "complete" && (
             <>
               {(() => {
-                const firstSuccess = results.find((r) => r.success && r.outputFile);
+                const firstSuccess = results.find(
+                  (r) => r.success && r.outputFile
+                );
                 if (!firstSuccess?.outputFile) return null;
-                const parts = firstSuccess.outputFile.replace(/\//g, "\\").split("\\");
+                const parts = firstSuccess.outputFile
+                  .replace(/\//g, "\\")
+                  .split("\\");
                 parts.pop();
                 const outputFolder = parts.join("\\");
                 return (
                   <button
-                    onClick={() => invoke("open_folder_in_explorer", { folderPath: outputFolder }).catch(() => {})}
+                    onClick={() =>
+                      invoke("open_folder_in_explorer", {
+                        folderPath: outputFolder,
+                      }).catch(() => {})
+                    }
                     className="px-4 py-2 text-sm rounded-xl text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors flex items-center gap-1.5"
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                      />
                     </svg>
                     出力フォルダを開く
                   </button>

@@ -4,7 +4,7 @@ import { useReplaceStore } from "../../store/replaceStore";
 import { useReplaceProcessor } from "../../hooks/useReplaceProcessor";
 import { ReplacePairingModal } from "./ReplacePairingModal";
 import { ReplaceToast } from "./ReplaceToast";
-import type { ReplaceMode, PairingMode } from "../../types/replace";
+import type { ReplaceMode } from "../../types/replace";
 
 export function ReplacePanel() {
   const folders = useReplaceStore((s) => s.folders);
@@ -16,8 +16,6 @@ export function ReplacePanel() {
   const setTextGroupName = useReplaceStore((s) => s.setTextGroupName);
   const setTextPartialMatch = useReplaceStore((s) => s.setTextPartialMatch);
   const setImageSettings = useReplaceStore((s) => s.setImageSettings);
-  const setPairingMode = useReplaceStore((s) => s.setPairingMode);
-  const setLinkCharacter = useReplaceStore((s) => s.setLinkCharacter);
   const setGeneralSettings = useReplaceStore((s) => s.setGeneralSettings);
   const setSubfolderMode = useReplaceStore((s) => s.setSubfolderMode);
   const phase = useReplaceStore((s) => s.phase);
@@ -171,15 +169,14 @@ export function ReplacePanel() {
                       placeholder="グループ名"
                       className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
                     />
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <CheckBox
-                        checked={settings.textSettings.partialMatch}
-                        onChange={setTextPartialMatch}
-                      />
+                    <CheckBox
+                      checked={settings.textSettings.partialMatch}
+                      onChange={setTextPartialMatch}
+                    >
                       <span className="text-[10px] text-text-secondary">
                         部分一致
                       </span>
-                    </label>
+                    </CheckBox>
                   </div>
                 )}
               </div>
@@ -198,30 +195,28 @@ export function ReplacePanel() {
             {settings.mode === "image" && (
               <div className="ml-3 pl-3 border-l-2 border-accent-secondary/30 space-y-2">
                 {/* Background */}
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <CheckBox
-                    checked={settings.imageSettings.replaceBackground}
-                    onChange={(v) =>
-                      setImageSettings({ replaceBackground: v })
-                    }
-                  />
+                <CheckBox
+                  checked={settings.imageSettings.replaceBackground}
+                  onChange={(v) =>
+                    setImageSettings({ replaceBackground: v })
+                  }
+                >
                   <span className="text-xs text-text-primary">
                     背景レイヤー差替え
                   </span>
-                </label>
+                </CheckBox>
 
                 {/* Special Layer */}
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <CheckBox
-                    checked={settings.imageSettings.replaceSpecialLayer}
-                    onChange={(v) =>
-                      setImageSettings({ replaceSpecialLayer: v })
-                    }
-                  />
+                <CheckBox
+                  checked={settings.imageSettings.replaceSpecialLayer}
+                  onChange={(v) =>
+                    setImageSettings({ replaceSpecialLayer: v })
+                  }
+                >
                   <span className="text-xs text-text-primary">
                     特定名レイヤー差替え
                   </span>
-                </label>
+                </CheckBox>
                 {settings.imageSettings.replaceSpecialLayer && (
                   <div className="ml-6 space-y-1.5">
                     <input
@@ -233,34 +228,32 @@ export function ReplacePanel() {
                       placeholder="レイヤー名"
                       className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent-secondary focus:outline-none"
                     />
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <CheckBox
-                        checked={
-                          settings.imageSettings.specialLayerPartialMatch
-                        }
-                        onChange={(v) =>
-                          setImageSettings({ specialLayerPartialMatch: v })
-                        }
-                      />
+                    <CheckBox
+                      checked={
+                        settings.imageSettings.specialLayerPartialMatch
+                      }
+                      onChange={(v) =>
+                        setImageSettings({ specialLayerPartialMatch: v })
+                      }
+                    >
                       <span className="text-[10px] text-text-secondary">
                         部分一致
                       </span>
-                    </label>
+                    </CheckBox>
                   </div>
                 )}
 
                 {/* Named Group */}
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <CheckBox
-                    checked={settings.imageSettings.replaceNamedGroup}
-                    onChange={(v) =>
-                      setImageSettings({ replaceNamedGroup: v })
-                    }
-                  />
+                <CheckBox
+                  checked={settings.imageSettings.replaceNamedGroup}
+                  onChange={(v) =>
+                    setImageSettings({ replaceNamedGroup: v })
+                  }
+                >
                   <span className="text-xs text-text-primary">
                     特定名グループ差替え
                   </span>
-                </label>
+                </CheckBox>
                 {settings.imageSettings.replaceNamedGroup && (
                   <div className="ml-6 space-y-1.5">
                     <input
@@ -272,30 +265,28 @@ export function ReplacePanel() {
                       placeholder="グループ名"
                       className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent-secondary focus:outline-none"
                     />
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <CheckBox
-                        checked={
-                          settings.imageSettings.namedGroupPartialMatch
-                        }
-                        onChange={(v) =>
-                          setImageSettings({ namedGroupPartialMatch: v })
-                        }
-                      />
+                    <CheckBox
+                      checked={
+                        settings.imageSettings.namedGroupPartialMatch
+                      }
+                      onChange={(v) =>
+                        setImageSettings({ namedGroupPartialMatch: v })
+                      }
+                    >
                       <span className="text-[10px] text-text-secondary">
                         部分一致
                       </span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <CheckBox
-                        checked={settings.imageSettings.placeFromBottom}
-                        onChange={(v) =>
-                          setImageSettings({ placeFromBottom: v })
-                        }
-                      />
+                    </CheckBox>
+                    <CheckBox
+                      checked={settings.imageSettings.placeFromBottom}
+                      onChange={(v) =>
+                        setImageSettings({ placeFromBottom: v })
+                      }
+                    >
                       <span className="text-[10px] text-text-secondary">
                         下から数えて同じ位置に配置
                       </span>
-                    </label>
+                    </CheckBox>
                   </div>
                 )}
               </div>
@@ -346,133 +337,40 @@ export function ReplacePanel() {
           </button>
           {generalOpen && (
             <div className="px-3 pb-3 space-y-3">
-              {/* Pairing Mode */}
-              <div>
-                <label className="text-[10px] text-text-muted mb-1 block">
-                  ペアリング方式
-                </label>
-                <select
-                  value={settings.pairingSettings.mode}
-                  onChange={(e) =>
-                    setPairingMode(e.target.value as PairingMode)
-                  }
-                  className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
-                >
-                  <option value="fileOrder">ファイル順</option>
-                  <option value="numericKey">ファイル名中の数字</option>
-                  <option value="linkCharManual">
-                    リンク文字 (手動指定)
-                  </option>
-                  <option value="linkCharAuto">
-                    リンク文字 (自動検出)
-                  </option>
-                </select>
-              </div>
-
-              {/* Link Character */}
-              {settings.pairingSettings.mode === "linkCharManual" && (
-                <div>
-                  <label className="text-[10px] text-text-muted mb-1 block">
-                    リンク文字
-                  </label>
-                  <input
-                    type="text"
-                    value={settings.pairingSettings.linkCharacter}
-                    onChange={(e) => setLinkCharacter(e.target.value)}
-                    placeholder="例: ★"
-                    className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
-                  />
-                </div>
-              )}
-
               {/* Subfolder */}
               {settings.mode !== "batch" && (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <CheckBox
-                    checked={settings.subfolderSettings.mode === "advanced"}
-                    onChange={(v) =>
-                      setSubfolderMode(v ? "advanced" : "none")
-                    }
-                  />
+                <CheckBox
+                  checked={settings.subfolderSettings.mode === "advanced"}
+                  onChange={(v) =>
+                    setSubfolderMode(v ? "advanced" : "none")
+                  }
+                >
                   <span className="text-xs text-text-primary">
                     サブフォルダ対応
                   </span>
-                </label>
+                </CheckBox>
               )}
 
               {/* Skip Resize */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <CheckBox
-                  checked={settings.generalSettings.skipResize}
-                  onChange={(v) => setGeneralSettings({ skipResize: v })}
-                />
+              <CheckBox
+                checked={settings.generalSettings.skipResize}
+                onChange={(v) => setGeneralSettings({ skipResize: v })}
+              >
                 <span className="text-xs text-text-primary">
                   サイズ変更を行わない
                 </span>
-              </label>
+              </CheckBox>
 
               {/* Round Font Size */}
-              <label className="flex items-center gap-2 cursor-pointer">
-                <CheckBox
-                  checked={settings.generalSettings.roundFontSize}
-                  onChange={(v) => setGeneralSettings({ roundFontSize: v })}
-                />
+              <CheckBox
+                checked={settings.generalSettings.roundFontSize}
+                onChange={(v) => setGeneralSettings({ roundFontSize: v })}
+              >
                 <span className="text-xs text-text-primary">
                   フォントサイズを丸める
                 </span>
-              </label>
+              </CheckBox>
 
-              {/* Output Folder Name */}
-              <div>
-                <label className="text-[10px] text-text-muted mb-1 block">
-                  出力フォルダ名
-                </label>
-                <input
-                  type="text"
-                  value={settings.generalSettings.outputFolderName}
-                  onChange={(e) =>
-                    setGeneralSettings({ outputFolderName: e.target.value })
-                  }
-                  placeholder="空欄＝日時で自動生成"
-                  className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted/50 focus:border-accent focus:outline-none"
-                />
-                <p className="text-[9px] text-text-muted/60 mt-0.5">
-                  デスクトップ/Script_Output/差替えファイル_出力/ 以下
-                </p>
-              </div>
-
-              {/* Save File Name */}
-              <div>
-                <label className="text-[10px] text-text-muted mb-1 block">
-                  保存ファイル名
-                </label>
-                <div className="flex gap-1.5">
-                  <button
-                    className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg transition-all ${
-                      settings.generalSettings.saveFileName === "target"
-                        ? "bg-accent/20 text-accent border border-accent/30"
-                        : "bg-bg-elevated text-text-secondary border border-white/5"
-                    }`}
-                    onClick={() =>
-                      setGeneralSettings({ saveFileName: "target" })
-                    }
-                  >
-                    画像データ名
-                  </button>
-                  <button
-                    className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg transition-all ${
-                      settings.generalSettings.saveFileName === "source"
-                        ? "bg-accent/20 text-accent border border-accent/30"
-                        : "bg-bg-elevated text-text-secondary border border-white/5"
-                    }`}
-                    onClick={() =>
-                      setGeneralSettings({ saveFileName: "source" })
-                    }
-                  >
-                    植字データ名
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -527,7 +425,7 @@ export function ReplacePanel() {
 
       {/* Pairing Modal */}
       {isModalOpen && (
-        <ReplacePairingModal onExecute={executeReplacement} />
+        <ReplacePairingModal onExecute={executeReplacement} onRescan={scanAndPair} />
       )}
 
       {/* Completion Toast */}
@@ -677,38 +575,45 @@ function RadioDot({ selected }: { selected: boolean }) {
 function CheckBox({
   checked,
   onChange,
+  children,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
+  children?: React.ReactNode;
 }) {
   return (
     <div
       role="checkbox"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all cursor-pointer
-        ${
-          checked
-            ? "bg-gradient-to-br from-accent to-accent-secondary"
-            : "border-2 border-text-muted/30 hover:border-text-muted/50"
-        }
-      `}
+      className="flex items-center gap-2 cursor-pointer"
     >
-      {checked && (
-        <svg
-          className="w-2.5 h-2.5 text-white"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={3}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M5 13l4 4L19 7"
-          />
-        </svg>
-      )}
+      <div
+        className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all
+          ${
+            checked
+              ? "bg-gradient-to-br from-accent to-accent-secondary"
+              : "border-2 border-text-muted/30 hover:border-text-muted/50"
+          }
+        `}
+      >
+        {checked && (
+          <svg
+            className="w-2.5 h-2.5 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={3}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M5 13l4 4L19 7"
+            />
+          </svg>
+        )}
+      </div>
+      {children}
     </div>
   );
 }

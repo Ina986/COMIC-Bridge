@@ -13,6 +13,7 @@
 - **スタイリング**: Tailwind CSS
 - **状態管理**: Zustand
 - **PSD処理**: ag-psd（読み取り専用）、Photoshop ExtendScript（変換・書き込み）
+- **PDF処理**: pdfium-render（プレビュー/サムネイル）、Photoshop PDFOpenOptions（分割処理）
 - **バックエンド**: Rust
 
 ## 設計思想
@@ -91,16 +92,21 @@
 - 選択ファイルのみ / 全ファイル処理対応
 - **詳細レポートダイアログ**: 処理完了後に中央モーダル（createPortal）でファイル別ツリー表示。親フォルダ∈情報付きでグループ/レイヤーの階層関係を表示（F/G/T/L種別バッジ）
 - JSX側: `changedNames`に`"テキスト「name」∈「parent」"`形式で親フォルダ情報を記録。フロント側`extractMatchedItems()`→`buildTree()`でツリー構築
+- **ビューアーモード**: LayerPreviewPanel内タブ切替（レイヤー構造/ビューアー）。全ファイルを対象に高解像度プレビュー表示（useHighResPreview maxSize=2000）。矢印キー/マウスホイール/矢印ボタンでページ送り（端でクランプ、循環なし）。P/Fショートカットはキャプチャフェーズでインターセプトしてビューアーの現在ファイルに対応
 
 ### 7. レイヤー差替え（Photoshop JSX経由）
 - **テキスト差替え**: 植字データ → 画像データへテキストレイヤー/特定名グループを差替え
 - **画像差替え**: 画像データ → 植字データへ背景レイヤー/特定名レイヤー/特定名グループを差替え
 - **同時処理（バッチモード）**: 白消し・棒消しフォルダを自動検出して一括差替え
-- ペアリング: ファイル順/数字キー/リンク文字（手動・自動検出）
+- ペアリング: ファイル順/数字キー/リンク文字（手動・自動検出）。セグメント型ピルボタンで方式切替
 - 中央エリアにD&Dドロップゾーン（Tauri物理座標→CSS座標のDPR補正付き）
 - バッチモード: 親フォルダ⇔個別指定の排他制御、サブフォルダ自動検出
 - ファイル数カウント（再帰対応）、0件時の警告表示、準備完了インジケータ
-- **カスタム出力フォルダ名**: 全般設定で任意のサブフォルダ名を指定可能（空欄ならタイムスタンプで自動生成）
+- **ペアリング確認ダイアログ**: 自動ペアリング/手動マッチのタブ切替（ReplacePairingModal）
+  - **自動タブ（PairingAutoTab）**: チェックボックス付きペアテーブル、行ごとの鉛筆アイコン（編集）/×ボタン（解除）、ヘッダーに「編集」「解除」明記。未マッチファイル折りたたみセクション（クリックでペア作成）。モード切替時はopacity transitionでスムーズ遷移
+  - **手動タブ（PairingManualTab）**: 2カラムファイルリスト + クリック/ドラッグでペア作成
+  - **出力設定（PairingOutputSettings）**: 折りたたみ式。保存ファイル名トグル + 出力フォルダ名入力
+- **カスタム出力フォルダ名**: ダイアログ内出力設定で任意のサブフォルダ名を指定可能（空欄ならタイムスタンプで自動生成）
 - **詳細マッチレポート**: 処理完了後にファイルごとのマッチしたレイヤー/グループ名をタグバッジで一覧表示
 - **完了トースト通知**: モーダル閉じ後にも成功/エラー結果をReplaceToastで表示、出力フォルダを開くボタン付き
 - Photoshop JSX経由で差替え実行（`replace_layers.jsx`）
@@ -111,9 +117,11 @@
 - **分割なし**: フォーマット変換のみ
 - 単ページ自動検出: 先頭/末尾ファイルが標準幅の70%未満なら分割スキップ
 - ページ番号: `_R/_L` または連番 `_001, _002...`
+- **1ファイル目の右が白紙**: `firstPageBlank`チェックで白紙右ページを破棄し、左ページから`_001`で開始（連番モード時のみ表示）
 - オプション: 非表示レイヤー削除、はみ出しテキスト除去
 - 出力形式: PSD / JPG（品質0-100%、JSX側は0-12スケールに変換）
 - **マルチフォーマット対応**: PSD/PSB以外にJPG, PNG, TIFF, PDF, BMP, GIF, EPSも読み込み可（Photoshopが開ける全形式）
+- **PDF対応**: PDFドロップ時にページ単位で展開表示。プレビュー/サムネイルは`pdfium-render`でレンダリング。分割処理はPhotoshop `PDFOpenOptions`で600dpiオープン
 - **実行ボタン分離**: 「選択のみ (N)」「全て実行 (N)」の2ボタンで対象を明示
 - **SplitPreview**: 定規ドラッグで垂直ガイド操作、ズーム/パン、Undo/Redo対応
 - **splitStore**: `selectionHistory`/`selectionFuture`でUndo/Redo。`startDragSelection()`でドラッグ中は履歴スパム防止
@@ -128,19 +136,27 @@
 
 ### ビュー
 - **FileView**: ファイル一覧・サムネイル・メタデータ表示
-- **LayerControlView**: レイヤー制御パネル + LayerPreviewPanel（レイヤーツリー）
+- **LayerControlView**: レイヤー制御パネル + LayerPreviewPanel（レイヤー構造タブ + ビューアータブ）
 - **SpecCheckView**: 仕様チェックテーブル（SpecCheckTable）
 - **ReplaceView**: レイヤー差替え
 - **SplitView**: 見開き分割
 
 ### レイヤーツリー (LayerPreviewPanel)
-- **表示順**: ag-psdのbottom-to-topを`.reverse()`でPhotoshop表示順（上がforeground）に変換
-- **マルチカラムグリッド**: 最大3列、4ファイル以上は次の行へ。CSS Gridで同一行の高さを揃え
-- **サイドバー連動**: selectedFileIdsがあればそのファイルのみ、なければ全ファイル表示
-- **ローカル複数選択**: クリックで単一選択、Shift+クリックで複数選択。チェック済みファイルはPhotoshop Blue (#31A8FF)でハイライト
-- **Pキー**: チェック済みファイルをPhotoshopで一括起動（単一ファイル時はそのまま起動）
-- **モード連動**: actionMode (hide/show) に応じて willChange / 済 / 要確認 をバッジ表示
-- **リスク分類**: layerMatcher.ts で safe/warning/none を判定。ラスターレイヤーの誤非表示をwarning表示
+- **タブ切替**: 「レイヤー構造」（デフォルト）/ 「ビューアー」のセグメントボタン
+- **レイヤー構造モード**:
+  - 表示順: ag-psdのbottom-to-topを`.reverse()`でPhotoshop表示順（上がforeground）に変換
+  - マルチカラムグリッド: 最大3列、4ファイル以上は次の行へ。CSS Gridで同一行の高さを揃え
+  - サイドバー連動: selectedFileIdsがあればそのファイルのみ、なければ全ファイル表示
+  - ローカル複数選択: クリックで単一選択、Shift+クリックで複数選択。チェック済みファイルはPhotoshop Blue (#31A8FF)でハイライト
+  - Pキー: チェック済みファイルをPhotoshopで一括起動（単一ファイル時はそのまま起動）
+  - モード連動: actionMode (hide/show) に応じて willChange / 済 / 要確認 をバッジ表示
+  - リスク分類: layerMatcher.ts で safe/warning/none を判定。ラスターレイヤーの誤非表示をwarning表示
+- **ビューアーモード**:
+  - 全ファイル対象の高解像度プレビュー（useHighResPreview, maxSize=2000）
+  - ナビゲーション: 矢印キー/マウスホイール/矢印ボタン（端でクランプ、循環なし）
+  - サイドバー選択変更時にビューアー位置を同期
+  - P/Fショートカット: キャプチャフェーズ(`addEventListener(..., true)`)で現在表示中ファイルに対応（グローバルハンドラーより優先）
+- **select-none**: テキスト選択防止（全インタラクティブリストコンテナに適用）
 
 ### UIフロー
 ```
@@ -202,11 +218,15 @@ src/
 │   ├── replace/           # レイヤー差替え
 │   │   ├── ReplacePanel.tsx
 │   │   ├── ReplaceDropZone.tsx
-│   │   ├── ReplacePairingModal.tsx
+│   │   ├── ReplacePairingModal.tsx      # ペアリング確認ダイアログ（タブ切替シェル）
+│   │   ├── PairingAutoTab.tsx           # 自動ペアリングタブ（チェック/編集/解除付きテーブル）
+│   │   ├── PairingManualTab.tsx         # 手動マッチタブ（2カラム+クリック/ドラッグ）
+│   │   ├── PairingOutputSettings.tsx    # 出力設定（保存ファイル名・フォルダ名）
 │   │   └── ReplaceToast.tsx
 │   ├── split/             # 見開き分割
 │   │   ├── SplitPanel.tsx
-│   │   └── SplitPreview.tsx       # 定規ドラッグ・ガイド操作・ズーム/パン
+│   │   ├── SplitPreview.tsx       # 定規ドラッグ・ガイド操作・ズーム/パン
+│   │   └── SplitResultDialog.tsx  # 分割処理結果ダイアログ
 │   └── ui/                # 共通UIコンポーネント
 │       ├── Modal.tsx
 │       └── PopButton.tsx
@@ -247,9 +267,13 @@ src-tauri/
 │   ├── hide_layers.jsx
 │   ├── split_psd.jsx
 │   └── replace_layers.jsx
+├── resources/
+│   └── pdfium/
+│       └── pdfium.dll         # PDFiumバイナリ（.gitignore管理、別途DL）
 └── src/
     ├── lib.rs
-    └── commands.rs       # Rustコマンド（open_file_in_photoshop含む）
+    ├── commands.rs       # Rustコマンド（open_file_in_photoshop含む）
+    └── pdf.rs            # PDFレンダリング（pdfium-render）
 ```
 
 ## 重要な型定義
@@ -258,7 +282,15 @@ src-tauri/
 // 対応ファイル形式 (types/index.ts)
 const IMAGE_EXTENSIONS = [".psd", ".psb", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".pdf", ".gif", ".eps"];
 const PSD_EXTENSIONS = [".psd", ".psb"];  // ag-psdでパース可能なもの
-// isSupportedFile(fileName) / isPsdFile(fileName) ヘルパー関数あり
+// isSupportedFile(fileName) / isPsdFile(fileName) / isPdfFile(fileName) ヘルパー関数あり
+
+// PsdFile PDF関連フィールド（PDFページ展開時に設定）
+interface PsdFile {
+  // ... 既存フィールド ...
+  sourceType?: "psd" | "image" | "pdf";  // ファイル種別
+  pdfSourcePath?: string;                // PDF元ファイルパス
+  pdfPageIndex?: number;                 // 0-based ページ番号
+}
 
 // PSDメタデータ
 interface PsdMetadata {
@@ -349,6 +381,8 @@ useEffect(() => {
 12. **JSX詳細レポート（レイヤー制御）**: `changedNames`に`"テキスト「name」∈「parent」"`形式で親フォルダ情報付きで記録。フロント側`extractMatchedItems()`→`buildTree()`でツリー構築。親フォルダが結果に含まれない場合はコンテキストとして`グループ`ノード（G）を自動生成
 13. **Photoshopスクリプト実行パターン**: 全コマンド共通で「直接パス + `.output()` + ポーリング」を使用。`.spawn()`やtemp copyは問題を起こすので使わない
 14. **非PSDファイルの読み込み**: `isPsdFile()`で判定し、PSD以外は`stat()`でファイルサイズのみ取得。ag-psdパースはスキップ。Photoshopが開ける前提でファイル一覧に表示
+15. **ExtendScript `File.name` のURI符号化**: `File.name`は非ASCII文字をURIエンコードして返す（例: `校正_堀川` → `%E6%A0%A1%E6%AD%A3_%E5%A0%80%E5%B7%9D`）。`decodeURI(file.name)`で正しいファイル名を取得すること
+16. **PDF分割処理**: JSX側で`pdfPageIndex >= 0`の場合、`PDFOpenOptions`（`page`, `resolution: 600`, `mode: OpenDocumentMode.RGB`）でページ指定オープン。`fileInfos`は`{ path, pdfPageIndex }`形式で渡す（`pdfPageIndex: -1`は通常ファイル）
 
 ## 高速PSD読み込み（Rust側）
 
@@ -367,6 +401,17 @@ load_psd_fast(path)
   → load_psd_composite(path)  // 直接Image Dataセクション読み込み
   → 失敗時: psd crateにフォールバック
 ```
+
+## PDFレンダリング（Rust側）
+
+pdfium-renderによるPDFプレビュー/サムネイル生成:
+
+1. **PDFium DLL**: `src-tauri/resources/pdfium/pdfium.dll`から遅延ロード（`OnceLock<Pdfium>`でシングルトン管理）
+2. **DLL探索順**: リソースディレクトリ → `CARGO_MANIFEST_DIR/resources/` → システムPATH
+3. **Tauriコマンド**: `get_pdf_info`（ページ数・寸法）、`get_pdf_preview`（高解像度）、`get_pdf_thumbnail`（Base64サムネイル）
+4. **ページ展開**: PDFドロップ時に`get_pdf_info`で全ページ情報取得 → `psdStore.replaceFile()`で1ファイルを複数ページエントリーに置換
+5. **キャッシュ**: ディスクキャッシュ `manga_pdf_preview_{name}_{mtime}_{page}_{size}.jpg`（既存PSDキャッシュと同一パターン）
+6. **pdfium-render API注意**: ページインデックスは`u16`型（`PdfPageIndex`）、`PdfPoints`は`.value: f32`、`as_image()`は`DynamicImage`を直接返す
 
 ## デフォルト仕様
 
@@ -461,4 +506,9 @@ lastSelectedSpecId: string    // 前回選択した仕様ID
 
 | 操作 | キー | ビュー |
 |------|------|--------|
-| Photoshopで開く | P | レイヤー制御・仕様チェック |
+| 全選択 | Ctrl+A | 全タブ（INPUT/TEXTAREA/SELECT内は除外） |
+| Photoshopで開く | P | レイヤー制御・仕様チェック（ビューアーモードでは表示中ファイル） |
+| フォルダを開く | F | 全タブ（ビューアーモードでは表示中ファイル） |
+| 前のページ | ←/↑ | レイヤー制御ビューアー |
+| 次のページ | →/↓ | レイヤー制御ビューアー |
+| ページ送り | マウスホイール | レイヤー制御ビューアー |

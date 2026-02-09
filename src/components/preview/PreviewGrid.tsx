@@ -53,7 +53,7 @@ export function PreviewGrid() {
   const size = THUMBNAIL_SIZES[thumbnailSize].value;
 
   return (
-    <div className="h-full overflow-auto p-4" data-preview-grid>
+    <div className="h-full overflow-auto p-4 select-none" data-preview-grid>
       <div
         className="grid gap-3"
         style={{

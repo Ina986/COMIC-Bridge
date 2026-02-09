@@ -5,6 +5,7 @@ import type {
   FilePair,
   PairingJob,
   ReplaceResult,
+  ScannedFileGroup,
 } from "../types/replace";
 
 interface PhotoshopResult {
@@ -183,6 +184,7 @@ export function useReplaceProcessor() {
   const clearResults = useReplaceStore((s) => s.clearResults);
   const setPairingJobs = useReplaceStore((s) => s.setPairingJobs);
   const setDetectedLinkChar = useReplaceStore((s) => s.setDetectedLinkChar);
+  const setScannedFileGroups = useReplaceStore((s) => s.setScannedFileGroups);
   const openModal = useReplaceStore((s) => s.openModal);
 
   // --- ペアリングを計算 ---
@@ -251,6 +253,7 @@ export function useReplaceProcessor() {
 
     try {
       const jobs: PairingJob[] = [];
+      const scannedGroups: ScannedFileGroup[] = [];
       let globalPairIndex = 0;
       let globalDetectedChar: string | null = null;
       const currentGeneralSettings = useReplaceStore.getState().settings.generalSettings;
@@ -300,6 +303,12 @@ export function useReplaceProcessor() {
             pairs: indexedPairs,
             outputDir: `${outBase}/${target.name}_差替え後PSD`,
           });
+          scannedGroups.push({
+            groupKey: target.name,
+            sourceFiles: plantFiles,
+            targetFiles: subFiles,
+            outputDirSuffix: `/${target.name}_差替え後PSD`,
+          });
         }
       } else if (settings.subfolderSettings.mode === "advanced") {
         // --- サブフォルダ対応モード ---
@@ -338,6 +347,12 @@ export function useReplaceProcessor() {
             pairs: indexedPairs,
             outputDir: outBase,
           });
+          scannedGroups.push({
+            groupKey: "Source全階層 → Targetルート",
+            sourceFiles,
+            targetFiles,
+            outputDirSuffix: "",
+          });
         } else {
           // ケースB: Targetにサブフォルダあり
           const sourceSubs = await invoke<string[]>("list_subfolders", {
@@ -369,6 +384,12 @@ export function useReplaceProcessor() {
                 description: `${getFolderName(sourceSubs[i])} → ${tgtName}`,
                 pairs: indexedPairs,
                 outputDir: `${outBase}/${tgtName}`,
+              });
+              scannedGroups.push({
+                groupKey: `${getFolderName(sourceSubs[i])} → ${tgtName}`,
+                sourceFiles: srcFiles,
+                targetFiles: tgtFiles,
+                outputDirSuffix: `/${tgtName}`,
               });
             }
           } else {
@@ -404,10 +425,17 @@ export function useReplaceProcessor() {
                 }));
 
                 const tgtName = getFolderName(tf);
+                const srcFolderName = getFolderName(srcFolder);
                 jobs.push({
-                  description: `${getFolderName(srcFolder)} → ${tgtName} (No.${tgtNum})`,
+                  description: `${srcFolderName} → ${tgtName} (No.${tgtNum})`,
                   pairs: indexedPairs,
                   outputDir: `${outBase}/${tgtName}`,
+                });
+                scannedGroups.push({
+                  groupKey: `${srcFolderName} → ${tgtName} (No.${tgtNum})`,
+                  sourceFiles: srcFiles,
+                  targetFiles: tgtFiles,
+                  outputDirSuffix: `/${tgtName}`,
                 });
               }
             }
@@ -441,10 +469,17 @@ export function useReplaceProcessor() {
           pairs: indexedPairs,
           outputDir: outBase,
         });
+        scannedGroups.push({
+          groupKey: "通常処理",
+          sourceFiles,
+          targetFiles,
+          outputDirSuffix: "",
+        });
       }
 
       setDetectedLinkChar(globalDetectedChar);
       setPairingJobs(jobs);
+      setScannedFileGroups(scannedGroups);
       setPhase("idle");
       openModal();
     } catch (err) {
@@ -459,16 +494,55 @@ export function useReplaceProcessor() {
     setPhase,
     setDetectedLinkChar,
     setPairingJobs,
+    setScannedFileGroups,
     openModal,
   ]);
 
   // --- Photoshop 実行 ---
   const executeReplacement = useCallback(async () => {
-    const jobs = useReplaceStore.getState().pairingJobs;
-    const currentSettings = useReplaceStore.getState().settings;
+    const state = useReplaceStore.getState();
+    const { pairingJobs: jobs, pairingDialogMode, manualPairs,
+      excludedPairIndices, scannedFileGroups } = state;
+    const currentSettings = state.settings;
 
-    // 全ペアを集約
-    const allPairs = jobs.flatMap((job) => job.pairs);
+    // 出力パス再計算（ダイアログで変更された可能性がある）
+    const folderName = currentSettings.generalSettings.outputFolderName.trim() || makeTimestamp();
+    const outBase = `__desktop__/Script_Output/差替えファイル_出力/${folderName}`;
+
+    // 実行ペアを構築
+    let pairEntries: { sourceFile: string; targetFile: string; outputDir: string }[];
+    let allPairs: FilePair[];
+
+    if (pairingDialogMode === "manual") {
+      // 手動モード: manualPairsを使用
+      allPairs = manualPairs;
+      pairEntries = manualPairs.map((p) => {
+        // ファイルが属するグループを見つけて出力パスを解決
+        const group = scannedFileGroups.find(
+          (g) => g.sourceFiles.includes(p.sourceFile) || g.targetFiles.includes(p.targetFile)
+        );
+        return {
+          sourceFile: p.sourceFile,
+          targetFile: p.targetFile,
+          outputDir: outBase + (group?.outputDirSuffix ?? ""),
+        };
+      });
+    } else {
+      // 自動モード: excludedを除外
+      allPairs = jobs.flatMap((job) =>
+        job.pairs.filter((p) => !excludedPairIndices.has(p.pairIndex))
+      );
+      pairEntries = jobs.flatMap((job, jobIdx) =>
+        job.pairs
+          .filter((p) => !excludedPairIndices.has(p.pairIndex))
+          .map((pair) => ({
+            sourceFile: pair.sourceFile,
+            targetFile: pair.targetFile,
+            outputDir: outBase + (scannedFileGroups[jobIdx]?.outputDirSuffix ?? ""),
+          }))
+      );
+    }
+
     if (allPairs.length === 0) return;
 
     setPhase("processing");
@@ -476,14 +550,6 @@ export function useReplaceProcessor() {
     setProgress(0, allPairs.length);
 
     try {
-      // ジョブ → Rustコマンド用ペアエントリに変換
-      const pairEntries = jobs.flatMap((job) =>
-        job.pairs.map((pair) => ({
-          sourceFile: pair.sourceFile,
-          targetFile: pair.targetFile,
-          outputDir: job.outputDir,
-        }))
-      );
 
       setCurrentPair("Photoshopで処理中...");
 

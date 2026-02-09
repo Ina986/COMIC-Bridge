@@ -52,7 +52,7 @@ export function CompactFileList({ className = "" }: { className?: string }) {
   };
 
   return (
-    <div className={`flex flex-col bg-bg-secondary ${className}`}>
+    <div className={`flex flex-col bg-bg-secondary select-none ${className}`}>
       {/* Header */}
       <div className="px-3 py-2 border-b border-border flex items-center justify-between flex-shrink-0">
         <span className="text-xs font-medium text-text-muted">

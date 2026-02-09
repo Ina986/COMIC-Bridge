@@ -9,6 +9,9 @@ import type {
   FolderSelection,
   PairingJob,
   ReplaceResult,
+  PairingDialogMode,
+  ScannedFileGroup,
+  FilePair,
 } from "../types/replace";
 
 export interface BatchFolder {
@@ -32,6 +35,12 @@ interface ReplaceState {
   // ペアリング結果
   pairingJobs: PairingJob[];
   detectedLinkChar: string | null;
+
+  // 手動マッチ/ダイアログ拡張
+  scannedFileGroups: ScannedFileGroup[];
+  pairingDialogMode: PairingDialogMode;
+  excludedPairIndices: Set<number>;
+  manualPairs: FilePair[];
 
   // 処理状態
   phase: ProcessingPhase;
@@ -71,6 +80,17 @@ interface ReplaceState {
   // Actions - ペアリング
   setPairingJobs: (jobs: PairingJob[]) => void;
   setDetectedLinkChar: (char: string | null) => void;
+  updatePairFile: (pairIndex: number, side: "source" | "target", newFile: string, newName: string) => void;
+  addAutoPair: (sourceFile: string, targetFile: string) => void;
+  removeAutoPair: (pairIndex: number) => void;
+
+  // Actions - 手動マッチ/ダイアログ拡張
+  setScannedFileGroups: (groups: ScannedFileGroup[]) => void;
+  setPairingDialogMode: (mode: PairingDialogMode) => void;
+  toggleExcludedPair: (index: number) => void;
+  setManualPairs: (pairs: FilePair[]) => void;
+  addManualPair: (pair: FilePair) => void;
+  removeManualPair: (pairIndex: number) => void;
 
   // Actions - 処理
   setPhase: (phase: ProcessingPhase) => void;
@@ -96,7 +116,7 @@ const defaultSettings: ReplaceSettings = {
     replaceNamedGroup: false,
     namedGroupName: "棒消し",
     namedGroupPartialMatch: true,
-    placeFromBottom: false,
+    placeFromBottom: true,
   },
   pairingSettings: {
     mode: "fileOrder",
@@ -120,6 +140,10 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
   isModalOpen: false,
   pairingJobs: [],
   detectedLinkChar: null,
+  scannedFileGroups: [],
+  pairingDialogMode: "auto",
+  excludedPairIndices: new Set(),
+  manualPairs: [],
   phase: "idle",
   progress: 0,
   totalPairs: 0,
@@ -231,6 +255,123 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
   // ペアリング
   setPairingJobs: (jobs) => set({ pairingJobs: jobs }),
   setDetectedLinkChar: (char) => set({ detectedLinkChar: char }),
+  updatePairFile: (pairIndex, side, newFile, newName) =>
+    set((state) => {
+      const newJobs = state.pairingJobs.map((job) => ({
+        ...job,
+        pairs: job.pairs.map((p) => ({ ...p })),
+      }));
+
+      // 編集対象のペアを検索
+      let editedPair: FilePair | undefined;
+      for (const job of newJobs) {
+        editedPair = job.pairs.find((p) => p.pairIndex === pairIndex);
+        if (editedPair) break;
+      }
+      if (!editedPair) return {};
+
+      const oldFile = side === "source" ? editedPair.sourceFile : editedPair.targetFile;
+      const oldName = side === "source" ? editedPair.sourceName : editedPair.targetName;
+      if (oldFile === newFile) return {};
+
+      // 新ファイルが別のペアで使われている場合はスワップ
+      for (const job of newJobs) {
+        for (const p of job.pairs) {
+          if (p.pairIndex !== pairIndex) {
+            const otherFile = side === "source" ? p.sourceFile : p.targetFile;
+            if (otherFile === newFile) {
+              if (side === "source") {
+                p.sourceFile = oldFile;
+                p.sourceName = oldName;
+              } else {
+                p.targetFile = oldFile;
+                p.targetName = oldName;
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      // 編集対象を更新
+      if (side === "source") {
+        editedPair.sourceFile = newFile;
+        editedPair.sourceName = newName;
+      } else {
+        editedPair.targetFile = newFile;
+        editedPair.targetName = newName;
+      }
+
+      return { pairingJobs: newJobs };
+    }),
+  addAutoPair: (sourceFile, targetFile) =>
+    set((state) => {
+      const newJobs = state.pairingJobs.map((job) => ({
+        ...job,
+        pairs: [...job.pairs],
+      }));
+
+      const maxIndex = newJobs
+        .flatMap((j) => j.pairs)
+        .reduce((max, p) => Math.max(max, p.pairIndex), -1);
+
+      const getName = (path: string) => path.split(/[\\/]/).pop() || "";
+
+      const newPair: FilePair = {
+        sourceFile,
+        sourceName: getName(sourceFile),
+        targetFile,
+        targetName: getName(targetFile),
+        pairIndex: maxIndex + 1,
+      };
+
+      // ファイルが属するグループに対応するジョブに追加
+      let targetJobIdx = 0;
+      for (let i = 0; i < state.scannedFileGroups.length; i++) {
+        const g = state.scannedFileGroups[i];
+        if (g.sourceFiles.includes(sourceFile) || g.targetFiles.includes(targetFile)) {
+          targetJobIdx = i;
+          break;
+        }
+      }
+
+      if (newJobs[targetJobIdx]) {
+        newJobs[targetJobIdx].pairs.push(newPair);
+      } else if (newJobs.length > 0) {
+        newJobs[0].pairs.push(newPair);
+      }
+
+      return { pairingJobs: newJobs };
+    }),
+  removeAutoPair: (pairIndex) =>
+    set((state) => {
+      const newJobs = state.pairingJobs.map((job) => ({
+        ...job,
+        pairs: job.pairs.filter((p) => p.pairIndex !== pairIndex),
+      }));
+      // excludedからも除去
+      const next = new Set(state.excludedPairIndices);
+      next.delete(pairIndex);
+      return { pairingJobs: newJobs, excludedPairIndices: next };
+    }),
+
+  // 手動マッチ/ダイアログ拡張
+  setScannedFileGroups: (groups) => set({ scannedFileGroups: groups }),
+  setPairingDialogMode: (mode) => set({ pairingDialogMode: mode }),
+  toggleExcludedPair: (index) =>
+    set((state) => {
+      const next = new Set(state.excludedPairIndices);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return { excludedPairIndices: next };
+    }),
+  setManualPairs: (pairs) => set({ manualPairs: pairs }),
+  addManualPair: (pair) =>
+    set((state) => ({ manualPairs: [...state.manualPairs, pair] })),
+  removeManualPair: (pairIndex) =>
+    set((state) => ({
+      manualPairs: state.manualPairs.filter((p) => p.pairIndex !== pairIndex),
+    })),
 
   // 処理
   setPhase: (phase) => set({ phase }),
@@ -249,5 +390,9 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
       results: [],
       pairingJobs: [],
       detectedLinkChar: null,
+      scannedFileGroups: [],
+      pairingDialogMode: "auto",
+      excludedPairIndices: new Set(),
+      manualPairs: [],
     }),
 }));
