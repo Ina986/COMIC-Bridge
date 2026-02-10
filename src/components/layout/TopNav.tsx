@@ -162,11 +162,6 @@ export function TopNav() {
                   v{updater.appVersion} → <span className="text-accent-tertiary font-semibold">v{updater.updateInfo.version}</span>
                 </p>
               </div>
-              {updater.updateInfo.body && (
-                <p className="text-xs text-text-secondary text-left bg-bg-tertiary rounded-lg p-3 max-h-32 overflow-y-auto whitespace-pre-wrap">
-                  {updater.updateInfo.body}
-                </p>
-              )}
               <div className="flex gap-2 pt-1">
                 <button
                   onClick={() => updater.dismissPrompt()}
