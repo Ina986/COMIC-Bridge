@@ -28,7 +28,11 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     label: "見開き分割",
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+        <circle cx="6" cy="6" r="3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.12 8.12L12 12" />
+        <circle cx="18" cy="6" r="3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.88 8.12L12 12" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 12l-5 8M12 12l5 8" />
       </svg>
     ),
   },
