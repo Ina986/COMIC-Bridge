@@ -3,6 +3,7 @@ import { SpecCheckView } from "../views/SpecCheckView";
 import { LayerControlView } from "../views/LayerControlView";
 import { SplitView } from "../views/SplitView";
 import { ReplaceView } from "../views/ReplaceView";
+import { RenameView } from "../views/RenameView";
 
 export function ViewRouter() {
   const activeView = useViewStore((s) => s.activeView);
@@ -13,6 +14,7 @@ export function ViewRouter() {
       {activeView === "layers" && <LayerControlView />}
       {activeView === "split" && <SplitView />}
       {activeView === "replace" && <ReplaceView />}
+      {activeView === "rename" && <RenameView />}
     </div>
   );
 }

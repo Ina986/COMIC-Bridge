@@ -27,6 +27,8 @@ pub fn run() {
             commands::list_folder_files,
             commands::list_subfolders,
             commands::run_photoshop_replace,
+            commands::run_photoshop_rename,
+            commands::batch_rename_files,
             commands::open_folder_in_explorer,
             commands::reveal_files_in_explorer,
             commands::open_file_in_photoshop,

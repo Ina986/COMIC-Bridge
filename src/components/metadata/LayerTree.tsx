@@ -4,15 +4,16 @@ import type { LayerNode } from "../../types";
 interface LayerTreeProps {
   layers: LayerNode[];
   depth?: number;
+  parentVisible?: boolean;
 }
 
-export function LayerTree({ layers, depth = 0 }: LayerTreeProps) {
+export function LayerTree({ layers, depth = 0, parentVisible = true }: LayerTreeProps) {
   // ag-psdはbottom-to-top順で返すため、reverseしてPhotoshop表示順（上がforeground）に変換
   const reversed = useMemo(() => [...layers].reverse(), [layers]);
   return (
     <div className="text-xs space-y-0.5">
       {reversed.map((layer) => (
-        <LayerItem key={layer.id} layer={layer} depth={depth} />
+        <LayerItem key={layer.id} layer={layer} depth={depth} parentVisible={parentVisible} />
       ))}
     </div>
   );
@@ -21,14 +22,16 @@ export function LayerTree({ layers, depth = 0 }: LayerTreeProps) {
 interface LayerItemProps {
   layer: LayerNode;
   depth: number;
+  parentVisible: boolean;
 }
 
-function LayerItem({ layer, depth }: LayerItemProps) {
+function LayerItem({ layer, depth, parentVisible }: LayerItemProps) {
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const hasChildren = layer.children && layer.children.length > 0;
+  const effectiveVisible = layer.visible && parentVisible;
 
   const getLayerIcon = () => {
-    const iconClass = "w-3.5 h-3.5";
+    const iconClass = `w-3.5 h-3.5 ${effectiveVisible ? "" : "opacity-35"}`;
     switch (layer.type) {
       case "group":
         return (
@@ -38,7 +41,7 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         );
       case "text":
         return (
-          <svg className={`${iconClass} text-manga-pink`} viewBox="0 0 20 20" fill="currentColor">
+          <svg className={`${iconClass} text-[#f06292]`} viewBox="0 0 20 20" fill="currentColor">
             <path d="M5 4h10v2.5h-1.2V5.5H10.6V14h1.5v1.5h-4.2V14h1.5V5.5H6.2v1H5V4z" />
           </svg>
         );
@@ -62,7 +65,7 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         );
       default:
         return (
-          <svg className={`${iconClass} text-manga-sky`} viewBox="0 0 20 20" fill="currentColor">
+          <svg className={`${iconClass} text-[#42a5f5]`} viewBox="0 0 20 20" fill="currentColor">
             <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm2 0v6.586l3.293-3.293a1 1 0 011.414 0L13 12.586l1.293-1.293a1 1 0 011.414 0L16 11.586V5H4zm0 10v-1l3.293-3.293L12 15.414V15H4zm12 0v-1.586l-2-2-1.293 1.293L15.414 15H16zM13.5 8a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
           </svg>
         );
@@ -86,7 +89,6 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         className={`
           flex items-center gap-1.5 py-1 px-1.5 rounded-lg transition-all duration-150
           hover:bg-white/5 cursor-default
-          ${!layer.visible ? "opacity-40" : ""}
         `}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
       >
@@ -117,7 +119,7 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         {/* Visibility Indicator */}
         <div
           className={`w-4 h-4 flex items-center justify-center rounded transition-colors ${
-            layer.visible
+            effectiveVisible
               ? "text-accent-tertiary"
               : "text-text-muted"
           }`}
@@ -150,7 +152,7 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         {/* Layer Name */}
         <span
           className={`truncate flex-1 ${
-            layer.visible ? "text-text-primary" : "text-text-muted"
+            effectiveVisible ? "text-text-primary" : "text-text-muted/50"
           }`}
           title={`${layer.name} (${getTypeLabel()})`}
         >
@@ -158,34 +160,36 @@ function LayerItem({ layer, depth }: LayerItemProps) {
         </span>
 
         {/* Mask Badges */}
-        {layer.clipping && (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-accent/15 text-accent flex-shrink-0" title="クリッピングマスク">
-            clip
-          </span>
-        )}
-        {layer.hasMask && (
-          <span className="flex-shrink-0" title="レイヤーマスク">
-            <svg className="w-3 h-3 text-text-muted" viewBox="0 0 16 16" fill="currentColor">
-              <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              <circle cx="8" cy="8" r="4" />
-            </svg>
-          </span>
-        )}
-        {layer.hasVectorMask && (
-          <span className="flex-shrink-0" title="ベクトルマスク">
-            <svg className="w-3 h-3 text-[#59a8f8]" viewBox="0 0 16 16" fill="currentColor">
-              <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M4 12L8 4l4 8H4z" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-          </span>
-        )}
+        <div className={`flex items-center gap-1 ${effectiveVisible ? "" : "opacity-40"}`}>
+          {layer.clipping && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-accent/15 text-accent flex-shrink-0" title="クリッピングマスク">
+              clip
+            </span>
+          )}
+          {layer.hasMask && (
+            <span className="flex-shrink-0" title="レイヤーマスク">
+              <svg className="w-3 h-3 text-text-muted" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                <circle cx="8" cy="8" r="4" />
+              </svg>
+            </span>
+          )}
+          {layer.hasVectorMask && (
+            <span className="flex-shrink-0" title="ベクトルマスク">
+              <svg className="w-3 h-3 text-[#59a8f8]" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M4 12L8 4l4 8H4z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            </span>
+          )}
 
-        {/* Opacity Badge */}
-        {layer.opacity < 100 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-text-muted ml-auto flex-shrink-0">
-            {layer.opacity}%
-          </span>
-        )}
+          {/* Opacity Badge */}
+          {layer.opacity < 100 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-text-muted ml-auto flex-shrink-0">
+              {layer.opacity}%
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Children */}
@@ -196,7 +200,7 @@ function LayerItem({ layer, depth }: LayerItemProps) {
             className="absolute left-0 top-0 bottom-2 w-px bg-white/10"
             style={{ marginLeft: `${depth * 14 + 12}px` }}
           />
-          <LayerTree layers={layer.children!} depth={depth + 1} />
+          <LayerTree layers={layer.children!} depth={depth + 1} parentVisible={effectiveVisible} />
         </div>
       )}
     </div>

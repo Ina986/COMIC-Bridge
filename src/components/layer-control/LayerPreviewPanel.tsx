@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useLayerStore, PRESET_CONDITIONS } from "../../store/layerStore";
 import { useOpenFolder } from "../../hooks/useOpenFolder";
-import { useHighResPreview } from "../../hooks/useHighResPreview";
+import { useHighResPreview, prefetchPreview } from "../../hooks/useHighResPreview";
 import { classifyLayerRisk, isTextFolder, type MatchRisk } from "../../lib/layerMatcher";
 import type { LayerNode } from "../../types";
 import type { PsdFile } from "../../types";
@@ -177,6 +177,18 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
     const idx = files.findIndex((f) => f.id === selectedFileIds[0]);
     if (idx >= 0) setViewerFileIndex(idx);
   }, [viewMode, selectedFileIds, files]);
+
+  // Prefetch adjacent files for instant navigation
+  useEffect(() => {
+    if (viewMode !== "viewer" || viewerFiles.length <= 1) return;
+    const indices = [viewerFileIndex - 1, viewerFileIndex + 1];
+    for (const idx of indices) {
+      if (idx < 0 || idx >= viewerFiles.length) continue;
+      const f = viewerFiles[idx];
+      if (!f?.filePath) continue;
+      prefetchPreview(f.filePath, 2000, f.pdfPageIndex, f.pdfSourcePath);
+    }
+  }, [viewMode, viewerFileIndex, viewerFiles]);
 
   // Viewer keyboard navigation
   useEffect(() => {
@@ -487,12 +499,30 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
       {/* Content - Viewer Mode */}
       {viewMode === "viewer" && (
         <div ref={viewerRef} className="flex-1 overflow-hidden min-h-0 relative flex items-center justify-center bg-[#1a1a1e]">
+          {/* メイン画像 — ロード中も前の画像を維持してちらつき防止 */}
+          {viewerImageUrl ? (
+            <img
+              src={viewerImageUrl}
+              alt={viewerFile?.fileName}
+              className={`max-w-full max-h-full object-contain select-none transition-opacity duration-150 ${viewerIsLoading ? "opacity-40" : "opacity-100"}`}
+              draggable={false}
+            />
+          ) : viewerFile?.thumbnailUrl ? (
+            /* サムネイルフォールバック（高解像度ロード前に即座に表示） */
+            <img
+              src={viewerFile.thumbnailUrl}
+              alt={viewerFile.fileName}
+              className="max-w-full max-h-full object-contain select-none opacity-60"
+              draggable={false}
+            />
+          ) : null}
+          {/* ローディングインジケーター（画像の上にオーバーレイ） */}
           {viewerIsLoading && (
-            <div className="absolute inset-0 flex items-center justify-center z-10">
-              <div className="w-8 h-8 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+            <div className="absolute top-3 right-3 z-10">
+              <div className="w-5 h-5 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
             </div>
           )}
-          {viewerError && (
+          {viewerError && !viewerImageUrl && (
             <div className="flex flex-col items-center gap-2 text-center px-6">
               <svg className="w-8 h-8 text-error/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
@@ -505,14 +535,6 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                 再試行
               </button>
             </div>
-          )}
-          {viewerImageUrl && !viewerIsLoading && (
-            <img
-              src={viewerImageUrl}
-              alt={viewerFile?.fileName}
-              className="max-w-full max-h-full object-contain select-none"
-              draggable={false}
-            />
           )}
           {!viewerFile && (
             <p className="text-[11px] text-text-muted">ファイルを選択</p>
@@ -583,9 +605,9 @@ function SingleFileTree({ annotation, hasConditions, isHideMode }: {
   }
 
   return hasConditions ? (
-    <AnnotatedTree items={annotation.annotatedTree} depth={0} isHideMode={isHideMode} />
+    <AnnotatedTree items={annotation.annotatedTree} depth={0} isHideMode={isHideMode} parentVisible />
   ) : (
-    <PlainTree layers={annotation.layerTree} depth={0} />
+    <PlainTree layers={annotation.layerTree} depth={0} parentVisible />
   );
 }
 
@@ -674,9 +696,9 @@ function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggle
             レイヤー情報なし
           </div>
         ) : hasConditions ? (
-          <AnnotatedTree items={annotatedTree} depth={0} isHideMode={isHideMode} />
+          <AnnotatedTree items={annotatedTree} depth={0} isHideMode={isHideMode} parentVisible />
         ) : (
-          <PlainTree layers={layerTree} depth={0} />
+          <PlainTree layers={layerTree} depth={0} parentVisible />
         )}
       </div>
     </div>
@@ -685,20 +707,21 @@ function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggle
 
 // --- Plain tree ---
 
-function PlainTree({ layers, depth }: { layers: LayerNode[]; depth: number }) {
+function PlainTree({ layers, depth, parentVisible }: { layers: LayerNode[]; depth: number; parentVisible: boolean }) {
   const reversed = useMemo(() => [...layers].reverse(), [layers]);
   return (
     <div className="text-[11px]">
       {reversed.map((layer) => (
-        <PlainItem key={layer.id} layer={layer} depth={depth} />
+        <PlainItem key={layer.id} layer={layer} depth={depth} parentVisible={parentVisible} />
       ))}
     </div>
   );
 }
 
-function PlainItem({ layer, depth }: { layer: LayerNode; depth: number }) {
+function PlainItem({ layer, depth, parentVisible }: { layer: LayerNode; depth: number; parentVisible: boolean }) {
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const hasChildren = layer.children && layer.children.length > 0;
+  const effectiveVisible = layer.visible && parentVisible;
 
   return (
     <div>
@@ -706,22 +729,21 @@ function PlainItem({ layer, depth }: { layer: LayerNode; depth: number }) {
         className={`
           flex items-center gap-1 py-[3px] px-1 rounded transition-colors
           hover:bg-bg-tertiary/50 cursor-default
-          ${!layer.visible ? "opacity-35" : ""}
         `}
         style={{ paddingLeft: `${depth * 12 + 2}px` }}
       >
         <ExpandBtn has={!!hasChildren} open={isExpanded} toggle={() => setIsExpanded(!isExpanded)} />
-        <VisIcon visible={layer.visible} />
-        <TypeIcon type={layer.type} />
-        <span className={`truncate flex-1 ${layer.visible ? "text-text-primary" : "text-text-muted"}`} title={layer.name}>
+        <VisIcon visible={layer.visible} effective={effectiveVisible} />
+        <TypeIcon type={layer.type} visible={effectiveVisible} />
+        <span className={`truncate flex-1 ${effectiveVisible ? "text-text-primary" : "text-text-muted/50"}`} title={layer.name}>
           {layer.name || <span className="italic text-text-muted/50">名称なし</span>}
         </span>
-        <Badges layer={layer} />
+        <div className={effectiveVisible ? "" : "opacity-40"}><Badges layer={layer} /></div>
       </div>
       {hasChildren && isExpanded && (
         <div className="relative">
           <div className="absolute left-0 top-0 bottom-1 w-px bg-border/40" style={{ marginLeft: `${depth * 12 + 9}px` }} />
-          <PlainTree layers={layer.children!} depth={depth + 1} />
+          <PlainTree layers={layer.children!} depth={depth + 1} parentVisible={effectiveVisible} />
         </div>
       )}
     </div>
@@ -730,20 +752,21 @@ function PlainItem({ layer, depth }: { layer: LayerNode; depth: number }) {
 
 // --- Annotated tree ---
 
-function AnnotatedTree({ items, depth, isHideMode }: { items: AnnotatedLayer[]; depth: number; isHideMode: boolean }) {
+function AnnotatedTree({ items, depth, isHideMode, parentVisible = true }: { items: AnnotatedLayer[]; depth: number; isHideMode: boolean; parentVisible?: boolean }) {
   return (
     <div className="text-[11px]">
       {items.map((item) => (
-        <AnnotatedItem key={item.node.id} item={item} depth={depth} isHideMode={isHideMode} />
+        <AnnotatedItem key={item.node.id} item={item} depth={depth} isHideMode={isHideMode} parentVisible={parentVisible} />
       ))}
     </div>
   );
 }
 
-function AnnotatedItem({ item, depth, isHideMode }: { item: AnnotatedLayer; depth: number; isHideMode: boolean }) {
+function AnnotatedItem({ item, depth, isHideMode, parentVisible = true }: { item: AnnotatedLayer; depth: number; isHideMode: boolean; parentVisible?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const { node, matched, risk, willChange, children } = item;
   const hasChildren = children.length > 0;
+  const effectiveVisible = node.visible && parentVisible;
 
   let rowBg = "";
   let borderLeft = "";
@@ -774,10 +797,10 @@ function AnnotatedItem({ item, depth, isHideMode }: { item: AnnotatedLayer; dept
         style={{ paddingLeft: `${depth * 12 + 2}px` }}
       >
         <ExpandBtn has={hasChildren} open={isExpanded} toggle={() => setIsExpanded(!isExpanded)} />
-        <VisIcon visible={node.visible} />
-        <TypeIcon type={node.type} />
+        <VisIcon visible={node.visible} effective={effectiveVisible} />
+        <TypeIcon type={node.type} visible={effectiveVisible} />
         <span
-          className={`truncate flex-1 ${node.visible ? "text-text-primary" : "text-text-muted"}`}
+          className={`truncate flex-1 ${effectiveVisible ? "text-text-primary" : "text-text-muted/50"}`}
           title={node.name}
         >
           {node.name || <span className="italic text-text-muted/50">名称なし</span>}
@@ -822,7 +845,7 @@ function AnnotatedItem({ item, depth, isHideMode }: { item: AnnotatedLayer; dept
       {hasChildren && isExpanded && (
         <div className="relative">
           <div className="absolute left-0 top-0 bottom-1 w-px bg-border/40" style={{ marginLeft: `${depth * 12 + 9}px` }} />
-          <AnnotatedTree items={children} depth={depth + 1} isHideMode={isHideMode} />
+          <AnnotatedTree items={children} depth={depth + 1} isHideMode={isHideMode} parentVisible={effectiveVisible} />
         </div>
       )}
     </div>
@@ -849,9 +872,11 @@ function ExpandBtn({ has, open, toggle }: { has: boolean; open: boolean; toggle:
   );
 }
 
-function VisIcon({ visible }: { visible: boolean }) {
+function VisIcon({ visible, effective = visible }: { visible: boolean; effective?: boolean }) {
+  // visible = PS上のフラグ（アイコン形状）, effective = 実際に見えるか（色の濃さ）
+  const color = effective ? "text-accent-tertiary" : "text-text-muted/50";
   return (
-    <div className={`w-3.5 h-3.5 flex items-center justify-center ${visible ? "text-accent-tertiary" : "text-text-muted/50"}`}>
+    <div className={`w-3.5 h-3.5 flex items-center justify-center ${color}`}>
       {visible ? (
         <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
           <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
@@ -867,8 +892,8 @@ function VisIcon({ visible }: { visible: boolean }) {
   );
 }
 
-function TypeIcon({ type }: { type: LayerNode["type"] }) {
-  const cls = "w-3 h-3";
+function TypeIcon({ type, visible = true }: { type: LayerNode["type"]; visible?: boolean }) {
+  const cls = `w-3 h-3 ${visible ? "" : "opacity-35"}`;
   switch (type) {
     case "group":
       return (
@@ -878,7 +903,7 @@ function TypeIcon({ type }: { type: LayerNode["type"] }) {
       );
     case "text":
       return (
-        <svg className={`${cls} text-manga-pink`} viewBox="0 0 20 20" fill="currentColor">
+        <svg className={`${cls} text-[#f06292]`} viewBox="0 0 20 20" fill="currentColor">
           <path d="M5 4h10v2.5h-1.2V5.5H10.6V14h1.5v1.5h-4.2V14h1.5V5.5H6.2v1H5V4z" />
         </svg>
       );
@@ -902,7 +927,7 @@ function TypeIcon({ type }: { type: LayerNode["type"] }) {
       );
     default:
       return (
-        <svg className={`${cls} text-manga-sky`} viewBox="0 0 20 20" fill="currentColor">
+        <svg className={`${cls} text-[#42a5f5]`} viewBox="0 0 20 20" fill="currentColor">
           <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm2 0v6.586l3.293-3.293a1 1 0 011.414 0L13 12.586l1.293-1.293a1 1 0 011.414 0L16 11.586V5H4zm0 10v-1l3.293-3.293L12 15.414V15H4zm12 0v-1.586l-2-2-1.293 1.293L15.414 15H16zM13.5 8a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
         </svg>
       );

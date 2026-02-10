@@ -1118,6 +1118,8 @@ pub struct SplitSettings {
     pub page_numbering: String, // "rl", "sequential"
     #[serde(rename = "firstPageBlank")]
     pub first_page_blank: bool,
+    #[serde(rename = "lastPageBlank")]
+    pub last_page_blank: bool,
     #[serde(rename = "customBaseName")]
     pub custom_base_name: String,
     #[serde(rename = "deleteHiddenLayers")]
@@ -1149,6 +1151,7 @@ pub async fn run_photoshop_split(
     selection_right: i32,
     page_numbering: String,
     first_page_blank: bool,
+    last_page_blank: bool,
     custom_base_name: String,
     delete_hidden_layers: bool,
     delete_off_canvas_text: bool,
@@ -1225,6 +1228,7 @@ pub async fn run_photoshop_split(
         selection_right,
         page_numbering,
         first_page_blank,
+        last_page_blank,
         custom_base_name,
         delete_hidden_layers,
         delete_off_canvas_text,
@@ -2227,9 +2231,10 @@ pub async fn reveal_files_in_explorer(file_paths: Vec<String>) -> Result<(), Str
                 return Err(format!("Path not found: {}", file_paths[0]));
             }
             if path.is_file() {
+                // /select,path は1つの引数として渡す必要がある
+                let select_arg = format!("/select,{}", path.display());
                 std::process::Command::new("explorer")
-                    .arg("/select,")
-                    .arg(path)
+                    .arg(&select_arg)
                     .spawn()
                     .map_err(|e| format!("Failed to open explorer: {}", e))?;
             } else {
@@ -2351,6 +2356,285 @@ mod win_shell {
         }
         Ok(())
     }
+}
+
+// --- Rename Types ---
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameBottomLayerSettings {
+    pub enabled: bool,
+    #[serde(rename = "newName")]
+    pub new_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameRuleEntry {
+    pub target: String,
+    #[serde(rename = "oldName")]
+    pub old_name: String,
+    #[serde(rename = "newName")]
+    pub new_name: String,
+    #[serde(rename = "matchMode")]
+    pub match_mode: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameFileOutputSettings {
+    pub enabled: bool,
+    #[serde(rename = "baseName")]
+    pub base_name: String,
+    #[serde(rename = "startNumber")]
+    pub start_number: u32,
+    pub padding: u32,
+    pub separator: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameJobSettings {
+    pub files: Vec<String>,
+    #[serde(rename = "bottomLayer")]
+    pub bottom_layer: RenameBottomLayerSettings,
+    pub rules: Vec<RenameRuleEntry>,
+    #[serde(rename = "fileOutput")]
+    pub file_output: RenameFileOutputSettings,
+    #[serde(rename = "outputDirectory")]
+    pub output_directory: Option<String>,
+    #[serde(rename = "outputPath")]
+    #[serde(default)]
+    pub output_path: String,
+}
+
+/// Run Photoshop to rename layers/groups in PSD files
+#[tauri::command]
+pub async fn run_photoshop_rename(
+    app_handle: tauri::AppHandle,
+    settings: RenameJobSettings,
+) -> Result<Vec<PhotoshopResult>, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found. Please install Adobe Photoshop.".to_string())?;
+
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let script_path = resource_path.join("scripts").join("rename_psd.jsx");
+    let script_path_str = if script_path.exists() {
+        script_path.to_string_lossy().to_string()
+    } else {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("rename_psd.jsx");
+        if dev_script.exists() {
+            dev_script.to_string_lossy().to_string()
+        } else {
+            return Err("Rename script not found".to_string());
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let settings_path = temp_dir.join("psd_rename_settings.json");
+    let output_path = temp_dir.join("psd_rename_results.json");
+
+    let _ = fs::remove_file(&output_path);
+
+    let mut settings_normalized = settings;
+    settings_normalized.output_path = output_path.to_string_lossy().to_string().replace("\\", "/");
+    for f in &mut settings_normalized.files {
+        *f = f.replace("\\", "/");
+    }
+    if let Some(ref mut dir) = settings_normalized.output_directory {
+        *dir = dir.replace("\\", "/");
+    }
+
+    let settings_json = serde_json::to_string_pretty(&settings_normalized)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+
+    let mut settings_file = fs::File::create(&settings_path)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    settings_file.write_all(&[0xEF, 0xBB, 0xBF])
+        .map_err(|e| format!("Failed to write BOM: {}", e))?;
+    settings_file.write_all(settings_json.as_bytes())
+        .map_err(|e| format!("Failed to write settings: {}", e))?;
+
+    eprintln!("Rename - Photoshop: {}", ps_path);
+    eprintln!("Rename - Script: {}", script_path_str);
+    eprintln!("Rename - Files: {}", settings_normalized.files.len());
+
+    let _child = Command::new(&ps_path)
+        .arg("-r")
+        .arg(&script_path_str)
+        .spawn()
+        .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    let max_wait_secs = 300;
+    let poll_interval_ms = 500;
+    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+
+    for poll in 0..max_polls {
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                if content.trim().starts_with('[') && content.trim().ends_with(']') {
+                    eprintln!("Rename output ready after {} polls", poll);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+
+        if poll > 0 && poll % 20 == 0 {
+            eprintln!("Still waiting for Photoshop rename... ({} seconds)", poll * poll_interval_ms / 1000);
+        }
+    }
+
+    if output_path.exists() {
+        let results_json = fs::read_to_string(&output_path)
+            .map_err(|e| format!("Failed to read results: {}", e))?;
+
+        let results: Vec<PhotoshopResult> = serde_json::from_str(&results_json)
+            .map_err(|e| format!("Failed to parse results: {}. JSON was: {}", e, results_json))?;
+
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
+        Ok(results)
+    } else {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+        Err("Photoshop did not produce output file. Script may have failed.".to_string())
+    }
+}
+
+// --- Batch File Rename Types ---
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchRenameEntry {
+    #[serde(rename = "sourcePath")]
+    pub source_path: String,
+    #[serde(rename = "newName")]
+    pub new_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BatchRenameResult {
+    #[serde(rename = "originalPath")]
+    pub original_path: String,
+    #[serde(rename = "originalName")]
+    pub original_name: String,
+    #[serde(rename = "newName")]
+    pub new_name: String,
+    #[serde(rename = "outputPath")]
+    pub output_path: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// Batch rename/copy files (no Photoshop needed)
+#[tauri::command]
+pub async fn batch_rename_files(
+    entries: Vec<BatchRenameEntry>,
+    output_directory: Option<String>,
+    mode: String, // "copy" or "overwrite"
+) -> Result<Vec<BatchRenameResult>, String> {
+    let mut results = Vec::new();
+
+    // Resolve output directory for copy mode
+    let out_dir = if mode == "copy" {
+        let dir = if let Some(ref d) = output_directory {
+            if d.is_empty() {
+                None
+            } else {
+                Some(d.clone())
+            }
+        } else {
+            None
+        };
+
+        let dir = dir.unwrap_or_else(|| {
+            let home = std::env::var("USERPROFILE")
+                .unwrap_or_else(|_| std::env::var("HOME").unwrap_or_default());
+            Path::new(&home)
+                .join("Desktop")
+                .join("Script_Output")
+                .join("リネーム_ファイル")
+                .to_string_lossy()
+                .to_string()
+        });
+
+        let out_path = Path::new(&dir);
+        if !out_path.exists() {
+            fs::create_dir_all(out_path)
+                .map_err(|e| format!("Failed to create output directory: {}", e))?;
+        }
+        Some(dir)
+    } else {
+        None
+    };
+
+    for entry in &entries {
+        let source = Path::new(&entry.source_path);
+        let original_name = source
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        let result = if mode == "copy" {
+            let dest = Path::new(out_dir.as_ref().unwrap()).join(&entry.new_name);
+            match fs::copy(source, &dest) {
+                Ok(_) => BatchRenameResult {
+                    original_path: entry.source_path.clone(),
+                    original_name,
+                    new_name: entry.new_name.clone(),
+                    output_path: dest.to_string_lossy().to_string(),
+                    success: true,
+                    error: None,
+                },
+                Err(e) => BatchRenameResult {
+                    original_path: entry.source_path.clone(),
+                    original_name,
+                    new_name: entry.new_name.clone(),
+                    output_path: dest.to_string_lossy().to_string(),
+                    success: false,
+                    error: Some(e.to_string()),
+                },
+            }
+        } else {
+            // overwrite mode: rename in place
+            let parent = source.parent().unwrap_or(Path::new("."));
+            let dest = parent.join(&entry.new_name);
+            match fs::rename(source, &dest) {
+                Ok(_) => BatchRenameResult {
+                    original_path: entry.source_path.clone(),
+                    original_name,
+                    new_name: entry.new_name.clone(),
+                    output_path: dest.to_string_lossy().to_string(),
+                    success: true,
+                    error: None,
+                },
+                Err(e) => BatchRenameResult {
+                    original_path: entry.source_path.clone(),
+                    original_name,
+                    new_name: entry.new_name.clone(),
+                    output_path: dest.to_string_lossy().to_string(),
+                    success: false,
+                    error: Some(e.to_string()),
+                },
+            }
+        };
+
+        results.push(result);
+    }
+
+    Ok(results)
 }
 
 /// Open a file in Photoshop

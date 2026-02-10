@@ -16,6 +16,7 @@ export interface SplitSettings {
   selectionBounds: SelectionBounds | null;
   pageNumbering: PageNumbering;
   firstPageBlank: boolean;
+  lastPageBlank: boolean;
   customBaseName: string;
   deleteHiddenLayers: boolean;
   deleteOffCanvasText: boolean;
@@ -73,6 +74,7 @@ const defaultSettings: SplitSettings = {
   selectionBounds: null,
   pageNumbering: "sequential",
   firstPageBlank: false,
+  lastPageBlank: false,
   customBaseName: "",
   deleteHiddenLayers: true,
   deleteOffCanvasText: true,

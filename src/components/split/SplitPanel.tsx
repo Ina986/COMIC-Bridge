@@ -201,18 +201,32 @@ export function SplitPanel() {
                 />
               </div>
               {settings.pageNumbering === "sequential" && (
-                <label className="flex items-center gap-2.5 cursor-pointer mt-2 p-1.5 rounded-lg hover:bg-bg-elevated/50 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={settings.firstPageBlank}
-                    onChange={(e) => setSettings({ firstPageBlank: e.target.checked })}
-                    className="rounded accent-accent-tertiary"
-                  />
-                  <div>
-                    <span className="text-sm text-text-primary">1ファイル目の右が白紙</span>
-                    <p className="text-[10px] text-text-muted">白紙を破棄し、左ページから_001で開始</p>
-                  </div>
-                </label>
+                <div className="mt-2 space-y-1">
+                  <label className="flex items-center gap-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-bg-elevated/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={settings.firstPageBlank}
+                      onChange={(e) => setSettings({ firstPageBlank: e.target.checked })}
+                      className="rounded accent-accent-tertiary"
+                    />
+                    <div>
+                      <span className="text-sm text-text-primary">1ファイル目の右側が白紙</span>
+                      <p className="text-[10px] text-text-muted">右ページを破棄し、左ページから_001で開始</p>
+                    </div>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-bg-elevated/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={settings.lastPageBlank}
+                      onChange={(e) => setSettings({ lastPageBlank: e.target.checked })}
+                      className="rounded accent-accent-tertiary"
+                    />
+                    <div>
+                      <span className="text-sm text-text-primary">最終ファイルの左側が白紙</span>
+                      <p className="text-[10px] text-text-muted">最終ファイルの左ページを破棄し、右ページで終了</p>
+                    </div>
+                  </label>
+                </div>
               )}
             </div>
           </div>

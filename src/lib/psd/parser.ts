@@ -159,13 +159,14 @@ export function extractGuides(psd: Psd): Guide[] {
   }));
 }
 
-function extractLayerTree(children: Psd["children"]): LayerNode[] {
+function extractLayerTree(children: Psd["children"], parentPath = ""): LayerNode[] {
   if (!children) return [];
 
   return children.map((child, index) => {
+    const path = parentPath ? `${parentPath}-${index}` : `${index}`;
     const childAny = child as any;
     const node: LayerNode = {
-      id: `layer-${index}-${Date.now()}`,
+      id: `layer-${path}`,
       name: child.name || "Unnamed Layer",
       type: getLayerType(child),
       visible: !child.hidden,
@@ -177,7 +178,7 @@ function extractLayerTree(children: Psd["children"]): LayerNode[] {
     };
 
     if (child.children && child.children.length > 0) {
-      node.children = extractLayerTree(child.children);
+      node.children = extractLayerTree(child.children, path);
     }
 
     return node;

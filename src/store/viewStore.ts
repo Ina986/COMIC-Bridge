@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type AppView = "specCheck" | "layers" | "split" | "replace";
+export type AppView = "specCheck" | "layers" | "split" | "replace" | "rename";
 
 interface ViewState {
   activeView: AppView;

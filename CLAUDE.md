@@ -77,6 +77,9 @@
   - JPEG品質92（トンボの細線保持）
 - Photoshop風Canvas定規（グラデーション、ズーム対応目盛り）
 - 定規からドラッグでガイド作成
+- ガイドクリックで選択 → ドラッグで移動 → 矢印キーで微調整（+Shift 10px）
+- ガイド線は常に1px表示（選択時は色とグローで区別）
+- `moveGuide`アクション: ドラッグ中は履歴を積まず、開始時に1回だけpushHistory
 - Undo/Redo対応（Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z）
 - ズーム/パン操作（Ctrl+/-/0、Space+ドラッグ）
 - プリセット（B5同人誌、A4商業誌等）
@@ -93,6 +96,7 @@
 - **詳細レポートダイアログ**: 処理完了後に中央モーダル（createPortal）でファイル別ツリー表示。親フォルダ∈情報付きでグループ/レイヤーの階層関係を表示（F/G/T/L種別バッジ）
 - JSX側: `changedNames`に`"テキスト「name」∈「parent」"`形式で親フォルダ情報を記録。フロント側`extractMatchedItems()`→`buildTree()`でツリー構築
 - **ビューアーモード**: LayerPreviewPanel内タブ切替（レイヤー構造/ビューアー）。全ファイルを対象に高解像度プレビュー表示（useHighResPreview maxSize=2000）。矢印キー/マウスホイール/矢印ボタンでページ送り（端でクランプ、循環なし）。P/Fショートカットはキャプチャフェーズでインターセプトしてビューアーの現在ファイルに対応
+- **ビューアー高速化**: フロントエンドURLキャッシュ（30エントリ、`urlCache` Map）でキャッシュヒット時は即座に表示。隣接ファイル（±1）の`prefetchPreview()`でプリフェッチ。ロード中は前の画像をopacity-40で維持（ちらつき防止）。サムネイルフォールバック（高解像度未取得時にopacity-60で即表示）。ローディングスピナーは右上に小型表示
 
 ### 7. レイヤー差替え（Photoshop JSX経由）
 - **テキスト差替え**: 植字データ → 画像データへテキストレイヤー/特定名グループを差替え
@@ -119,7 +123,8 @@
 - **分割なし**: フォーマット変換のみ
 - 単ページ自動検出: 先頭/末尾ファイルが標準幅の70%未満なら分割スキップ
 - ページ番号: `_R/_L` または連番 `_001, _002...`
-- **1ファイル目の右が白紙**: `firstPageBlank`チェックで白紙右ページを破棄し、左ページから`_001`で開始（連番モード時のみ表示）
+- **1ファイル目の右側が白紙**: `firstPageBlank`チェックで白紙右ページを破棄し、左ページから`_001`で開始（連番モード時のみ表示）
+- **最終ファイルの左側が白紙**: `lastPageBlank`チェックで最終ファイルの左ページを破棄し、右ページで連番を終了（連番モード時のみ表示）
 - オプション: 非表示レイヤー削除、はみ出しテキスト除去
 - 出力形式: PSD / JPG（品質0-100%、JSX側は0-12スケールに変換）
 - **マルチフォーマット対応**: PSD/PSB以外にJPG, PNG, TIFF, PDF, BMP, GIF, EPSも読み込み可（Photoshopが開ける全形式）
@@ -129,11 +134,35 @@
 - **splitStore**: `selectionHistory`/`selectionFuture`でUndo/Redo。`startDragSelection()`でドラッグ中は履歴スパム防止
 - Photoshop JSX経由で全ファイル一括処理（`split_psd.jsx`、タイムアウト5分）
 
+### 9. リネーム（レイヤーリネーム / ファイルリネーム）
+- **サブモード切替**: 「ファイルリネーム」「レイヤーリネーム」のタブ切替
+- **モードA: レイヤーリネーム（Photoshop JSX経由）**
+  - 最下位/背景レイヤーを指定名に変更
+  - レイヤー/グループ名の検索→置換（複数ルール対応、完全一致/部分一致/正規表現）
+  - ファイルを連番で別名保存（ベース名+セパレータ+ゼロ埋め）
+  - 出力先フォルダ選択
+  - ライブプレビュー（psdStoreのlayerTreeデータで変更前→変更後を表示）
+  - Photoshop JSX経由で実行（`rename_psd.jsx`）
+- **モードB: ファイルリネーム（Rust直接処理、Photoshop不要）**
+  - 対応形式: PSD, PSB, TIFF, JPG, PNG, BMP, GIF, PDF, EPS
+  - 連番リネーム: ベース名+セパレータ+ゼロ埋め連番
+  - 文字列置換: 検索→置換（部分一致/正規表現）
+  - プレフィックス/サフィックス追加
+  - フォルダ追加ボタンで複数フォルダ対応（フォルダ名ヘッダー付き表示）
+  - ドラッグ並替え: ファイル順序変更→連番割り当てに反映
+  - チェックボックスで一部だけリネーム対象に選択
+  - ダブルクリックで個別ファイル名編集
+  - 出力方式: 「Script_Outputにコピー」 or 「元の場所で上書きリネーム」
+  - プレビュー: 変更前→変更後を一覧表示
+  - invoke `batch_rename_files` でRust直接fs::copy/fs::rename
+- **fileEntries→psdStore自動同期**: ファイルリネームに追加されたPSD/PSBを自動的にpsdStoreへ同期（レイヤーリネーム用のレイヤーツリー取得）
+- **RenameResultDialog**: 処理完了ダイアログ（成功/失敗一覧 + 出力フォルダを開くボタン）
+
 ## UI構成
 
 ### レイアウト
-- **TopNav**: 上部ナビゲーション。タブでビュー切替（ファイル/レイヤー制御/仕様チェック/差替え/見開き分割）
-- **ViewRouter + viewStore**: タブベースのビュー切替管理
+- **TopNav**: 上部ナビゲーション。タブでビュー切替（ファイル/レイヤー制御/仕様チェック/差替え/見開き分割/リネーム）
+- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | layers | split | replace | rename）
 - **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）、グローバルD&Dリスナー（useGlobalDragDrop）
 
 ### ビュー
@@ -142,6 +171,7 @@
 - **SpecCheckView**: 仕様チェックテーブル（SpecCheckTable）
 - **ReplaceView**: レイヤー差替え
 - **SplitView**: 見開き分割
+- **RenameView**: リネーム（レイヤーリネーム / ファイルリネーム）
 
 ### レイヤーツリー (LayerPreviewPanel)
 - **タブ切替**: 「レイヤー構造」（デフォルト）/ 「ビューアー」のセグメントボタン
@@ -196,7 +226,8 @@ src/
 │   │   ├── LayerControlView.tsx  # レイヤー制御ビュー
 │   │   ├── SpecCheckView.tsx     # 仕様チェックビュー
 │   │   ├── ReplaceView.tsx       # レイヤー差替えビュー
-│   │   └── SplitView.tsx         # 見開き分割ビュー
+│   │   ├── SplitView.tsx         # 見開き分割ビュー
+│   │   └── RenameView.tsx        # リネームビュー（fileEntries→psdStore自動同期）
 │   ├── metadata/          # メタデータ表示
 │   │   ├── MetadataPanel.tsx
 │   │   └── LayerTree.tsx
@@ -229,6 +260,11 @@ src/
 │   │   ├── SplitPanel.tsx
 │   │   ├── SplitPreview.tsx       # 定規ドラッグ・ガイド操作・ズーム/パン
 │   │   └── SplitResultDialog.tsx  # 分割処理結果ダイアログ
+│   ├── rename/            # リネーム
+│   │   ├── LayerRenamePanel.tsx   # レイヤーリネーム設定UI
+│   │   ├── FileRenamePanel.tsx    # ファイルリネーム設定UI
+│   │   ├── RenamePreview.tsx      # プレビュー表示（両モード共通）
+│   │   └── RenameResultDialog.tsx # 処理結果ダイアログ
 │   └── ui/                # 共通UIコンポーネント
 │       ├── Modal.tsx
 │       └── PopButton.tsx
@@ -241,6 +277,7 @@ src/
 │   ├── useHighResPreview.ts
 │   ├── useLayerControl.ts
 │   ├── useSplitProcessor.ts
+│   ├── useRenameProcessor.ts
 │   ├── useReplaceProcessor.ts
 │   └── useOpenInPhotoshop.ts    # Photoshopファイル起動（ユーティリティ + Pキーショートカット）
 ├── lib/
@@ -255,12 +292,14 @@ src/
 │   ├── layerStore.ts      # レイヤー制御: actionMode, selectedConditions, customConditions
 │   ├── viewStore.ts       # ビュー切替状態（activeView）
 │   ├── splitStore.ts      # 分割設定
-│   └── replaceStore.ts    # 差替え設定
+│   ├── replaceStore.ts    # 差替え設定
+│   └── renameStore.ts     # リネーム設定（subMode, layerSettings, fileSettings, fileEntries）
 ├── styles/
 │   └── globals.css
 └── types/
     ├── index.ts
-    └── replace.ts
+    ├── replace.ts
+    └── rename.ts          # RenameSubMode, RenameRule, FileRenameEntry, etc.
 
 src-tauri/
 ├── scripts/
@@ -268,7 +307,8 @@ src-tauri/
 │   ├── apply_guides.jsx
 │   ├── hide_layers.jsx
 │   ├── split_psd.jsx
-│   └── replace_layers.jsx
+│   ├── replace_layers.jsx
+│   └── rename_psd.jsx        # レイヤーリネーム用JSX
 ├── resources/
 │   └── pdfium/
 │       └── pdfium.dll         # PDFiumバイナリ（.gitignore管理、別途DL）

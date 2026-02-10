@@ -81,11 +81,13 @@ function main() {
 
     var nextPageNum = 1;
     var skipFirstRight = (settings.firstPageBlank === true);
+    var skipLastLeft = (settings.lastPageBlank === true);
     for (var i = 0; i < settings.files.length; i++) {
         var filePath = getFilePath(settings.files[i]);
         var pdfPageIndex = getPdfPageIndex(settings.files[i]);
         var doSkipRight = (skipFirstRight && i === 0);
-        var result = processFile(filePath, pdfPageIndex, settings, outputFolder, i, standardWidth, nextPageNum, doSkipRight);
+        var doSkipLeft = (skipLastLeft && i === settings.files.length - 1);
+        var result = processFile(filePath, pdfPageIndex, settings, outputFolder, i, standardWidth, nextPageNum, doSkipRight, doSkipLeft);
         results.push(result);
 
         // 出力ファイル数でページ番号を進める（SKIPPEDは除外）
@@ -131,7 +133,7 @@ function getPageNames(baseName, settings, startPageNum) {
     };
 }
 
-function processFile(filePath, pdfPageIndex, settings, outputFolder, fileIndex, standardWidth, startPageNum, skipRightPage) {
+function processFile(filePath, pdfPageIndex, settings, outputFolder, fileIndex, standardWidth, startPageNum, skipRightPage, skipLeftPage) {
     var result = {
         filePath: filePath,
         success: false,
@@ -211,9 +213,9 @@ function processFile(filePath, pdfPageIndex, settings, outputFolder, fileIndex, 
             result.changes.push(names.single + "." + settings.outputFormat);
             doc.close(SaveOptions.DONOTSAVECHANGES);
         } else if (settings.mode === "even") {
-            processEvenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage);
+            processEvenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage, skipLeftPage);
         } else if (settings.mode === "uneven") {
-            processUnevenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage);
+            processUnevenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage, skipLeftPage);
         }
 
         doc = null;
@@ -232,7 +234,7 @@ function processFile(filePath, pdfPageIndex, settings, outputFolder, fileIndex, 
 /* -----------------------------------------------------
   Even Split (center)
  ----------------------------------------------------- */
-function processEvenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage) {
+function processEvenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage, skipLeftPage) {
     var originalWidth = doc.width.value;
     var originalHeight = doc.height.value;
     var halfWidth = Math.floor(originalWidth / 2);
@@ -247,6 +249,22 @@ function processEvenSplit(doc, baseName, outputFolder, settings, result, startPa
 
         saveDocument(leftDoc, outputFolder, names.single, settings);
         leftDoc.close(SaveOptions.DONOTSAVECHANGES);
+        result.changes.push(names.single + "." + settings.outputFormat);
+
+        doc.close(SaveOptions.DONOTSAVECHANGES);
+        return;
+    }
+
+    if (skipLeftPage) {
+        // 白紙左ページを破棄 — 右ページのみ保存（連番の最後）
+        var names = getPageNames(baseName, settings, startPageNum);
+        var rightDoc = doc.duplicate();
+        if (settings.deleteHiddenLayers) deleteHiddenLayers(rightDoc);
+        if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(rightDoc, "left");
+        rightDoc.crop([originalWidth - halfWidth, 0, originalWidth, originalHeight]);
+
+        saveDocument(rightDoc, outputFolder, names.single, settings);
+        rightDoc.close(SaveOptions.DONOTSAVECHANGES);
         result.changes.push(names.single + "." + settings.outputFormat);
 
         doc.close(SaveOptions.DONOTSAVECHANGES);
@@ -281,7 +299,7 @@ function processEvenSplit(doc, baseName, outputFolder, settings, result, startPa
 /* -----------------------------------------------------
   Uneven Split (margin-adjusted)
  ----------------------------------------------------- */
-function processUnevenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage) {
+function processUnevenSplit(doc, baseName, outputFolder, settings, result, startPageNum, skipRightPage, skipLeftPage) {
     var originalWidth = doc.width.value;
     var originalHeight = doc.height.value;
     var halfWidth = Math.floor(originalWidth / 2);
@@ -318,6 +336,23 @@ function processUnevenSplit(doc, baseName, outputFolder, settings, result, start
 
         saveDocument(leftDoc, outputFolder, names.single, settings);
         leftDoc.close(SaveOptions.DONOTSAVECHANGES);
+        result.changes.push(names.single + "." + settings.outputFormat);
+
+        doc.close(SaveOptions.DONOTSAVECHANGES);
+        return;
+    }
+
+    if (skipLeftPage) {
+        // 白紙左ページを破棄 — 右ページのみ保存
+        var names = getPageNames(baseName, settings, startPageNum);
+        var rightDoc = doc.duplicate();
+        if (settings.deleteHiddenLayers) deleteHiddenLayers(rightDoc);
+        if (settings.deleteOffCanvasText) deleteOffCanvasTextLayers(rightDoc, "left");
+        rightDoc.crop([originalWidth - halfWidth, 0, originalWidth, originalHeight]);
+        rightDoc.resizeCanvas(UnitValue(finalOutputWidth, "px"), rightDoc.height, AnchorPosition.MIDDLERIGHT);
+
+        saveDocument(rightDoc, outputFolder, names.single, settings);
+        rightDoc.close(SaveOptions.DONOTSAVECHANGES);
         result.changes.push(names.single + "." + settings.outputFormat);
 
         doc.close(SaveOptions.DONOTSAVECHANGES);

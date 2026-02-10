@@ -8,6 +8,9 @@ interface GuideCanvasProps {
   isLoading?: boolean;
 }
 
+/** ガイドのヒットエリア半径 (片側px) */
+const GUIDE_HIT_HALF = 5;
+
 /**
  * Guide editing canvas with Photoshop-style rulers.
  * Supports drag-to-create guides, zoom, and pan.
@@ -26,8 +29,15 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0, scrollX: 0, scrollY: 0 });
 
+  // Guide drag state
+  const [draggingGuideIndex, setDraggingGuideIndex] = useState<number | null>(null);
+  const justClickedGuideRef = useRef(false);
+
   const guides = useGuideStore((state) => state.guides);
   const addGuide = useGuideStore((state) => state.addGuide);
+  const updateGuide = useGuideStore((state) => state.updateGuide);
+  const moveGuide = useGuideStore((state) => state.moveGuide);
+  const pushHistory = useGuideStore((state) => state.pushHistory);
   const selectedGuideIndex = useGuideStore((state) => state.selectedGuideIndex);
   const setSelectedGuideIndex = useGuideStore((state) => state.setSelectedGuideIndex);
   const removeGuide = useGuideStore((state) => state.removeGuide);
@@ -82,12 +92,25 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
     [offsetX, offsetY, scale]
   );
 
-  // Ruler drag start
+  // Ruler drag start (creates new guide)
   const handleRulerDragStart = (direction: "horizontal" | "vertical", e: React.MouseEvent) => {
     e.preventDefault();
     setIsDragging(true);
     setDragDirection(direction);
   };
+
+  // Guide mousedown → select + start drag
+  const handleGuideMouseDown = useCallback(
+    (index: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      justClickedGuideRef.current = true;
+      setSelectedGuideIndex(index);
+      pushHistory(); // 移動前の状態を保存
+      setDraggingGuideIndex(index);
+    },
+    [setSelectedGuideIndex, pushHistory]
+  );
 
   // Mouse move during drag
   const handleMouseMove = useCallback(
@@ -101,6 +124,27 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
         return;
       }
 
+      // Handle guide dragging (move existing guide)
+      if (draggingGuideIndex !== null && previewContainerRef.current) {
+        const guide = guides[draggingGuideIndex];
+        if (!guide) return;
+
+        const rect = previewContainerRef.current.getBoundingClientRect();
+        const scrollLeft = previewContainerRef.current.scrollLeft;
+        const scrollTop = previewContainerRef.current.scrollTop;
+        const pos = screenToImage(
+          e.clientX - rect.left + scrollLeft,
+          e.clientY - rect.top + scrollTop
+        );
+
+        const position = guide.direction === "horizontal" ? pos.y : pos.x;
+        const max = guide.direction === "horizontal" ? imageSize.height : imageSize.width;
+        const clamped = Math.max(0, Math.min(max, position));
+        moveGuide(draggingGuideIndex, { ...guide, position: clamped });
+        return;
+      }
+
+      // Handle ruler drag (creating new guide)
       if (!isDragging || !dragDirection || !previewContainerRef.current) return;
 
       const rect = previewContainerRef.current.getBoundingClientRect();
@@ -119,39 +163,66 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
         setPreviewPosition(position);
       }
     },
-    [isDragging, isPanning, dragDirection, screenToImage, imageSize, panStart]
+    [isDragging, isPanning, dragDirection, draggingGuideIndex, guides, screenToImage, imageSize, panStart, moveGuide]
   );
 
-  // Mouse up - add guide or end pan
+  // Mouse up - add guide / end guide drag / end pan
   const handleMouseUp = useCallback(() => {
+    // End guide drag
+    if (draggingGuideIndex !== null) {
+      setDraggingGuideIndex(null);
+      return;
+    }
+
     if (isPanning) {
       setIsPanning(false);
       return;
     }
 
+    // End ruler drag → add new guide and auto-select
     if (isDragging && dragDirection && previewPosition !== null) {
+      const newIndex = guides.length;
       addGuide({
         direction: dragDirection,
         position: previewPosition,
       });
+      setSelectedGuideIndex(newIndex);
     }
     setIsDragging(false);
     setDragDirection(null);
     setPreviewPosition(null);
-  }, [isDragging, isPanning, dragDirection, previewPosition, addGuide]);
+  }, [isDragging, isPanning, dragDirection, previewPosition, addGuide, guides.length, draggingGuideIndex, setSelectedGuideIndex]);
 
-  // Click on guide to select
-  const handleGuideClick = (index: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedGuideIndex(selectedGuideIndex === index ? null : index);
-  };
-
-  // Keyboard events (Photoshop/tachimi-style shortcuts)
+  // Keyboard events
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Delete selected guide (Backspace only)
       if (e.key === "Backspace" && selectedGuideIndex !== null) {
         removeGuide(selectedGuideIndex);
+      }
+
+      // Arrow keys: move selected guide (1px, Shift: 10px)
+      if (selectedGuideIndex !== null && !e.ctrlKey) {
+        const guide = useGuideStore.getState().guides[selectedGuideIndex];
+        if (guide) {
+          const step = e.shiftKey ? 10 : 1;
+          let delta = 0;
+
+          if (guide.direction === "horizontal") {
+            if (e.key === "ArrowUp") delta = -step;
+            if (e.key === "ArrowDown") delta = step;
+          } else {
+            if (e.key === "ArrowLeft") delta = -step;
+            if (e.key === "ArrowRight") delta = step;
+          }
+
+          if (delta !== 0) {
+            e.preventDefault();
+            const max = guide.direction === "horizontal" ? imageSize.height : imageSize.width;
+            const newPos = Math.max(0, Math.min(max, guide.position + delta));
+            updateGuide(selectedGuideIndex, { ...guide, position: newPos });
+          }
+        }
       }
 
       // Space for panning
@@ -202,7 +273,7 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [selectedGuideIndex, removeGuide, isSpacePressed, undo, redo]);
+  }, [selectedGuideIndex, removeGuide, updateGuide, isSpacePressed, undo, redo, imageSize]);
 
   // Zoom controls (Ctrl + wheel)
   const handleWheel = (e: React.WheelEvent) => {
@@ -227,8 +298,12 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
     }
   };
 
-  // Deselect guide when clicking on empty area
+  // Deselect guide when clicking on empty area (not after guide click)
   const handleCanvasClick = () => {
+    if (justClickedGuideRef.current) {
+      justClickedGuideRef.current = false;
+      return;
+    }
     if (selectedGuideIndex !== null) {
       setSelectedGuideIndex(null);
     }
@@ -240,6 +315,13 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
   // Guide overflow to extend beyond image to fill ruler area
   const guideOverflowX = showScrollbars ? 0 : offsetX;
   const guideOverflowY = showScrollbars ? 0 : offsetY;
+
+  // Cursor for preview container
+  const previewCursor = isSpacePressed && zoom > 1
+    ? (isPanning ? "grabbing" : "grab")
+    : draggingGuideIndex !== null
+      ? (guides[draggingGuideIndex]?.direction === "horizontal" ? "ns-resize" : "ew-resize")
+      : "default";
 
   return (
     <div
@@ -290,7 +372,7 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
           className="relative bg-bg-elevated"
           style={{
             overflow: showScrollbars ? "auto" : "hidden",
-            cursor: isSpacePressed && zoom > 1 ? (isPanning ? "grabbing" : "grab") : "default",
+            cursor: previewCursor,
           }}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -340,39 +422,50 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                 </div>
               )}
 
-              {/* Guide Lines */}
+              {/* Guide Lines (with wider hit areas) */}
               {guides.map((guide, index) => {
                 const isSelected = selectedGuideIndex === index;
-                const screenPos =
-                  guide.direction === "horizontal"
-                    ? guide.position * scale
-                    : guide.position * scale;
+                const isBeingDragged = draggingGuideIndex === index;
+                const screenPos = guide.position * scale;
 
                 return guide.direction === "horizontal" ? (
+                  // --- Horizontal guide ---
                   <div
                     key={index}
-                    className={`absolute cursor-pointer transition-all group ${
-                      isSelected ? "z-20" : "z-10"
-                    }`}
+                    className={`absolute ${isSelected ? "z-20" : "z-10"}`}
                     style={{
-                      top: screenPos,
+                      top: screenPos - GUIDE_HIT_HALF,
                       left: -guideOverflowX,
                       right: -guideOverflowX,
-                      height: isSelected ? 3 : 1,
-                      marginTop: isSelected ? -1 : 0,
-                      background: isSelected
-                        ? "linear-gradient(90deg, #00e5ff, #00bcd4, #00e5ff)"
-                        : "linear-gradient(90deg, #00e5ff99, #00bcd499, #00e5ff99)",
-                      boxShadow: isSelected
-                        ? "0 0 8px rgba(0, 229, 255, 0.8)"
-                        : "0 0 4px rgba(0, 229, 255, 0.4)",
+                      height: GUIDE_HIT_HALF * 2 + 1,
+                      cursor: isBeingDragged ? "grabbing" : "ns-resize",
                     }}
-                    onClick={(e) => handleGuideClick(index, e)}
+                    onMouseDown={(e) => handleGuideMouseDown(index, e)}
                   >
+                    {/* Visual line (常に1px — 選択時は色とグローで区別) */}
+                    <div
+                      className="absolute left-0 right-0 pointer-events-none"
+                      style={{
+                        top: GUIDE_HIT_HALF,
+                        height: 1,
+                        background: isSelected
+                          ? "linear-gradient(90deg, #00e5ff, #00bcd4, #00e5ff)"
+                          : "linear-gradient(90deg, #00e5ff99, #00bcd499, #00e5ff99)",
+                        boxShadow: isSelected
+                          ? "0 0 6px rgba(0, 229, 255, 0.8)"
+                          : "0 0 3px rgba(0, 229, 255, 0.3)",
+                      }}
+                    />
+                    {/* Selection indicator */}
                     {isSelected && (
                       <div
-                        className="absolute -left-1 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full"
+                        className="absolute pointer-events-none"
                         style={{
+                          left: -4,
+                          top: GUIDE_HIT_HALF - 5,
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
                           background: "linear-gradient(135deg, #00e5ff, #00bcd4)",
                           boxShadow: "0 0 4px rgba(0, 229, 255, 0.8)",
                         }}
@@ -380,30 +473,44 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                     )}
                   </div>
                 ) : (
+                  // --- Vertical guide ---
                   <div
                     key={index}
-                    className={`absolute cursor-pointer transition-all group ${
-                      isSelected ? "z-20" : "z-10"
-                    }`}
+                    className={`absolute ${isSelected ? "z-20" : "z-10"}`}
                     style={{
-                      left: screenPos,
+                      left: screenPos - GUIDE_HIT_HALF,
                       top: -guideOverflowY,
                       bottom: -guideOverflowY,
-                      width: isSelected ? 3 : 1,
-                      marginLeft: isSelected ? -1 : 0,
-                      background: isSelected
-                        ? "linear-gradient(180deg, #00e5ff, #00bcd4, #00e5ff)"
-                        : "linear-gradient(180deg, #00e5ff99, #00bcd499, #00e5ff99)",
-                      boxShadow: isSelected
-                        ? "0 0 8px rgba(0, 229, 255, 0.8)"
-                        : "0 0 4px rgba(0, 229, 255, 0.4)",
+                      width: GUIDE_HIT_HALF * 2 + 1,
+                      cursor: isBeingDragged ? "grabbing" : "ew-resize",
                     }}
-                    onClick={(e) => handleGuideClick(index, e)}
+                    onMouseDown={(e) => handleGuideMouseDown(index, e)}
                   >
+                    {/* Visual line (常に1px) */}
+                    <div
+                      className="absolute top-0 bottom-0 pointer-events-none"
+                      style={{
+                        left: GUIDE_HIT_HALF,
+                        width: 1,
+                        background: isSelected
+                          ? "linear-gradient(180deg, #00e5ff, #00bcd4, #00e5ff)"
+                          : "linear-gradient(180deg, #00e5ff99, #00bcd499, #00e5ff99)",
+                        boxShadow: isSelected
+                          ? "0 0 6px rgba(0, 229, 255, 0.8)"
+                          : "0 0 3px rgba(0, 229, 255, 0.3)",
+                      }}
+                    />
+                    {/* Selection indicator */}
                     {isSelected && (
                       <div
-                        className="absolute top-1/2 -translate-y-1/2 -left-1 w-3 h-3 rounded-full"
+                        className="absolute pointer-events-none"
                         style={{
+                          left: GUIDE_HIT_HALF - 5,
+                          top: "50%",
+                          marginTop: -5,
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
                           background: "linear-gradient(135deg, #00e5ff, #00bcd4)",
                           boxShadow: "0 0 4px rgba(0, 229, 255, 0.8)",
                         }}
@@ -413,7 +520,7 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                 );
               })}
 
-              {/* Preview Guide (while dragging) */}
+              {/* Preview Guide (while dragging from ruler) */}
               {isDragging && previewPosition !== null && (
                 dragDirection === "horizontal" ? (
                   <div
@@ -455,7 +562,7 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
 
       {/* Instructions */}
       <div className="absolute bottom-2 left-2 z-40 bg-bg-secondary/90 px-3 py-1.5 rounded-md text-xs text-text-muted backdrop-blur-sm border border-text-muted/10">
-        定規からドラッグでガイド作成 | Ctrl+/-/0 でズーム | Space+ドラッグでパン | BackSpace で削除
+        定規ドラッグ: 作成 | ガイドドラッグ: 移動 | 矢印キー: 微調整(+Shift 10px) | BackSpace: 削除
       </div>
     </div>
   );

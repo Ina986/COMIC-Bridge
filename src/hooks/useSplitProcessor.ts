@@ -71,6 +71,7 @@ export function useSplitProcessor() {
           selectionRight: settings.selectionBounds?.right ?? 0,
           pageNumbering: settings.pageNumbering,
           firstPageBlank: settings.firstPageBlank,
+          lastPageBlank: settings.lastPageBlank,
           customBaseName: settings.customBaseName || "",
           deleteHiddenLayers: settings.deleteHiddenLayers,
           deleteOffCanvasText: settings.deleteOffCanvasText,

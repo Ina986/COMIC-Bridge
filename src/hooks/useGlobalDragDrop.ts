@@ -8,7 +8,7 @@ import { isSupportedFile } from "../types";
 /**
  * グローバルなドラッグ＆ドロップリスナー
  * AppLayout でマウントし、常にファイル/フォルダのドロップを受け付ける
- * (replace タブは ReplaceDropZone が独自に処理するためスキップ)
+ * (replace / rename タブは独自に処理するためスキップ)
  */
 export function useGlobalDragDrop() {
   const { loadFiles } = usePsdLoader();
@@ -20,7 +20,8 @@ export function useGlobalDragDrop() {
 
     const setup = async () => {
       const fn = await currentWindow.onDragDropEvent(async (event) => {
-        if (useViewStore.getState().activeView === "replace") return;
+        const activeView = useViewStore.getState().activeView;
+        if (activeView === "replace" || activeView === "rename") return;
 
         if (event.payload.type === "drop") {
           const paths = event.payload.paths;

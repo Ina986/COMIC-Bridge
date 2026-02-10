@@ -15,6 +15,7 @@ interface GuideStore {
   setGuides: (guides: Guide[]) => void;
   addGuide: (guide: Guide) => void;
   updateGuide: (index: number, guide: Guide) => void;
+  moveGuide: (index: number, guide: Guide) => void;
   removeGuide: (index: number) => void;
   clearGuides: () => void;
 
@@ -53,6 +54,14 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
 
   updateGuide: (index, guide) => {
     get().pushHistory();
+    set((state) => ({
+      guides: state.guides.map((g, i) => (i === index ? guide : g)),
+      future: [],
+    }));
+  },
+
+  // ドラッグ中の位置更新（履歴を積まない。drag開始時に呼び出し側でpushHistory）
+  moveGuide: (index, guide) => {
     set((state) => ({
       guides: state.guides.map((g, i) => (i === index ? guide : g)),
       future: [],
