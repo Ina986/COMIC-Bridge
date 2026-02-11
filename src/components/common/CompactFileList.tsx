@@ -89,8 +89,25 @@ export function CompactFileList({ className = "" }: { className?: string }) {
           );
           const gaps = getGapAfter(index);
 
+          // サブフォルダ区切りヘッダー（前のファイルとサブフォルダ名が変わったら表示）
+          const prevSubfolder = index > 0 ? (files[index - 1].subfolderName || "") : null;
+          const currentSubfolder = file.subfolderName || "";
+          const showSubfolderHeader = currentSubfolder && prevSubfolder !== currentSubfolder;
+
           return (
             <div key={file.id}>
+              {/* サブフォルダ区切りヘッダー */}
+              {showSubfolderHeader && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-warm/5 border-b border-accent-warm/20 sticky top-0 z-10">
+                  <svg className="w-3 h-3 text-accent-warm/60 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <span className="text-[10px] font-semibold text-accent-warm/80 truncate">
+                    {currentSubfolder}
+                  </span>
+                </div>
+              )}
+
               <div
                 className={`
                   flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors

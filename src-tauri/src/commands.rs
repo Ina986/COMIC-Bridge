@@ -2029,6 +2029,84 @@ pub async fn list_subfolders(
     Ok(subfolders)
 }
 
+/// Read a text file and return its contents as a string
+#[tauri::command]
+pub async fn read_text_file(file_path: String) -> Result<String, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() || !path.is_file() {
+        return Err(format!("File not found: {}", file_path));
+    }
+    fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read file: {}", e))
+}
+
+/// Write a text file
+#[tauri::command]
+pub async fn write_text_file(file_path: String, content: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    // 親フォルダが存在しなければ作成
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+    }
+    fs::write(path, content)
+        .map_err(|e| format!("Failed to write file: {}", e))
+}
+
+/// Check if a file or directory exists
+#[tauri::command]
+pub async fn path_exists(path: String) -> Result<bool, String> {
+    Ok(Path::new(&path).exists())
+}
+
+/// List folder contents (subfolders + JSON files) — for JSON browser modal
+#[derive(Debug, Serialize)]
+pub struct FolderContents {
+    pub folders: Vec<String>,
+    pub json_files: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn list_folder_contents(
+    folder_path: String,
+) -> Result<FolderContents, String> {
+    let folder = Path::new(&folder_path);
+    if !folder.exists() || !folder.is_dir() {
+        return Err(format!("Folder not found: {}", folder_path));
+    }
+
+    let mut folders = Vec::new();
+    let mut json_files = Vec::new();
+    let entries = fs::read_dir(folder)
+        .map_err(|e| format!("Failed to read dir: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Entry error: {}", e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                folders.push(name.to_string());
+            }
+        } else if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if ext.to_lowercase() == "json" {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        json_files.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // 自然順ソート
+    folders.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+    json_files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+
+    Ok(FolderContents { folders, json_files })
+}
+
 // --- Replace Job Settings for JSX ---
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2656,4 +2734,166 @@ pub async fn open_file_in_photoshop(file_path: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to open file in Photoshop: {}", e))?;
 
     Ok(())
+}
+
+// ============================================
+// TIFF Conversion (Photoshop JSX)
+// ============================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TiffConvertResult {
+    #[serde(rename = "fileName")]
+    pub file_name: String,
+    pub success: bool,
+    #[serde(rename = "outputPath")]
+    pub output_path: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TiffConvertResponse {
+    pub results: Vec<TiffConvertResult>,
+    #[serde(rename = "outputDir")]
+    pub output_dir: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TiffResultsWrapper {
+    results: Vec<TiffConvertResult>,
+}
+
+/// Run Photoshop to convert PSD files to TIFF
+#[tauri::command]
+pub async fn run_photoshop_tiff_convert(
+    app_handle: tauri::AppHandle,
+    settings_json: String,
+    output_dir: String,
+) -> Result<TiffConvertResponse, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found. Please install Adobe Photoshop.".to_string())?;
+
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let script_path = resource_path.join("scripts").join("tiff_convert.jsx");
+
+    let script_path_str = if script_path.exists() {
+        script_path.to_string_lossy().to_string()
+    } else {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("tiff_convert.jsx");
+        if dev_script.exists() {
+            dev_script.to_string_lossy().to_string()
+        } else {
+            return Err("TIFF convert script not found".to_string());
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+
+    // Copy script to temp (avoid Japanese path DDE issues)
+    let temp_script = temp_dir.join("tiff_convert_temp.jsx");
+    fs::copy(&script_path_str, &temp_script)
+        .map_err(|e| format!("Failed to copy script to temp: {}", e))?;
+    let script_to_run = temp_script.to_string_lossy().to_string();
+
+    let settings_path = temp_dir.join("psd_tiff_settings.json");
+    let output_path = temp_dir.join("psd_tiff_results.json");
+
+    let _ = fs::remove_file(&output_path);
+
+    // Output directory: create unique if exists
+    let final_output_dir = {
+        let base_path = Path::new(&output_dir);
+        if base_path.exists() {
+            let base = output_dir.clone();
+            let mut counter = 1;
+            loop {
+                let candidate = format!("{} ({})", base, counter);
+                if !Path::new(&candidate).exists() {
+                    break candidate;
+                }
+                counter += 1;
+            }
+        } else {
+            output_dir.clone()
+        }
+    };
+
+    eprintln!("TIFF Convert - Output dir: {}", final_output_dir);
+
+    // Write settings JSON with BOM
+    let mut settings_file = fs::File::create(&settings_path)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    settings_file.write_all(&[0xEF, 0xBB, 0xBF])
+        .map_err(|e| format!("Failed to write BOM: {}", e))?;
+    settings_file.write_all(settings_json.as_bytes())
+        .map_err(|e| format!("Failed to write settings: {}", e))?;
+    drop(settings_file);
+
+    eprintln!("TIFF Convert - Photoshop: {}", ps_path);
+    eprintln!("TIFF Convert - Script: {}", script_to_run);
+
+    // Launch Photoshop
+    let _child = Command::new(&ps_path)
+        .arg("-r")
+        .arg(&script_to_run)
+        .spawn()
+        .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    eprintln!("TIFF Convert - Photoshop launched, polling for results...");
+
+    // Poll for results (10 minutes max for large batches)
+    let max_wait_secs = 600;
+    let poll_interval_ms = 500;
+    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+
+    for poll in 0..max_polls {
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                if content.trim().starts_with('{') && content.contains("results") {
+                    eprintln!("TIFF Convert output ready after {} polls", poll);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+
+        if poll > 0 && poll % 20 == 0 {
+            eprintln!("Still waiting for Photoshop TIFF convert... ({} seconds)", poll * poll_interval_ms / 1000);
+        }
+    }
+
+    if output_path.exists() {
+        let results_json = fs::read_to_string(&output_path)
+            .map_err(|e| format!("Failed to read results: {}", e))?;
+
+        let wrapper: TiffResultsWrapper = serde_json::from_str(&results_json)
+            .map_err(|e| format!("Failed to parse results: {}. JSON was: {}", e, results_json))?;
+
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+        let _ = fs::remove_file(&temp_script);
+
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
+        Ok(TiffConvertResponse {
+            results: wrapper.results,
+            output_dir: final_output_dir,
+        })
+    } else {
+        let _ = fs::remove_file(&temp_script);
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+        Err("Photoshop did not produce output file. Script may have failed.".to_string())
+    }
 }

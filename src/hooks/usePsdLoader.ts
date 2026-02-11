@@ -56,6 +56,72 @@ export function usePsdLoader() {
     [setFiles, setLoadingStatus, setCurrentFolderPath, setErrorMessage]
   );
 
+  // サブフォルダ込みのフォルダ読み込み（1階層深さ）
+  const loadFolderWithSubfolders = useCallback(
+    async (folderPaths: string[]) => {
+      setLoadingStatus("loading");
+      setErrorMessage(null);
+      if (folderPaths.length > 0) {
+        setCurrentFolderPath(folderPaths[0]);
+      }
+
+      try {
+        type FileWithSub = { path: string; subfolderName: string };
+        const allFiles: FileWithSub[] = [];
+
+        for (const folderPath of folderPaths) {
+          const entries = await readDir(folderPath);
+
+          // ルート直下のファイル
+          for (const entry of entries) {
+            if (entry.isFile && entry.name && isSupportedFile(entry.name)) {
+              allFiles.push({ path: `${folderPath}\\${entry.name}`, subfolderName: "" });
+            }
+          }
+
+          // 1階層サブフォルダ
+          for (const entry of entries) {
+            if (!entry.isFile && entry.name) {
+              try {
+                const subPath = `${folderPath}\\${entry.name}`;
+                const subEntries = await readDir(subPath);
+                for (const subEntry of subEntries) {
+                  if (subEntry.isFile && subEntry.name && isSupportedFile(subEntry.name)) {
+                    allFiles.push({ path: `${subPath}\\${subEntry.name}`, subfolderName: entry.name });
+                  }
+                }
+              } catch { /* サブフォルダ読み込みエラーは無視 */ }
+            }
+          }
+        }
+
+        if (allFiles.length === 0) {
+          setFiles([]);
+          setLoadingStatus("idle");
+          return;
+        }
+
+        // ソート: サブフォルダ名→ファイル名の自然順
+        allFiles.sort((a, b) => {
+          if (a.subfolderName !== b.subfolderName) {
+            return naturalCompare(a.subfolderName, b.subfolderName);
+          }
+          return naturalCompare(a.path, b.path);
+        });
+
+        await loadFilesInternal(
+          allFiles.map((f) => f.path),
+          allFiles.map((f) => f.subfolderName),
+        );
+      } catch (error) {
+        console.error("Failed to load folder with subfolders:", error);
+        setErrorMessage(error instanceof Error ? error.message : "フォルダの読み込みに失敗しました");
+        setLoadingStatus("error");
+      }
+    },
+    [setFiles, setLoadingStatus, setCurrentFolderPath, setErrorMessage]
+  );
+
   const loadFiles = useCallback(
     async (filePaths: string[]) => {
       setLoadingStatus("loading");
@@ -73,12 +139,14 @@ export function usePsdLoader() {
   );
 
   const loadFilesInternal = useCallback(
-    async (filePaths: string[]) => {
+    async (filePaths: string[], subfolderNames?: string[]) => {
       // replace タブ時はスキップ（ReplaceDropZone が独自に処理する）
       if (useViewStore.getState().activeView === "replace") return;
 
-      // 自然順ソート（数字部分を数値比較）
-      filePaths.sort((a, b) => naturalCompare(a, b));
+      // subfolderNamesが渡されていない場合のみソート（サブフォルダ付きは呼び出し元でソート済み）
+      if (!subfolderNames) {
+        filePaths.sort((a, b) => naturalCompare(a, b));
+      }
 
       // Create initial file entries
       const initialFiles: PsdFile[] = filePaths.map((filePath, index) => {
@@ -90,6 +158,7 @@ export function usePsdLoader() {
           fileSize: 0,
           modifiedTime: Date.now(),
           thumbnailStatus: "pending",
+          subfolderName: subfolderNames?.[index],
         };
       });
 
@@ -257,5 +326,5 @@ export function usePsdLoader() {
     [setFiles, updateFile, replaceFile, setLoadingStatus, selectSpecAndCheck]
   );
 
-  return { loadFolder, loadFiles };
+  return { loadFolder, loadFolderWithSubfolders, loadFiles };
 }

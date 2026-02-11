@@ -6,6 +6,7 @@ interface PsdStore {
   files: PsdFile[];
   loadingStatus: "idle" | "loading" | "error";
   currentFolderPath: string | null;
+  droppedFolderPaths: string[]; // D&Dでドロップされたフォルダパス（サブフォルダ再スキャン用）
   errorMessage: string | null;
 
   // Selection
@@ -26,6 +27,7 @@ interface PsdStore {
 
   setLoadingStatus: (status: "idle" | "loading" | "error") => void;
   setCurrentFolderPath: (path: string | null) => void;
+  setDroppedFolderPaths: (paths: string[]) => void;
   setErrorMessage: (message: string | null) => void;
 
   // Selection actions
@@ -49,6 +51,7 @@ export const usePsdStore = create<PsdStore>((set, get) => ({
   files: [],
   loadingStatus: "idle",
   currentFolderPath: null,
+  droppedFolderPaths: [],
   errorMessage: null,
   selectedFileIds: [],
   activeFileId: null,
@@ -81,10 +84,12 @@ export const usePsdStore = create<PsdStore>((set, get) => ({
       selectedFileIds: [],
       activeFileId: null,
       currentFolderPath: null,
+      droppedFolderPaths: [],
     }),
 
   setLoadingStatus: (loadingStatus) => set({ loadingStatus }),
   setCurrentFolderPath: (currentFolderPath) => set({ currentFolderPath }),
+  setDroppedFolderPaths: (droppedFolderPaths) => set({ droppedFolderPaths }),
   setErrorMessage: (errorMessage) => set({ errorMessage }),
 
   // Selection actions

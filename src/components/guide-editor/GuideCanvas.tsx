@@ -449,11 +449,11 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                         top: GUIDE_HIT_HALF,
                         height: 1,
                         background: isSelected
-                          ? "linear-gradient(90deg, #00e5ff, #00bcd4, #00e5ff)"
-                          : "linear-gradient(90deg, #00e5ff99, #00bcd499, #00e5ff99)",
+                          ? "linear-gradient(90deg, #ffb142, #ff5a8a, #ffb142)"
+                          : "linear-gradient(90deg, #ffb14299, #ff5a8a99, #ffb14299)",
                         boxShadow: isSelected
-                          ? "0 0 6px rgba(0, 229, 255, 0.8)"
-                          : "0 0 3px rgba(0, 229, 255, 0.3)",
+                          ? "0 0 6px rgba(255, 177, 66, 0.8)"
+                          : "0 0 3px rgba(255, 177, 66, 0.3)",
                       }}
                     />
                     {/* Selection indicator */}
@@ -466,8 +466,8 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                           width: 10,
                           height: 10,
                           borderRadius: "50%",
-                          background: "linear-gradient(135deg, #00e5ff, #00bcd4)",
-                          boxShadow: "0 0 4px rgba(0, 229, 255, 0.8)",
+                          background: "linear-gradient(135deg, #ffb142, #ff5a8a)",
+                          boxShadow: "0 0 4px rgba(255, 177, 66, 0.8)",
                         }}
                       />
                     )}
@@ -493,11 +493,11 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                         left: GUIDE_HIT_HALF,
                         width: 1,
                         background: isSelected
-                          ? "linear-gradient(180deg, #00e5ff, #00bcd4, #00e5ff)"
-                          : "linear-gradient(180deg, #00e5ff99, #00bcd499, #00e5ff99)",
+                          ? "linear-gradient(180deg, #ffb142, #ff5a8a, #ffb142)"
+                          : "linear-gradient(180deg, #ffb14299, #ff5a8a99, #ffb14299)",
                         boxShadow: isSelected
-                          ? "0 0 6px rgba(0, 229, 255, 0.8)"
-                          : "0 0 3px rgba(0, 229, 255, 0.3)",
+                          ? "0 0 6px rgba(255, 177, 66, 0.8)"
+                          : "0 0 3px rgba(255, 177, 66, 0.3)",
                       }}
                     />
                     {/* Selection indicator */}
@@ -511,8 +511,8 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                           width: 10,
                           height: 10,
                           borderRadius: "50%",
-                          background: "linear-gradient(135deg, #00e5ff, #00bcd4)",
-                          boxShadow: "0 0 4px rgba(0, 229, 255, 0.8)",
+                          background: "linear-gradient(135deg, #ffb142, #ff5a8a)",
+                          boxShadow: "0 0 4px rgba(255, 177, 66, 0.8)",
                         }}
                       />
                     )}
@@ -530,9 +530,9 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                       left: -guideOverflowX,
                       right: -guideOverflowX,
                       height: 2,
-                      background: "linear-gradient(90deg, #00e5ff, #00bcd4, #00e5ff)",
+                      background: "linear-gradient(90deg, #ffb142, #ff5a8a, #ffb142)",
                       opacity: 0.8,
-                      boxShadow: "0 0 8px rgba(0, 229, 255, 0.6)",
+                      boxShadow: "0 0 8px rgba(255, 177, 66, 0.6)",
                     }}
                   />
                 ) : (
@@ -543,9 +543,9 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
                       top: -guideOverflowY,
                       bottom: -guideOverflowY,
                       width: 2,
-                      background: "linear-gradient(180deg, #00e5ff, #00bcd4, #00e5ff)",
+                      background: "linear-gradient(180deg, #ffb142, #ff5a8a, #ffb142)",
                       opacity: 0.8,
-                      boxShadow: "0 0 8px rgba(0, 229, 255, 0.6)",
+                      boxShadow: "0 0 8px rgba(255, 177, 66, 0.6)",
                     }}
                   />
                 )

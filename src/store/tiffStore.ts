@@ -1,0 +1,443 @@
+import { create } from "zustand";
+import type {
+  TiffSettings,
+  TiffFileOverride,
+  TiffCropPreset,
+  TiffCropBounds,
+  TiffCropGuide,
+  TiffCropStep,
+  TiffCropMethod,
+  TiffResult,
+  TiffPhase,
+  PageRangeRule,
+  PartialBlurEntry,
+} from "../types/tiff";
+import { DEFAULT_TIFF_SETTINGS as defaults } from "../types/tiff";
+
+// localStorage キー
+const LS_KEY_PRESETS = "tiff_cropPresets";
+const LS_KEY_SETTINGS = "tiff_lastSettings";
+const LS_KEY_UNLOCK = "tiff_featureUnlocked";
+
+function loadCropPresetsFromStorage(): TiffCropPreset[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY_PRESETS);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCropPresetsToStorage(presets: TiffCropPreset[]) {
+  try {
+    localStorage.setItem(LS_KEY_PRESETS, JSON.stringify(presets));
+  } catch { /* ignore */ }
+}
+
+function loadSettingsFromStorage(): Partial<TiffSettings> {
+  try {
+    const raw = localStorage.getItem(LS_KEY_SETTINGS);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSettingsToStorage(settings: TiffSettings) {
+  try {
+    localStorage.setItem(LS_KEY_SETTINGS, JSON.stringify(settings));
+  } catch { /* ignore */ }
+}
+
+interface TiffState {
+  // --- 設定 ---
+  settings: TiffSettings;
+  fileOverrides: Map<string, TiffFileOverride>; // fileId → override
+  cropPresets: TiffCropPreset[];
+
+  // --- 処理状態 ---
+  phase: TiffPhase;
+  isProcessing: boolean;
+  progress: number;
+  totalFiles: number;
+  currentFile: string | null;
+  results: TiffResult[];
+  lastOutputDir: string | null;
+  processingDurationMs: number | null;
+  showResultDialog: boolean;
+
+  // --- 基準ファイル ---
+  referenceFileIndex: number; // ファイルリスト内のインデックス（1-based）
+  referenceImageSize: { width: number; height: number } | null; // 基準画像の実サイズ
+
+  // --- クロップエディタ拡張 ---
+  cropGuides: TiffCropGuide[];
+  selectedCropGuideIndex: number | null;
+  cropStep: TiffCropStep;
+  cropMethod: TiffCropMethod;
+  cropHistory: (TiffCropBounds | null)[];
+  cropFuture: (TiffCropBounds | null)[];
+  isFeatureUnlocked: boolean;
+
+  // --- アクション: 設定 ---
+  setSettings: (partial: Partial<TiffSettings>) => void;
+  resetSettings: () => void;
+
+  // --- アクション: ページ範囲ルール ---
+  addPageRangeRule: () => void;
+  updatePageRangeRule: (id: string, partial: Partial<PageRangeRule>) => void;
+  removePageRangeRule: (id: string) => void;
+
+  // --- アクション: 部分ぼかし ---
+  setPartialBlurEntries: (entries: PartialBlurEntry[]) => void;
+
+  // --- アクション: クロップ範囲 ---
+  setCropBounds: (bounds: TiffCropBounds | null) => void;
+
+  // --- アクション: ファイル別上書き ---
+  setFileOverride: (fileId: string, override: Partial<TiffFileOverride>) => void;
+  removeFileOverride: (fileId: string) => void;
+  toggleFileSkip: (fileId: string) => void;
+  clearAllOverrides: () => void;
+
+  // --- アクション: クロッププリセット ---
+  addCropPreset: (preset: TiffCropPreset) => void;
+  removeCropPreset: (label: string) => void;
+  loadCropPreset: (preset: TiffCropPreset) => void;
+
+  // --- アクション: クロップガイド ---
+  addCropGuide: (guide: TiffCropGuide) => void;
+  updateCropGuide: (index: number, guide: TiffCropGuide) => void;
+  removeCropGuide: (index: number) => void;
+  clearCropGuides: () => void;
+  setSelectedCropGuideIndex: (index: number | null) => void;
+  applyCropGuidesToBounds: () => void;
+
+  // --- アクション: クロップエディタ状態 ---
+  setCropStep: (step: TiffCropStep) => void;
+  setCropMethod: (method: TiffCropMethod) => void;
+  pushCropHistory: () => void;
+  undoCropBounds: () => void;
+  redoCropBounds: () => void;
+  setFeatureUnlocked: (unlocked: boolean) => void;
+  resetCropEditor: () => void;
+
+  // --- アクション: 処理 ---
+  setPhase: (phase: TiffPhase) => void;
+  setIsProcessing: (value: boolean) => void;
+  setProgress: (current: number, total: number) => void;
+  setCurrentFile: (fileName: string | null) => void;
+  addResult: (result: TiffResult) => void;
+  clearResults: () => void;
+  setLastOutputDir: (dir: string | null) => void;
+  setProcessingDuration: (ms: number | null) => void;
+  setShowResultDialog: (show: boolean) => void;
+  setReferenceFileIndex: (index: number) => void;
+  setReferenceImageSize: (size: { width: number; height: number } | null) => void;
+  reset: () => void;
+}
+
+// 直近の設定を復元してデフォルトとマージ
+const savedSettings = loadSettingsFromStorage();
+const initialSettings: TiffSettings = { ...defaults, ...savedSettings };
+
+export const useTiffStore = create<TiffState>((set) => ({
+  settings: initialSettings,
+  fileOverrides: new Map(),
+  cropPresets: loadCropPresetsFromStorage(),
+
+  phase: "idle",
+  isProcessing: false,
+  progress: 0,
+  totalFiles: 0,
+  currentFile: null,
+  results: [],
+  lastOutputDir: null,
+  processingDurationMs: null,
+  showResultDialog: false,
+  referenceFileIndex: 1,
+  referenceImageSize: null,
+
+  cropGuides: [],
+  selectedCropGuideIndex: null,
+  cropStep: "select",
+  cropMethod: "drag",
+  cropHistory: [],
+  cropFuture: [],
+  isFeatureUnlocked: (() => {
+    try { return localStorage.getItem(LS_KEY_UNLOCK) === "true"; } catch { return false; }
+  })(),
+
+  // --- 設定 ---
+  setSettings: (partial) =>
+    set((state) => {
+      const newSettings = { ...state.settings, ...partial };
+      saveSettingsToStorage(newSettings);
+      return { settings: newSettings };
+    }),
+
+  resetSettings: () =>
+    set(() => {
+      saveSettingsToStorage(defaults);
+      return { settings: { ...defaults } };
+    }),
+
+  // --- ページ範囲ルール ---
+  addPageRangeRule: () =>
+    set((state) => {
+      if (state.settings.pageRangeRules.length >= 3) return state;
+      const newRule: PageRangeRule = {
+        id: crypto.randomUUID(),
+        fromPage: 1,
+        toPage: 1,
+        colorMode: "color",
+        applyBlur: false,
+      };
+      const newSettings = {
+        ...state.settings,
+        pageRangeRules: [...state.settings.pageRangeRules, newRule],
+      };
+      saveSettingsToStorage(newSettings);
+      return { settings: newSettings };
+    }),
+
+  updatePageRangeRule: (id, partial) =>
+    set((state) => {
+      const newRules = state.settings.pageRangeRules.map((r) =>
+        r.id === id ? { ...r, ...partial } : r
+      );
+      const newSettings = { ...state.settings, pageRangeRules: newRules };
+      saveSettingsToStorage(newSettings);
+      return { settings: newSettings };
+    }),
+
+  removePageRangeRule: (id) =>
+    set((state) => {
+      const newRules = state.settings.pageRangeRules.filter((r) => r.id !== id);
+      const newSettings = { ...state.settings, pageRangeRules: newRules };
+      saveSettingsToStorage(newSettings);
+      return { settings: newSettings };
+    }),
+
+  // --- 部分ぼかし ---
+  setPartialBlurEntries: (entries) =>
+    set((state) => {
+      const newSettings = { ...state.settings, partialBlurEntries: entries };
+      saveSettingsToStorage(newSettings);
+      return { settings: newSettings };
+    }),
+
+  // --- クロップ範囲 ---
+  setCropBounds: (bounds) =>
+    set((state) => {
+      const newSettings = {
+        ...state.settings,
+        crop: { ...state.settings.crop, bounds },
+      };
+      saveSettingsToStorage(newSettings);
+      return { settings: newSettings };
+    }),
+
+  // --- ファイル別上書き ---
+  setFileOverride: (fileId, partial) =>
+    set((state) => {
+      const newMap = new Map(state.fileOverrides);
+      const existing = newMap.get(fileId) || { fileId, skip: false };
+      newMap.set(fileId, { ...existing, ...partial });
+      return { fileOverrides: newMap };
+    }),
+
+  removeFileOverride: (fileId) =>
+    set((state) => {
+      const newMap = new Map(state.fileOverrides);
+      newMap.delete(fileId);
+      return { fileOverrides: newMap };
+    }),
+
+  toggleFileSkip: (fileId) =>
+    set((state) => {
+      const newMap = new Map(state.fileOverrides);
+      const existing = newMap.get(fileId) || { fileId, skip: false };
+      newMap.set(fileId, { ...existing, skip: !existing.skip });
+      return { fileOverrides: newMap };
+    }),
+
+  clearAllOverrides: () => set({ fileOverrides: new Map() }),
+
+  // --- クロッププリセット ---
+  addCropPreset: (preset) =>
+    set((state) => {
+      const newPresets = [...state.cropPresets, preset];
+      saveCropPresetsToStorage(newPresets);
+      return { cropPresets: newPresets };
+    }),
+
+  removeCropPreset: (label) =>
+    set((state) => {
+      const newPresets = state.cropPresets.filter((p) => p.label !== label);
+      saveCropPresetsToStorage(newPresets);
+      return { cropPresets: newPresets };
+    }),
+
+  loadCropPreset: (preset) =>
+    set((state) => {
+      const newSettings = {
+        ...state.settings,
+        crop: {
+          ...state.settings.crop,
+          bounds: preset.bounds,
+          enabled: true,
+        },
+      };
+      saveSettingsToStorage(newSettings);
+      return { settings: newSettings };
+    }),
+
+  // --- クロップガイド ---
+  addCropGuide: (guide) =>
+    set((state) => ({ cropGuides: [...state.cropGuides, guide] })),
+
+  updateCropGuide: (index, guide) =>
+    set((state) => {
+      const newGuides = [...state.cropGuides];
+      newGuides[index] = guide;
+      return { cropGuides: newGuides };
+    }),
+
+  removeCropGuide: (index) =>
+    set((state) => {
+      const newGuides = state.cropGuides.filter((_, i) => i !== index);
+      const newSelected = state.selectedCropGuideIndex === index
+        ? null
+        : state.selectedCropGuideIndex !== null && state.selectedCropGuideIndex > index
+          ? state.selectedCropGuideIndex - 1
+          : state.selectedCropGuideIndex;
+      return { cropGuides: newGuides, selectedCropGuideIndex: newSelected };
+    }),
+
+  clearCropGuides: () =>
+    set({ cropGuides: [], selectedCropGuideIndex: null }),
+
+  setSelectedCropGuideIndex: (index) =>
+    set({ selectedCropGuideIndex: index }),
+
+  applyCropGuidesToBounds: () =>
+    set((state) => {
+      const hGuides = state.cropGuides
+        .filter((g) => g.direction === "horizontal")
+        .map((g) => g.position)
+        .sort((a, b) => a - b);
+      const vGuides = state.cropGuides
+        .filter((g) => g.direction === "vertical")
+        .map((g) => g.position)
+        .sort((a, b) => a - b);
+
+      if (hGuides.length < 2 || vGuides.length < 2) return state;
+
+      const bounds: TiffCropBounds = {
+        left: Math.round(vGuides[0]),
+        top: Math.round(hGuides[0]),
+        right: Math.round(vGuides[vGuides.length - 1]),
+        bottom: Math.round(hGuides[hGuides.length - 1]),
+      };
+
+      // Push current bounds to history before applying
+      const history = [...state.cropHistory, state.settings.crop.bounds].slice(-20);
+
+      const newSettings = {
+        ...state.settings,
+        crop: { ...state.settings.crop, bounds, enabled: true },
+      };
+      saveSettingsToStorage(newSettings);
+      return {
+        settings: newSettings,
+        cropStep: "confirm" as TiffCropStep,
+        cropHistory: history,
+        cropFuture: [],
+      };
+    }),
+
+  // --- クロップエディタ状態 ---
+  setCropStep: (step) => set({ cropStep: step }),
+  setCropMethod: (method) => set({ cropMethod: method }),
+
+  pushCropHistory: () =>
+    set((state) => ({
+      cropHistory: [...state.cropHistory, state.settings.crop.bounds].slice(-20),
+      cropFuture: [],
+    })),
+
+  undoCropBounds: () =>
+    set((state) => {
+      if (state.cropHistory.length === 0) return state;
+      const history = [...state.cropHistory];
+      const bounds = history.pop()!;
+      const newSettings = {
+        ...state.settings,
+        crop: { ...state.settings.crop, bounds },
+      };
+      saveSettingsToStorage(newSettings);
+      return {
+        settings: newSettings,
+        cropHistory: history,
+        cropFuture: [...state.cropFuture, state.settings.crop.bounds],
+      };
+    }),
+
+  redoCropBounds: () =>
+    set((state) => {
+      if (state.cropFuture.length === 0) return state;
+      const future = [...state.cropFuture];
+      const bounds = future.pop()!;
+      const newSettings = {
+        ...state.settings,
+        crop: { ...state.settings.crop, bounds },
+      };
+      saveSettingsToStorage(newSettings);
+      return {
+        settings: newSettings,
+        cropHistory: [...state.cropHistory, state.settings.crop.bounds],
+        cropFuture: future,
+      };
+    }),
+
+  setFeatureUnlocked: (unlocked) => {
+    try { localStorage.setItem(LS_KEY_UNLOCK, String(unlocked)); } catch { /* ignore */ }
+    set({ isFeatureUnlocked: unlocked });
+  },
+
+  resetCropEditor: () =>
+    set({
+      cropGuides: [],
+      selectedCropGuideIndex: null,
+      cropStep: "select",
+      cropMethod: "drag",
+      cropHistory: [],
+      cropFuture: [],
+    }),
+
+  // --- 処理 ---
+  setPhase: (phase) => set({ phase }),
+  setIsProcessing: (value) => set({ isProcessing: value }),
+  setProgress: (current, total) => set({ progress: current, totalFiles: total }),
+  setCurrentFile: (fileName) => set({ currentFile: fileName }),
+
+  addResult: (result) =>
+    set((state) => ({ results: [...state.results, result] })),
+
+  clearResults: () => set({ results: [] }),
+  setLastOutputDir: (dir) => set({ lastOutputDir: dir }),
+  setProcessingDuration: (ms) => set({ processingDurationMs: ms }),
+  setShowResultDialog: (show) => set({ showResultDialog: show }),
+  setReferenceFileIndex: (index) => set({ referenceFileIndex: index }),
+  setReferenceImageSize: (size) => set({ referenceImageSize: size }),
+
+  reset: () =>
+    set({
+      isProcessing: false,
+      progress: 0,
+      totalFiles: 0,
+      currentFile: null,
+      results: [],
+    }),
+}));

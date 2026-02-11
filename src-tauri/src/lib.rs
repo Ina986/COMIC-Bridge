@@ -26,6 +26,10 @@ pub fn run() {
             commands::clear_psd_cache,
             commands::list_folder_files,
             commands::list_subfolders,
+            commands::list_folder_contents,
+            commands::read_text_file,
+            commands::write_text_file,
+            commands::path_exists,
             commands::run_photoshop_replace,
             commands::run_photoshop_rename,
             commands::batch_rename_files,
@@ -35,6 +39,7 @@ pub fn run() {
             commands::get_pdf_info,
             commands::get_pdf_preview,
             commands::get_pdf_thumbnail,
+            commands::run_photoshop_tiff_convert,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

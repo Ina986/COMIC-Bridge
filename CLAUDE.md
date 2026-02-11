@@ -134,7 +134,26 @@
 - **splitStore**: `selectionHistory`/`selectionFuture`でUndo/Redo。`startDragSelection()`でドラッグ中は履歴スパム防止
 - Photoshop JSX経由で全ファイル一括処理（`split_psd.jsx`、タイムアウト5分）
 
-### 9. リネーム（レイヤーリネーム / ファイルリネーム）
+### 9. TIFF化（Photoshop JSX経由）
+- **TIPPY v2.92の全機能移植**: PSD→TIFF一括変換（テキスト整理・カラーモード変換・ぼかし・クロップ・リサイズ・リネーム）
+- **ビジュアルクロップエディタ**: useHighResPreviewベースのプレビュー上にドラッグ可能なクロップ矩形をオーバーレイ。640:909アスペクト比ロック、8ハンドルリサイズ、暗転マスク、三分割グリッド、リアルタイム寸法表示、比率検証（±1%）
+- **バッチキュー＆個別上書き**: 全ファイルの処理予定を可視化。ファイル毎にカラーモード・ぼかし半径・スキップをインライン上書き。リネームプレビュータブで出力名確認・重複検出
+- **カラーモード**: モノクロ/カラー/変更なし/個別選択（ページ範囲ルール最大3件 + デフォルトモード）
+- **ガウスぼかし**: モノクロ時のみ適用、半径指定(px)。部分ぼかし（最大5ページ、ページ別半径）
+- **クロップ範囲**: 640:909比率。JSONから読込/保存（CLLENN互換: ジャンル→レーベル→タイトル階層）。キャンバスサイズ不一致ダイアログ（4択: ラベル再選択/手動選択/そのまま/スキップ）
+- **リサイズ**: 1280x1818（DPI: モノクロ=600, カラー=350）
+- **テキスト整理**: #text#, text, 写植, セリフ, テキスト, 台詞 グループを検索・統合→スマートオブジェクト化
+- **リネーム**: 連番/ページ数計算/リネームなし。開始番号・ゼロ埋め桁数指定
+- **出力**: TIFF(LZW)/PSD、中間PSD保存、画像レイヤー統合オプション
+- **PSB対応**: PSBファイルのTIFF変換サポート
+- Photoshop JSX経由で実行（`tiff_convert.jsx`）
+- **設定パネル**: 8セクション折りたたみ式、処理状態表示（スピナー+プログレスバー）
+- **JSON範囲ライブラリ**: TiffCropRangeLibrary（読込/保存/新規作成の3タブ）、GENRE_LABELS定数でジャンル→レーベルマッピング
+- **Tachimi互換JSON構造**: TiffCropPreset型（units: "px", size, documentSize, savedAt）。新規登録時に現在の選択範囲をプリセットとして保存。4スペースインデント
+- **Tachimi互換キーボード操作**: ガイド移動1px/Shift+10px、範囲移動10px/Shift+1px（逆）。矢印キーUndo最適化（連続押し中は1回だけ履歴保存）。Delete/Backspaceでガイド・選択範囲削除
+- **ガイド交点クロップ作成**: トンボにガイドを引き、交点からクロップ範囲をドラッグ作成。クロップ範囲がない時はガイドクリックでクロップ開始。クロップ範囲がある時は未選択ガイドをpointer-events:noneにして矩形操作を優先
+
+### 10. リネーム（レイヤーリネーム / ファイルリネーム）
 - **サブモード切替**: 「ファイルリネーム」「レイヤーリネーム」のタブ切替
 - **モードA: レイヤーリネーム（Photoshop JSX経由）**
   - 最下位/背景レイヤーを指定名に変更
@@ -161,8 +180,8 @@
 ## UI構成
 
 ### レイアウト
-- **TopNav**: 上部ナビゲーション。タブでビュー切替（ファイル/レイヤー制御/仕様チェック/差替え/見開き分割/リネーム）
-- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | layers | split | replace | rename）
+- **TopNav**: 上部ナビゲーション。タブでビュー切替（ファイル/レイヤー制御/仕様チェック/差替え/見開き分割/リネーム/TIFF化）
+- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | layers | split | replace | rename | tiff）
 - **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）、グローバルD&Dリスナー（useGlobalDragDrop）
 
 ### ビュー
@@ -172,6 +191,7 @@
 - **ReplaceView**: レイヤー差替え
 - **SplitView**: 見開き分割
 - **RenameView**: リネーム（レイヤーリネーム / ファイルリネーム）
+- **TiffView**: TIFF化（3カラム: CompactFileList | BatchQueue/CropEditor | TiffSettingsPanel）
 
 ### レイヤーツリー (LayerPreviewPanel)
 - **タブ切替**: 「レイヤー構造」（デフォルト）/ 「ビューアー」のセグメントボタン
@@ -227,7 +247,8 @@ src/
 │   │   ├── SpecCheckView.tsx     # 仕様チェックビュー
 │   │   ├── ReplaceView.tsx       # レイヤー差替えビュー
 │   │   ├── SplitView.tsx         # 見開き分割ビュー
-│   │   └── RenameView.tsx        # リネームビュー（fileEntries→psdStore自動同期）
+│   │   ├── RenameView.tsx        # リネームビュー（fileEntries→psdStore自動同期）
+│   │   └── TiffView.tsx          # TIFF化ビュー（3カラム: FileList|Center|Settings）
 │   ├── metadata/          # メタデータ表示
 │   │   ├── MetadataPanel.tsx
 │   │   └── LayerTree.tsx
@@ -265,6 +286,16 @@ src/
 │   │   ├── FileRenamePanel.tsx    # ファイルリネーム設定UI
 │   │   ├── RenamePreview.tsx      # プレビュー表示（両モード共通）
 │   │   └── RenameResultDialog.tsx # 処理結果ダイアログ
+│   ├── tiff/              # TIFF化
+│   │   ├── TiffSettingsPanel.tsx        # 右パネル設定UI（8セクション折りたたみ）
+│   │   ├── TiffBatchQueue.tsx           # バッチキュー＋個別上書き＋リネームプレビュー
+│   │   ├── TiffCropEditor.tsx           # ビジュアルクロップエディタ（ドラッグ矩形）
+│   │   ├── TiffCropRangeLibrary.tsx     # JSON範囲ライブラリ（CLLENN互換）
+│   │   ├── TiffCropSidePanel.tsx        # クロップ設定サイドパネル（JSON登録/読込ダイアログ）
+│   │   ├── TiffResultDialog.tsx         # 処理結果ダイアログ
+│   │   ├── TiffPartialBlurModal.tsx     # 部分ぼかし設定モーダル
+│   │   ├── TiffPageRulesEditor.tsx      # ページ別カラー設定
+│   │   └── TiffCanvasMismatchDialog.tsx # キャンバスサイズ不一致ダイアログ
 │   └── ui/                # 共通UIコンポーネント
 │       ├── Modal.tsx
 │       └── PopButton.tsx
@@ -279,6 +310,8 @@ src/
 │   ├── useSplitProcessor.ts
 │   ├── useRenameProcessor.ts
 │   ├── useReplaceProcessor.ts
+│   ├── useTiffProcessor.ts     # TIFF化処理フック（設定マージ・invoke・結果処理）
+│   ├── useCropEditorKeyboard.ts # クロップエディタキーボード操作（Tachimi互換）
 │   └── useOpenInPhotoshop.ts    # Photoshopファイル起動（ユーティリティ + Pキーショートカット）
 ├── lib/
 │   ├── psd/
@@ -293,13 +326,15 @@ src/
 │   ├── viewStore.ts       # ビュー切替状態（activeView）
 │   ├── splitStore.ts      # 分割設定
 │   ├── replaceStore.ts    # 差替え設定
-│   └── renameStore.ts     # リネーム設定（subMode, layerSettings, fileSettings, fileEntries）
+│   ├── renameStore.ts     # リネーム設定（subMode, layerSettings, fileSettings, fileEntries）
+│   └── tiffStore.ts       # TIFF化設定・状態（settings, fileOverrides, cropPresets, phase, results）
 ├── styles/
 │   └── globals.css
 └── types/
     ├── index.ts
     ├── replace.ts
-    └── rename.ts          # RenameSubMode, RenameRule, FileRenameEntry, etc.
+    ├── rename.ts          # RenameSubMode, RenameRule, FileRenameEntry, etc.
+    └── tiff.ts            # TiffSettings, TiffCropBounds, TiffScandataFile, etc.
 
 src-tauri/
 ├── scripts/
@@ -308,7 +343,8 @@ src-tauri/
 │   ├── hide_layers.jsx
 │   ├── split_psd.jsx
 │   ├── replace_layers.jsx
-│   └── rename_psd.jsx        # レイヤーリネーム用JSX
+│   ├── rename_psd.jsx        # レイヤーリネーム用JSX
+│   └── tiff_convert.jsx      # TIFF化JSX（テキスト整理・カラー変換・ぼかし・クロップ・リサイズ）
 ├── resources/
 │   └── pdfium/
 │       └── pdfium.dll         # PDFiumバイナリ（.gitignore管理、別途DL）
@@ -543,6 +579,22 @@ lastSelectedSpecId: string    // 前回選択した仕様ID
 - 垂直定規からドラッグ → 垂直ガイド（X軸位置）
 - ガイドクリックで選択 → 選択中はハイライト表示
 - Undo/Redo: 最大20ステップの履歴管理（guideStore）
+
+## クロップエディタのショートカット（Tachimi互換）
+
+| 操作 | キー |
+|------|------|
+| 元に戻す | Ctrl + Z |
+| やり直す | Ctrl + Y / Ctrl + Shift + Z |
+| ズームイン | Ctrl + (+/=) |
+| ズームアウト | Ctrl + (-) |
+| ズームリセット | Ctrl + 0 |
+| パン | Space + ドラッグ |
+| ガイド削除 | Delete / Backspace（ガイド選択時） |
+| 選択範囲削除 | Delete / Backspace（範囲のみ時） |
+| ガイド移動 | 矢印キー 1px / Shift+矢印 10px |
+| 選択範囲移動 | 矢印キー 10px / Shift+矢印 1px |
+| 選択解除 | Escape |
 
 ## グローバルショートカット
 

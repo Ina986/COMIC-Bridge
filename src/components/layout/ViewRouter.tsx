@@ -4,6 +4,7 @@ import { LayerControlView } from "../views/LayerControlView";
 import { SplitView } from "../views/SplitView";
 import { ReplaceView } from "../views/ReplaceView";
 import { RenameView } from "../views/RenameView";
+import { TiffView } from "../views/TiffView";
 
 export function ViewRouter() {
   const activeView = useViewStore((s) => s.activeView);
@@ -15,6 +16,7 @@ export function ViewRouter() {
       {activeView === "split" && <SplitView />}
       {activeView === "replace" && <ReplaceView />}
       {activeView === "rename" && <RenameView />}
+      {activeView === "tiff" && <TiffView />}
     </div>
   );
 }
