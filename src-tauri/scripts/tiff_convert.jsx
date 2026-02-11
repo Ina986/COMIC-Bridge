@@ -75,81 +75,106 @@ function processFile(fileConfig, globalSettings) {
             return { fileName: fileName, success: false, error: "File not found" };
         }
 
-        var doc;
-        // PSB handling
-        if (filePath.match(/\.psb$/i) && fileConfig.psbConvert) {
-            doc = app.open(file);
-        } else {
-            doc = app.open(file);
-        }
+        var doc = app.open(file);
 
         // 2. Unlock all layers
         unlockAllLayers(doc);
 
-        // 3. Text layer organization (if enabled)
+        // 3. Always find existing text group for text/background separation
         var textGroup = null;
+        for (var gi = 0; gi < doc.layerSets.length; gi++) {
+            var gName = doc.layerSets[gi].name;
+            for (var gj = 0; gj < TEXT_GROUP_NAMES.length; gj++) {
+                if (gName === TEXT_GROUP_NAMES[gj] || gName.toLowerCase() === TEXT_GROUP_NAMES[gj].toLowerCase()) {
+                    textGroup = doc.layerSets[gi];
+                    break;
+                }
+            }
+            if (textGroup) break;
+        }
+
+        // Text layer organization (if enabled)
         if (globalSettings.reorganizeText) {
-            textGroup = findOrCreateTextGroup(doc);
+            if (!textGroup) {
+                textGroup = findOrCreateTextGroup(doc);
+            }
             if (textGroup) {
                 consolidateTextLayers(doc, textGroup);
             }
         }
 
-        // 4-5. Smart Object creation for non-text and text layers
-        var bgLayer = null;
+        // Move text group to top of layer stack (matching Tippy)
+        if (textGroup) {
+            try { textGroup.move(doc, ElementPlacement.PLACEATBEGINNING); } catch (e) {}
+        }
+
+        // 4. Separate text and background, convert both to smart objects
+        var backgroundSO = null;
         var textSO = null;
 
         if (doc.layers.length > 1) {
-            // Separate text and background
-            var textLayers = collectTextLayers(doc, textGroup);
             var bgLayers = collectNonTextLayers(doc, textGroup);
 
-            // Background: Select all non-text layers → merge to single layer
+            // Background: Select all non-text layers -> convert to SO
             if (bgLayers.length > 0) {
                 selectLayers(bgLayers);
-                if (bgLayers.length > 1) {
-                    try {
-                        executeAction(stringIDToTypeID("mergeLayersNew"), undefined, DialogModes.NO);
-                    } catch (e) {
-                        // Fallback: flatten
-                        doc.flatten();
-                    }
-                }
-                bgLayer = doc.activeLayer;
-                bgLayer.name = "\u80CC\u666F";
+                backgroundSO = convertToSmartObject();
+                if (backgroundSO) backgroundSO.name = "\u80CC\u666F";
             }
 
-            // Text: Convert text layers to smart object (preserves fonts)
-            if (textLayers.length > 0 && textGroup) {
+            // Text: Select text group with all children -> convert to SO
+            if (textGroup) {
                 try {
-                    doc.activeLayer = textGroup;
-                    convertToSmartObject();
-                    textSO = doc.activeLayer;
-                    textSO.name = "\u30C6\u30AD\u30B9\u30C8";
+                    selectLayerWithChildren(textGroup);
+                    textSO = convertToSmartObject();
+                    if (textSO) textSO.name = "\u30C6\u30AD\u30B9\u30C8";
                 } catch (e) {
                     textSO = null;
                 }
             }
         }
 
+        // 5. Rasterize both smart objects (DOM method matching Tippy)
+        var textLayer = null;
+        if (textSO) {
+            try {
+                doc.activeLayer = textSO;
+                textSO.rasterize(RasterizeType.ENTIRELAYER);
+                textLayer = doc.activeLayer;
+                textLayer.name = "\u30C6\u30AD\u30B9\u30C8";
+            } catch (e) {}
+        }
+        var backgroundLayer = null;
+        if (backgroundSO) {
+            try {
+                doc.activeLayer = backgroundSO;
+                backgroundSO.rasterize(RasterizeType.ENTIRELAYER);
+                backgroundLayer = doc.activeLayer;
+                backgroundLayer.name = "\u80CC\u666F";
+            } catch (e) {}
+        }
+
         // 6. Color mode conversion
-        var targetColorMode = fileConfig.colorMode; // "mono" | "color" | "noChange"
+        var targetColorMode = fileConfig.colorMode;
         if (targetColorMode === "mono" && doc.mode !== DocumentMode.GRAYSCALE) {
             doc.changeMode(ChangeMode.GRAYSCALE);
         } else if (targetColorMode === "color" && doc.mode !== DocumentMode.RGB) {
             doc.changeMode(ChangeMode.RGB);
         }
 
-        // 7-8. Text SO: rasterize then hide
-        if (textSO) {
+        // 7. Re-convert rasterized text to smart object (fresh ref after color mode change)
+        var textSOFinal = null;
+        if (textLayer) {
             try {
-                doc.activeLayer = textSO;
-                rasterizeLayer();
-                // Re-convert to SO for isolation
-                convertToSmartObject();
-                textSO = doc.activeLayer;
-                textSO.visible = false;
+                doc.activeLayer = textLayer;
+                textSOFinal = convertToSmartObject();
+                if (textSOFinal) textSOFinal.name = "\u30C6\u30AD\u30B9\u30C8";
             } catch (e) {}
+        }
+
+        // 8. Hide text SO
+        if (textSOFinal) {
+            try { textSOFinal.visible = false; } catch (e) {}
         }
 
         // 9. Optional: Save intermediate PSD
@@ -157,43 +182,56 @@ function processFile(fileConfig, globalSettings) {
             saveIntermediatePsd(doc, fileConfig, globalSettings);
         }
 
-        // 10. Apply Gaussian blur to background
+        // 10. Apply Gaussian blur to background only
         if (fileConfig.applyBlur && fileConfig.blurRadius > 0) {
-            // Select background layer
-            if (bgLayer) {
-                try { doc.activeLayer = bgLayer; } catch (e) {}
+            if (backgroundLayer) {
+                try {
+                    doc.activeLayer = backgroundLayer;
+                    if (backgroundLayer.allLocked) backgroundLayer.allLocked = false;
+                } catch (e) {}
             } else if (doc.layers.length > 0) {
                 doc.activeLayer = doc.layers[doc.layers.length - 1];
             }
 
-            // Partial blur check
             if (fileConfig.partialBlur && fileConfig.partialBlur.blurRadius !== undefined) {
-                // Partial blur: different inside/outside selection
                 applyPartialBlur(doc, fileConfig);
             } else {
-                // Standard full blur
                 doc.activeLayer.applyGaussianBlur(fileConfig.blurRadius);
             }
         }
 
         // 11. Show text SO
-        if (textSO) {
-            try { textSO.visible = true; } catch (e) {}
+        if (textSOFinal) {
+            try { textSOFinal.visible = true; } catch (e) {}
         }
 
-        // 12. Flatten all layers
-        doc.flatten();
+        // 12. Final merge: re-acquire layers by name -> SO (matching Tippy)
+        var layersToMerge = [];
+        if (textSOFinal) {
+            try { layersToMerge.push(doc.layers.getByName("\u30C6\u30AD\u30B9\u30C8")); } catch (e) {}
+        }
+        if (backgroundLayer) {
+            try { layersToMerge.push(doc.layers.getByName("\u80CC\u666F")); } catch (e) {}
+        }
+
+        if (layersToMerge.length > 0) {
+            try {
+                selectLayers(layersToMerge);
+                convertToSmartObject();
+            } catch (e) {}
+        } else if (doc.layers.length > 1) {
+            doc.flatten();
+        }
 
         // 13. Crop (if not skipped)
         if (!fileConfig.skipCrop && fileConfig.cropBounds) {
             var cb = fileConfig.cropBounds;
-            var region = [
-                [cb.left, cb.top],
-                [cb.right, cb.top],
-                [cb.right, cb.bottom],
-                [cb.left, cb.bottom]
-            ];
-            doc.crop(region);
+            doc.crop([
+                new UnitValue(cb.left, "px"),
+                new UnitValue(cb.top, "px"),
+                new UnitValue(cb.right, "px"),
+                new UnitValue(cb.bottom, "px")
+            ]);
         }
 
         // 14. Resize
@@ -282,10 +320,12 @@ function unlockRecursive(container) {
     for (var i = 0; i < container.layers.length; i++) {
         var layer = container.layers[i];
         try {
+            var originalVisibility = layer.visible;
             layer.allLocked = false;
             layer.pixelsLocked = false;
             layer.positionLocked = false;
             layer.transparentPixelsLocked = false;
+            layer.visible = originalVisibility;
         } catch (e) {}
         if (layer.typename === "LayerSet") {
             unlockRecursive(layer);
@@ -342,7 +382,7 @@ function consolidateTextLayers(doc, targetGroup) {
 function findTextLayersOutside(container, excludeGroup, list) {
     for (var i = 0; i < container.layers.length; i++) {
         var layer = container.layers[i];
-        if (layer === excludeGroup) continue;
+        if (excludeGroup && layer.id === excludeGroup.id) continue;
         if (layer.kind === LayerKind.TEXT) {
             list.push(layer);
         } else if (layer.typename === "LayerSet") {
@@ -379,39 +419,60 @@ function collectTextLayers(doc, textGroup) {
 function collectNonTextLayers(doc, textGroup) {
     var layers = [];
     for (var i = 0; i < doc.layers.length; i++) {
-        if (doc.layers[i] !== textGroup) {
+        if (!textGroup || doc.layers[i].id !== textGroup.id) {
             layers.push(doc.layers[i]);
         }
     }
     return layers;
 }
 
+function selectLayerWithChildren(layer) {
+    var descendants = [];
+    function collectDescendants(parent) {
+        if (parent.typename === "LayerSet") {
+            descendants.push(parent);
+            for (var i = 0; i < parent.layers.length; i++) {
+                collectDescendants(parent.layers[i]);
+            }
+        } else {
+            descendants.push(parent);
+        }
+    }
+    collectDescendants(layer);
+    selectLayers(descendants);
+}
+
 function selectLayers(layers) {
     if (layers.length === 0) return;
-    // Select first layer
-    app.activeDocument.activeLayer = layers[0];
-    if (layers.length === 1) return;
+    // Select first layer by ID (handles hidden layers correctly)
+    var desc = new ActionDescriptor();
+    var ref = new ActionReference();
+    ref.putIdentifier(charIDToTypeID("Lyr "), layers[0].id);
+    desc.putReference(charIDToTypeID("null"), ref);
+    desc.putBoolean(stringIDToTypeID("makeVisible"), false);
+    executeAction(charIDToTypeID("slct"), desc, DialogModes.NO);
 
-    // Add others to selection
+    // Add remaining layers to selection by ID
     for (var i = 1; i < layers.length; i++) {
-        var desc = new ActionDescriptor();
-        var ref = new ActionReference();
-        ref.putName(stringIDToTypeID("layer"), layers[i].name);
-        desc.putReference(stringIDToTypeID("target"), ref);
-        desc.putEnumerated(
+        var addDesc = new ActionDescriptor();
+        var addRef = new ActionReference();
+        addRef.putIdentifier(charIDToTypeID("Lyr "), layers[i].id);
+        addDesc.putReference(charIDToTypeID("null"), addRef);
+        addDesc.putEnumerated(
             stringIDToTypeID("selectionModifier"),
             stringIDToTypeID("selectionModifierType"),
             stringIDToTypeID("addToSelection")
         );
-        desc.putBoolean(stringIDToTypeID("makeVisible"), false);
-        executeAction(stringIDToTypeID("select"), desc, DialogModes.NO);
+        addDesc.putBoolean(stringIDToTypeID("makeVisible"), false);
+        executeAction(charIDToTypeID("slct"), addDesc, DialogModes.NO);
     }
 }
 
 function convertToSmartObject() {
     try {
-        executeAction(stringIDToTypeID("newPlacedLayer"), undefined, DialogModes.NO);
-    } catch (e) {}
+        executeAction(stringIDToTypeID("newPlacedLayer"), new ActionDescriptor(), DialogModes.NO);
+        return app.activeDocument.activeLayer;
+    } catch (e) { return null; }
 }
 
 function rasterizeLayer() {
@@ -428,32 +489,48 @@ function rasterizeLayer() {
   Blur Operations
  ----------------------------------------------------- */
 function applyPartialBlur(doc, fileConfig) {
-    var pb = fileConfig.partialBlur;
-    var defaultBlur = fileConfig.blurRadius;
-
-    // Outside selection: apply default blur to everything first
-    doc.activeLayer.applyGaussianBlur(defaultBlur);
-
-    // If partial blur area defined and radius differs
-    if (pb.bounds && pb.blurRadius !== defaultBlur) {
-        // Select the partial blur region
+    try {
+        var activeLayer = doc.activeLayer;
+        var pb = fileConfig.partialBlur;
+        var defaultBlur = fileConfig.blurRadius;
+        var partialBlurRadius = pb.blurRadius;
         var bounds = pb.bounds;
-        var selRegion = [
-            [bounds.left, bounds.top],
-            [bounds.right, bounds.top],
-            [bounds.right, bounds.bottom],
-            [bounds.left, bounds.bottom]
-        ];
-        doc.selection.select(selRegion);
 
-        // Undo the default blur within selection (History)
-        // Instead: Apply additional blur or undo+reblur
-        // Simpler approach: Apply blur difference
-        if (pb.blurRadius > 0) {
-            doc.activeLayer.applyGaussianBlur(pb.blurRadius);
+        // 1. Apply default blur to OUTSIDE the selection region
+        if (defaultBlur > 0) {
+            var selRegion = [
+                [bounds.left, bounds.top],
+                [bounds.right, bounds.top],
+                [bounds.right, bounds.bottom],
+                [bounds.left, bounds.bottom]
+            ];
+            doc.selection.select(selRegion);
+            doc.selection.invert();
+
+            if (doc.selection.bounds) {
+                activeLayer.applyGaussianBlur(defaultBlur);
+            }
+
+            doc.selection.deselect();
         }
 
-        doc.selection.deselect();
+        // 2. Apply partial blur to INSIDE the selection region
+        if (partialBlurRadius > 0) {
+            var selRegion2 = [
+                [bounds.left, bounds.top],
+                [bounds.right, bounds.top],
+                [bounds.right, bounds.bottom],
+                [bounds.left, bounds.bottom]
+            ];
+            doc.selection.select(selRegion2);
+            activeLayer.applyGaussianBlur(partialBlurRadius);
+            doc.selection.deselect();
+        }
+    } catch (e) {
+        // Fallback: apply default blur to everything
+        if (fileConfig.blurRadius > 0) {
+            try { doc.activeLayer.applyGaussianBlur(fileConfig.blurRadius); } catch (e2) {}
+        }
     }
 }
 

@@ -2782,27 +2782,21 @@ pub async fn run_photoshop_tiff_convert(
 
     let script_path = resource_path.join("scripts").join("tiff_convert.jsx");
 
-    let script_path_str = if script_path.exists() {
-        script_path.to_string_lossy().to_string()
-    } else {
+    // Dev mode: prefer source dir (always up-to-date), fallback to resource dir (bundled)
+    let script_path_str = {
         let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("scripts")
             .join("tiff_convert.jsx");
         if dev_script.exists() {
             dev_script.to_string_lossy().to_string()
+        } else if script_path.exists() {
+            script_path.to_string_lossy().to_string()
         } else {
-            return Err("TIFF convert script not found".to_string());
+            return Err("TIFF convert script not found".to_string())
         }
     };
 
     let temp_dir = std::env::temp_dir();
-
-    // Copy script to temp (avoid Japanese path DDE issues)
-    let temp_script = temp_dir.join("tiff_convert_temp.jsx");
-    fs::copy(&script_path_str, &temp_script)
-        .map_err(|e| format!("Failed to copy script to temp: {}", e))?;
-    let script_to_run = temp_script.to_string_lossy().to_string();
-
     let settings_path = temp_dir.join("psd_tiff_settings.json");
     let output_path = temp_dir.join("psd_tiff_results.json");
 
@@ -2828,26 +2822,43 @@ pub async fn run_photoshop_tiff_convert(
 
     eprintln!("TIFF Convert - Output dir: {}", final_output_dir);
 
+    // Rewrite outputPath in settings JSON: replace base output_dir with final_output_dir
+    let rewritten_json = if final_output_dir != output_dir {
+        let output_dir_fwd = output_dir.replace('\\', "/");
+        let final_dir_fwd = final_output_dir.replace('\\', "/");
+        settings_json.replace(&output_dir_fwd, &final_dir_fwd)
+    } else {
+        settings_json.clone()
+    };
+
+    // Create the output directory so explorer can open it even if JSX produces no files
+    let _ = fs::create_dir_all(&final_output_dir);
+
     // Write settings JSON with BOM
     let mut settings_file = fs::File::create(&settings_path)
         .map_err(|e| format!("Failed to create settings file: {}", e))?;
     settings_file.write_all(&[0xEF, 0xBB, 0xBF])
         .map_err(|e| format!("Failed to write BOM: {}", e))?;
-    settings_file.write_all(settings_json.as_bytes())
+    settings_file.write_all(rewritten_json.as_bytes())
         .map_err(|e| format!("Failed to write settings: {}", e))?;
     drop(settings_file);
 
-    eprintln!("TIFF Convert - Photoshop: {}", ps_path);
-    eprintln!("TIFF Convert - Script: {}", script_to_run);
+    // Copy script to temp (avoids Japanese path DDE forwarding issues — same as split_psd)
+    let temp_script = temp_dir.join("tiff_convert_temp.jsx");
+    fs::copy(&script_path_str, &temp_script)
+        .map_err(|e| format!("Failed to copy script to temp: {}", e))?;
+    let script_to_run = temp_script.to_string_lossy().to_string();
 
-    // Launch Photoshop
+    eprintln!("TIFF Convert - Photoshop: {}", ps_path);
+    eprintln!("TIFF Convert - Script (source): {}", script_path_str);
+    eprintln!("TIFF Convert - Script (temp): {}", script_to_run);
+
+    // spawn() for non-blocking (same as split_psd — output() blocks while PS is open)
     let _child = Command::new(&ps_path)
         .arg("-r")
         .arg(&script_to_run)
         .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
-
-    eprintln!("TIFF Convert - Photoshop launched, polling for results...");
 
     // Poll for results (10 minutes max for large batches)
     let max_wait_secs = 600;

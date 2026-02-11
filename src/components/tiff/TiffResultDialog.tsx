@@ -99,7 +99,7 @@ export function TiffResultDialog() {
             <button
               onClick={async () => {
                 try {
-                  await invoke("open_folder_in_explorer", { path: lastOutputDir });
+                  await invoke("open_folder_in_explorer", { folderPath: lastOutputDir });
                 } catch { /* ignore */ }
               }}
               className="px-4 py-2 text-sm font-medium text-accent-warm bg-accent-warm/10 border border-accent-warm/30 rounded-xl hover:bg-accent-warm/20 transition-colors"

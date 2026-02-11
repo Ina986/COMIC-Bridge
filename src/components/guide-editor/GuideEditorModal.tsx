@@ -35,8 +35,9 @@ export function GuideEditorModal() {
 
   // Computed values for target files
   const targetFileIds = useMemo(() =>
-    applyTarget === "selected" && selectedFileIds.length > 0
-      ? selectedFileIds : files.map((f) => f.id),
+    applyTarget === "selected"
+      ? selectedFileIds
+      : files.map((f) => f.id),
     [applyTarget, selectedFileIds, files]
   );
 
@@ -88,7 +89,7 @@ export function GuideEditorModal() {
   const imageUrl = highResImageUrl;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onMouseDown={(e) => e.stopPropagation()}>
       <div className="bg-bg-secondary rounded-lg shadow-2xl w-[95vw] max-w-6xl h-[90vh] flex flex-col overflow-hidden relative">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-text-muted/10">
@@ -156,31 +157,90 @@ export function GuideEditorModal() {
               </button>
 
               {/* Apply Target */}
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-text-muted">適用先:</span>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name="applyTarget"
-                    checked={applyTarget === "all"}
-                    onChange={() => setApplyTarget("all")}
-                    className="accent-accent"
-                  />
-                  <span className="text-text-secondary">全ファイル ({files.length})</span>
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name="applyTarget"
-                    checked={applyTarget === "selected"}
-                    onChange={() => setApplyTarget("selected")}
-                    className="accent-accent"
-                    disabled={selectedFileIds.length === 0}
-                  />
-                  <span className="text-text-secondary">
-                    選択中 ({selectedFileIds.length})
-                  </span>
-                </label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-text-muted">適用先:</span>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name="applyTarget"
+                      checked={applyTarget === "all"}
+                      onChange={() => setApplyTarget("all")}
+                      className="accent-accent"
+                    />
+                    <span className="text-text-secondary">全ファイル ({files.length})</span>
+                  </label>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name="applyTarget"
+                      checked={applyTarget === "selected"}
+                      onChange={() => setApplyTarget("selected")}
+                      className="accent-accent"
+                    />
+                    <span className="text-text-secondary">
+                      選択中 ({selectedFileIds.length})
+                    </span>
+                  </label>
+                </div>
+
+                {/* Inline file selector when "選択中" is active */}
+                {applyTarget === "selected" && (
+                  <div className="border border-border rounded-lg overflow-hidden">
+                    <div className="flex items-center justify-between px-2 py-1 bg-bg-tertiary/50 border-b border-border/50">
+                      <span className="text-[10px] text-text-muted">{selectedFileIds.length}/{files.length} 選択</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          className="text-[10px] text-text-muted hover:text-accent transition-colors"
+                          onClick={() => usePsdStore.getState().selectAll()}
+                        >
+                          全選択
+                        </button>
+                        {selectedFileIds.length > 0 && (
+                          <button
+                            className="text-[10px] text-text-muted hover:text-accent transition-colors"
+                            onClick={() => usePsdStore.getState().clearSelection()}
+                          >
+                            解除
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="max-h-32 overflow-auto">
+                      {files.map((file) => {
+                        const isChecked = selectedFileIds.includes(file.id);
+                        return (
+                          <div
+                            key={file.id}
+                            className={`flex items-center gap-1.5 px-2 py-1 cursor-pointer transition-colors text-[11px] border-b border-border/20 last:border-b-0 ${
+                              isChecked ? "bg-accent/8" : "hover:bg-bg-tertiary/50"
+                            }`}
+                            onClick={(e) => {
+                              if (e.ctrlKey || e.metaKey) {
+                                usePsdStore.getState().selectFile(file.id, true);
+                              } else if (e.shiftKey) {
+                                usePsdStore.getState().selectRange(file.id);
+                              } else {
+                                usePsdStore.getState().selectFile(file.id, true);
+                              }
+                            }}
+                          >
+                            <div className={`w-3 h-3 rounded flex items-center justify-center flex-shrink-0 ${
+                              isChecked ? "bg-gradient-to-br from-accent to-accent-secondary" : "border border-text-muted/30"
+                            }`}>
+                              {isChecked && (
+                                <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="truncate text-text-primary">{file.fileName}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Info banners */}
@@ -198,7 +258,7 @@ export function GuideEditorModal() {
               <button
                 className="w-full btn btn-primary"
                 onClick={handleApply}
-                disabled={guides.length === 0 || isProcessing}
+                disabled={guides.length === 0 || isProcessing || targetFileIds.length === 0}
               >
                 {isProcessing
                   ? `処理中... (${progress.current}/${progress.total})`

@@ -45,7 +45,9 @@ function loadSettingsFromStorage(): Partial<TiffSettings> {
 
 function saveSettingsToStorage(settings: TiffSettings) {
   try {
-    localStorage.setItem(LS_KEY_SETTINGS, JSON.stringify(settings));
+    // クロップ範囲はファイル依存なので永続化しない
+    const toSave = { ...settings, crop: { ...settings.crop, bounds: null } };
+    localStorage.setItem(LS_KEY_SETTINGS, JSON.stringify(toSave));
   } catch { /* ignore */ }
 }
 
