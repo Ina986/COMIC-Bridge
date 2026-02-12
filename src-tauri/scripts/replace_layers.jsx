@@ -349,6 +349,14 @@ function main() {
                 groupPartialMatch: groupPartialMatch
             });
             results.push(result);
+
+            // Heartbeat: write progress so Rust knows we are still alive
+            try {
+                var progressFile = new File(tempFolder + "/psd_replace_progress.txt");
+                progressFile.open("w");
+                progressFile.write(String(i + 1) + "/" + String(pairs.length));
+                progressFile.close();
+            } catch (e_hb) { /* ignore */ }
         }
     } catch (e_main) {
         results.push({

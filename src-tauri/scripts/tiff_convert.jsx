@@ -49,6 +49,14 @@ function main() {
         var fileConfig = config.files[i];
         var result = processFile(fileConfig, globalSettings);
         results.push(result);
+
+        // Heartbeat: write progress so Rust knows we are still alive
+        try {
+            var progressFile = new File(tempFolder + "/psd_tiff_progress.txt");
+            progressFile.open("w");
+            progressFile.write(String(i + 1) + "/" + String(config.files.length));
+            progressFile.close();
+        } catch (e_hb) { /* ignore */ }
     }
 
     // Write results

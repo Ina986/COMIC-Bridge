@@ -2274,29 +2274,56 @@ pub async fn run_photoshop_replace(
         .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
-    // Poll for results — timeout scales with pair count
-    // Base 120s + 120s per pair (large PSD files need time to open/save)
+    // Poll for results — heartbeat-based timeout
+    // JSX writes psd_replace_progress.txt after each pair; we reset timeout on progress
     let pair_count = jobs_normalized.pairs.len();
-    let max_wait_secs = 120 + (pair_count as u64 * 120);
     let poll_interval_ms: u64 = 500;
-    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
-    eprintln!("Replace - Timeout: {}s for {} pairs", max_wait_secs, pair_count);
+    let per_pair_timeout_secs: u64 = 300; // 5 min per pair max
+    let initial_timeout_secs: u64 = 120;  // 2 min to start processing
+    let progress_path = temp_dir.join("psd_replace_progress.txt");
+    let _ = fs::remove_file(&progress_path);
+    let mut last_progress = String::new();
+    let mut polls_since_progress: u64 = 0;
+    let mut current_timeout_polls = (initial_timeout_secs * 1000) / poll_interval_ms;
+    eprintln!("Replace - Heartbeat timeout: {}s initial, {}s per pair, {} pairs",
+        initial_timeout_secs, per_pair_timeout_secs, pair_count);
 
-    for poll in 0..max_polls {
+    loop {
+        // Check if final result is ready
         if output_path.exists() {
             if let Ok(content) = fs::read_to_string(&output_path) {
                 if content.trim().starts_with('[') && content.trim().ends_with(']') {
-                    eprintln!("Replace output ready after {} polls", poll);
+                    eprintln!("Replace output ready after {} polls", polls_since_progress);
                     break;
                 }
             }
         }
+
+        // Check heartbeat progress file
+        if let Ok(content) = fs::read_to_string(&progress_path) {
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() && trimmed != last_progress {
+                eprintln!("Replace progress: {}", trimmed);
+                last_progress = trimmed;
+                polls_since_progress = 0;
+                current_timeout_polls = (per_pair_timeout_secs * 1000) / poll_interval_ms;
+            }
+        }
+
+        polls_since_progress += 1;
+        if polls_since_progress >= current_timeout_polls {
+            eprintln!("Replace timed out (no progress for {}s)", current_timeout_polls * poll_interval_ms / 1000);
+            break;
+        }
+
         std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
 
-        if poll > 0 && poll % 20 == 0 {
-            eprintln!("Still waiting for Photoshop replace... ({} seconds)", poll * poll_interval_ms / 1000);
+        if polls_since_progress > 0 && polls_since_progress % 20 == 0 {
+            eprintln!("Still waiting for Photoshop replace... ({}s since last progress)",
+                polls_since_progress * poll_interval_ms / 1000);
         }
     }
+    let _ = fs::remove_file(&progress_path);
 
     if output_path.exists() {
         let results_json = fs::read_to_string(&output_path)
@@ -2893,29 +2920,56 @@ pub async fn run_photoshop_tiff_convert(
         .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
-    // Poll for results — timeout scales with file count
-    // TIFF conversion is heavy (SO化, blur, color mode, resize, save per file)
+    // Poll for results — heartbeat-based timeout
+    // JSX writes psd_tiff_progress.txt after each file; we reset timeout on progress
     let file_count = rewritten_json.matches("\"filePath\"").count().max(1);
-    let max_wait_secs: u64 = 120 + (file_count as u64 * 180);
     let poll_interval_ms: u64 = 500;
-    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
-    eprintln!("TIFF Convert - Timeout: {}s for {} files", max_wait_secs, file_count);
+    let per_file_timeout_secs: u64 = 300; // 5 min per file max
+    let initial_timeout_secs: u64 = 120;  // 2 min to start processing
+    let progress_path = temp_dir.join("psd_tiff_progress.txt");
+    let _ = fs::remove_file(&progress_path);
+    let mut last_progress = String::new();
+    let mut polls_since_progress: u64 = 0;
+    let mut current_timeout_polls = (initial_timeout_secs * 1000) / poll_interval_ms;
+    eprintln!("TIFF Convert - Heartbeat timeout: {}s initial, {}s per file, {} files",
+        initial_timeout_secs, per_file_timeout_secs, file_count);
 
-    for poll in 0..max_polls {
+    loop {
+        // Check if final result is ready
         if output_path.exists() {
             if let Ok(content) = fs::read_to_string(&output_path) {
                 if content.trim().starts_with('{') && content.contains("results") {
-                    eprintln!("TIFF Convert output ready after {} polls", poll);
+                    eprintln!("TIFF Convert output ready after {} polls", polls_since_progress);
                     break;
                 }
             }
         }
+
+        // Check heartbeat progress file
+        if let Ok(content) = fs::read_to_string(&progress_path) {
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() && trimmed != last_progress {
+                eprintln!("TIFF Convert progress: {}", trimmed);
+                last_progress = trimmed;
+                polls_since_progress = 0;
+                current_timeout_polls = (per_file_timeout_secs * 1000) / poll_interval_ms;
+            }
+        }
+
+        polls_since_progress += 1;
+        if polls_since_progress >= current_timeout_polls {
+            eprintln!("TIFF Convert timed out (no progress for {}s)", current_timeout_polls * poll_interval_ms / 1000);
+            break;
+        }
+
         std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
 
-        if poll > 0 && poll % 20 == 0 {
-            eprintln!("Still waiting for Photoshop TIFF convert... ({} seconds)", poll * poll_interval_ms / 1000);
+        if polls_since_progress > 0 && polls_since_progress % 20 == 0 {
+            eprintln!("Still waiting for Photoshop TIFF convert... ({}s since last progress)",
+                polls_since_progress * poll_interval_ms / 1000);
         }
     }
+    let _ = fs::remove_file(&progress_path);
 
     if output_path.exists() {
         let results_json = fs::read_to_string(&output_path)
