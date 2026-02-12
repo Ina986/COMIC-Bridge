@@ -2244,10 +2244,13 @@ pub async fn run_photoshop_replace(
         .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
-    // Poll for results (replacement is slow: 2 files per pair)
-    let max_wait_secs = 600; // 10 minutes
-    let poll_interval_ms = 500;
+    // Poll for results — timeout scales with pair count
+    // Base 120s + 120s per pair (large PSD files need time to open/save)
+    let pair_count = jobs_normalized.pairs.len();
+    let max_wait_secs = 120 + (pair_count as u64 * 120);
+    let poll_interval_ms: u64 = 500;
     let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+    eprintln!("Replace - Timeout: {}s for {} pairs", max_wait_secs, pair_count);
 
     for poll in 0..max_polls {
         if output_path.exists() {
@@ -2258,7 +2261,7 @@ pub async fn run_photoshop_replace(
                 }
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
 
         if poll > 0 && poll % 20 == 0 {
             eprintln!("Still waiting for Photoshop replace... ({} seconds)", poll * poll_interval_ms / 1000);
@@ -2860,10 +2863,13 @@ pub async fn run_photoshop_tiff_convert(
         .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
-    // Poll for results (10 minutes max for large batches)
-    let max_wait_secs = 600;
-    let poll_interval_ms = 500;
+    // Poll for results — timeout scales with file count
+    // TIFF conversion is heavy (SO化, blur, color mode, resize, save per file)
+    let file_count = rewritten_json.matches("\"filePath\"").count().max(1);
+    let max_wait_secs: u64 = 120 + (file_count as u64 * 180);
+    let poll_interval_ms: u64 = 500;
     let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+    eprintln!("TIFF Convert - Timeout: {}s for {} files", max_wait_secs, file_count);
 
     for poll in 0..max_polls {
         if output_path.exists() {
@@ -2874,7 +2880,7 @@ pub async fn run_photoshop_tiff_convert(
                 }
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
 
         if poll > 0 && poll % 20 == 0 {
             eprintln!("Still waiting for Photoshop TIFF convert... ({} seconds)", poll * poll_interval_ms / 1000);
