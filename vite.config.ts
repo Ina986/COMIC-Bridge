@@ -21,4 +21,16 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "ag-psd": ["ag-psd"],
+          vendor: ["react", "react-dom"],
+        },
+      },
+    },
+    target: "es2021",
+    chunkSizeWarningLimit: 600,
+  },
 }));
