@@ -2908,3 +2908,29 @@ pub async fn run_photoshop_tiff_convert(
         Err("Photoshop did not produce output file. Script may have failed.".to_string())
     }
 }
+
+/// Launch KENBAN-viewer in diff mode with two folder paths
+#[tauri::command]
+pub async fn launch_kenban_diff(folder_a: String, folder_b: String) -> Result<(), String> {
+    use std::process::Command;
+
+    let local_app_data = std::env::var("LOCALAPPDATA")
+        .map_err(|_| "LOCALAPPDATA not found".to_string())?;
+    let kenban_path = Path::new(&local_app_data).join("KENBAN").join("KENBAN.exe");
+
+    if !kenban_path.exists() {
+        return Err(format!(
+            "KENBAN.exe が見つかりません: {}",
+            kenban_path.display()
+        ));
+    }
+
+    Command::new(&kenban_path)
+        .arg("--diff")
+        .arg(&folder_a)
+        .arg(&folder_b)
+        .spawn()
+        .map_err(|e| format!("KENBAN起動エラー: {}", e))?;
+
+    Ok(())
+}

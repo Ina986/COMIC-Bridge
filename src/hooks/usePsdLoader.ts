@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { readDir, readFile, stat } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
-import { useSpecStore } from "../store/specStore";
 import { useViewStore } from "../store/viewStore";
 import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
 import { naturalCompare } from "../lib/naturalSort";
@@ -21,8 +20,6 @@ export function usePsdLoader() {
   const setLoadingStatus = usePsdStore((state) => state.setLoadingStatus);
   const setCurrentFolderPath = usePsdStore((state) => state.setCurrentFolderPath);
   const setErrorMessage = usePsdStore((state) => state.setErrorMessage);
-
-  const selectSpecAndCheck = useSpecStore((state) => state.selectSpecAndCheck);
 
   const loadFolder = useCallback(
     async (folderPath: string) => {
@@ -317,13 +314,9 @@ export function usePsdLoader() {
         }
       }
 
-      // 前回選択があれば自動で仕様を選択してチェック開始
-      const { lastSelectedSpecId: lastSpec } = useSpecStore.getState();
-      if (lastSpec) {
-        selectSpecAndCheck(lastSpec);
-      }
+      // 仕様チェックはSpecCheckViewでのみ実行される（useSpecCheckerが自動検出）
     },
-    [setFiles, updateFile, replaceFile, setLoadingStatus, selectSpecAndCheck]
+    [setFiles, updateFile, replaceFile, setLoadingStatus]
   );
 
   return { loadFolder, loadFolderWithSubfolders, loadFiles };

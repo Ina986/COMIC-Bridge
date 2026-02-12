@@ -40,6 +40,7 @@ pub fn run() {
             commands::get_pdf_preview,
             commands::get_pdf_thumbnail,
             commands::run_photoshop_tiff_convert,
+            commands::launch_kenban_diff,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

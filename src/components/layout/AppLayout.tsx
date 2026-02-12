@@ -6,7 +6,6 @@ import { GuideEditorModal } from "../guide-editor/GuideEditorModal";
 import { ConversionToast } from "../spec-checker/ConversionToast";
 import { usePsdStore } from "../../store/psdStore";
 import { useGuideStore } from "../../store/guideStore";
-import { useSpecChecker } from "../../hooks/useSpecChecker";
 import { useGlobalDragDrop } from "../../hooks/useGlobalDragDrop";
 import { useOpenFolderShortcut } from "../../hooks/useOpenFolder";
 
@@ -15,9 +14,6 @@ export function AppLayout() {
   const clearSelection = usePsdStore((state) => state.clearSelection);
   const selectAll = usePsdStore((state) => state.selectAll);
   const files = usePsdStore((state) => state.files);
-
-  // 自動チェック機能を有効化
-  useSpecChecker();
 
   // グローバルドラッグ＆ドロップ（常時有効）
   useGlobalDragDrop();

@@ -178,15 +178,16 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
     if (idx >= 0) setViewerFileIndex(idx);
   }, [viewMode, selectedFileIds, files]);
 
-  // Prefetch adjacent files for instant navigation
+  // Prefetch nearby files for instant navigation (±3)
   useEffect(() => {
     if (viewMode !== "viewer" || viewerFiles.length <= 1) return;
-    const indices = [viewerFileIndex - 1, viewerFileIndex + 1];
-    for (const idx of indices) {
-      if (idx < 0 || idx >= viewerFiles.length) continue;
-      const f = viewerFiles[idx];
-      if (!f?.filePath) continue;
-      prefetchPreview(f.filePath, 2000, f.pdfPageIndex, f.pdfSourcePath);
+    for (let offset = 1; offset <= 3; offset++) {
+      for (const idx of [viewerFileIndex - offset, viewerFileIndex + offset]) {
+        if (idx < 0 || idx >= viewerFiles.length) continue;
+        const f = viewerFiles[idx];
+        if (!f?.filePath) continue;
+        prefetchPreview(f.filePath, 2000, f.pdfPageIndex, f.pdfSourcePath);
+      }
     }
   }, [viewMode, viewerFileIndex, viewerFiles]);
 
@@ -341,13 +342,9 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
           {/* File info */}
           {viewMode === "layers" && (
             <>
-              {!isMulti ? (
+              {!isMulti && (
                 <span className="text-xs font-display font-medium text-text-primary truncate">
                   {targetFiles[0].fileName}
-                </span>
-              ) : (
-                <span className="text-xs font-display font-medium text-text-primary">
-                  レイヤー構造
                 </span>
               )}
               <span className="text-[10px] text-text-muted ml-auto flex-shrink-0">

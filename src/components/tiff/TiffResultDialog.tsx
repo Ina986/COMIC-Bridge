@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useTiffStore } from "../../store/tiffStore";
 import { invoke } from "@tauri-apps/api/core";
@@ -8,6 +9,21 @@ export function TiffResultDialog() {
   const results = useTiffStore((state) => state.results);
   const lastOutputDir = useTiffStore((state) => state.lastOutputDir);
   const processingDurationMs = useTiffStore((state) => state.processingDurationMs);
+
+  // results の outputPath からユニークなサブフォルダを抽出（2つの場合のみKENBAN差分比較可能）
+  const subfolderDirs = useMemo(() => {
+    if (!lastOutputDir || results.length === 0) return [];
+    const dirs = new Set<string>();
+    for (const r of results) {
+      if (!r.outputPath) continue;
+      const parent = r.outputPath.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+      const base = lastOutputDir.replace(/\\/g, "/");
+      if (parent !== base && parent.startsWith(base + "/")) {
+        dirs.add(parent);
+      }
+    }
+    return [...dirs].sort();
+  }, [results, lastOutputDir]);
 
   if (!showResultDialog || results.length === 0) return null;
 
@@ -95,6 +111,23 @@ export function TiffResultDialog() {
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-border flex justify-end gap-2">
+          {subfolderDirs.length === 2 && (
+            <button
+              onClick={async () => {
+                try {
+                  await invoke("launch_kenban_diff", {
+                    folderA: subfolderDirs[0],
+                    folderB: subfolderDirs[1],
+                  });
+                } catch (e) {
+                  alert(`KENBAN起動エラー: ${e}`);
+                }
+              }}
+              className="px-4 py-2 text-sm font-medium text-accent bg-accent/10 border border-accent/30 rounded-xl hover:bg-accent/20 transition-colors"
+            >
+              KENBANで差分比較
+            </button>
+          )}
           {lastOutputDir && (
             <button
               onClick={async () => {

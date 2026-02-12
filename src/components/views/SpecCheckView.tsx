@@ -50,6 +50,15 @@ export function SpecCheckView() {
   const { missingNumbers } = usePageNumberCheck();
   usePhotoshopShortcut();
 
+  // 前回選択した仕様を復元（SpecCheckViewマウント時のみ）
+  const lastSelectedSpecId = useSpecStore((state) => state.lastSelectedSpecId);
+  useEffect(() => {
+    if (!activeSpecId && lastSelectedSpecId && files.length > 0) {
+      selectSpecAndCheck(lastSelectedSpecId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // アクティブな仕様から変換設定を自動設定
   useEffect(() => {
     if (activeSpecId) {

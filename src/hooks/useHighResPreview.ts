@@ -31,7 +31,7 @@ const urlCache = new Map<
   string,
   { url: string; original: { width: number; height: number }; preview: { width: number; height: number } }
 >();
-const MAX_URL_CACHE = 30;
+const MAX_URL_CACHE = 50;
 
 function cacheKey(filePath: string, maxSize: number, pdfPageIndex?: number) {
   return `${filePath}::${maxSize}::${pdfPageIndex ?? -1}`;
