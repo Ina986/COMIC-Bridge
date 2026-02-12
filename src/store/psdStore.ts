@@ -21,6 +21,7 @@ interface PsdStore {
   setFiles: (files: PsdFile[]) => void;
   addFiles: (files: PsdFile[]) => void;
   updateFile: (id: string, updates: Partial<PsdFile>) => void;
+  batchUpdateFiles: (updates: Map<string, Partial<PsdFile>>) => void;
   removeFile: (id: string) => void;
   replaceFile: (id: string, newFiles: PsdFile[]) => void;
   clearFiles: () => void;
@@ -67,6 +68,13 @@ export const usePsdStore = create<PsdStore>((set, get) => ({
   updateFile: (id, updates) =>
     set((state) => ({
       files: state.files.map((f) => (f.id === id ? { ...f, ...updates } : f)),
+    })),
+  batchUpdateFiles: (updates) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        const u = updates.get(f.id);
+        return u ? { ...f, ...u } : f;
+      }),
     })),
   removeFile: (id) =>
     set((state) => ({

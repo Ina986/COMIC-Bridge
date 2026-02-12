@@ -118,6 +118,7 @@ export function TiffResultDialog() {
                   await invoke("launch_kenban_diff", {
                     folderA: subfolderDirs[0],
                     folderB: subfolderDirs[1],
+                    mode: "tiff",
                   });
                 } catch (e) {
                   alert(`KENBAN起動エラー: ${e}`);

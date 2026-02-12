@@ -16,6 +16,7 @@ interface PdfInfoResult {
 export function usePsdLoader() {
   const setFiles = usePsdStore((state) => state.setFiles);
   const updateFile = usePsdStore((state) => state.updateFile);
+  const batchUpdateFiles = usePsdStore((state) => state.batchUpdateFiles);
   const replaceFile = usePsdStore((state) => state.replaceFile);
   const setLoadingStatus = usePsdStore((state) => state.setLoadingStatus);
   const setCurrentFolderPath = usePsdStore((state) => state.setCurrentFolderPath);
@@ -168,13 +169,14 @@ export function usePsdLoader() {
 
       for (let i = 0; i < initialFiles.length; i += PARALLEL_LIMIT) {
         const chunk = initialFiles.slice(i, i + PARALLEL_LIMIT);
+        // チャンク内の更新をバッチ化（個別updateFileを避けて再レンダリングを最小化）
+        const chunkUpdates = new Map<string, Partial<PsdFile>>();
+
         await Promise.all(
           chunk.map(async (file) => {
             try {
               if (isPsdFile(file.fileName)) {
                 // PSD/PSB: ag-psdでパース
-                updateFile(file.id, { thumbnailStatus: "loading" });
-
                 const buffer = await readFile(file.filePath);
                 const arrayBuffer = buffer.buffer.slice(
                   buffer.byteOffset,
@@ -183,7 +185,7 @@ export function usePsdLoader() {
 
                 const result = await parsePsdBufferFast(arrayBuffer);
 
-                updateFile(file.id, {
+                chunkUpdates.set(file.id, {
                   metadata: result.metadata,
                   thumbnailUrl: result.thumbnailData,
                   thumbnailStatus: result.thumbnailData ? "ready" : "pending",
@@ -196,7 +198,6 @@ export function usePsdLoader() {
               } else if (isPdfFile(file.fileName)) {
                 // PDF: ページ情報取得 → ページ数分のエントリーに展開
                 try {
-                  updateFile(file.id, { thumbnailStatus: "loading" });
                   const fileStat = await stat(file.filePath);
 
                   const pdfInfo = await invoke<PdfInfoResult>("get_pdf_info", {
@@ -204,7 +205,7 @@ export function usePsdLoader() {
                   });
 
                   if (pdfInfo.page_count === 0) {
-                    updateFile(file.id, {
+                    chunkUpdates.set(file.id, {
                       fileSize: fileStat.size,
                       thumbnailStatus: "ready",
                     });
@@ -241,7 +242,8 @@ export function usePsdLoader() {
 
                   replaceFile(file.id, pageFiles);
 
-                  // Generate thumbnails for each page
+                  // Generate thumbnails for each page (batch per PDF)
+                  const pdfThumbUpdates = new Map<string, Partial<PsdFile>>();
                   for (const pageFile of pageFiles) {
                     try {
                       const thumbnail = await invoke<string>("get_pdf_thumbnail", {
@@ -249,49 +251,57 @@ export function usePsdLoader() {
                         pageIndex: pageFile.pdfPageIndex,
                         maxSize: 200,
                       });
-                      updateFile(pageFile.id, {
+                      pdfThumbUpdates.set(pageFile.id, {
                         thumbnailUrl: `data:image/jpeg;base64,${thumbnail}`,
                         thumbnailStatus: "ready",
                       });
                     } catch (thumbErr) {
                       console.error(`Failed to generate PDF thumbnail for page ${pageFile.pdfPageIndex}:`, thumbErr);
-                      updateFile(pageFile.id, { thumbnailStatus: "ready" });
+                      pdfThumbUpdates.set(pageFile.id, { thumbnailStatus: "ready" });
                     }
+                  }
+                  if (pdfThumbUpdates.size > 0) {
+                    batchUpdateFiles(pdfThumbUpdates);
                   }
                 } catch (pdfErr) {
                   console.error(`Failed to load PDF ${file.fileName}:`, pdfErr);
-                  // Fallback: keep as single file entry without preview
-                  updateFile(file.id, {
+                  chunkUpdates.set(file.id, {
                     thumbnailStatus: "ready",
                     error: pdfErr instanceof Error ? pdfErr.message : "PDF読み込みエラー",
                   });
                 }
               } else {
-                // 非PSD/非PDF: ファイルサイズのみ取得（Photoshopが開ける前提）
+                // 非PSD/非PDF: ファイルサイズのみ取得
                 try {
                   const fileStat = await stat(file.filePath);
-                  updateFile(file.id, {
+                  chunkUpdates.set(file.id, {
                     fileSize: fileStat.size,
                     thumbnailStatus: "ready",
                   });
                 } catch {
-                  updateFile(file.id, { thumbnailStatus: "ready" });
+                  chunkUpdates.set(file.id, { thumbnailStatus: "ready" });
                 }
               }
             } catch (error) {
               console.error(`Failed to load ${file.fileName}:`, error);
-              updateFile(file.id, {
+              chunkUpdates.set(file.id, {
                 thumbnailStatus: "error",
                 error: error instanceof Error ? error.message : "読み込みエラー",
               });
             }
           })
         );
+
+        // チャンク完了後に1回のset()でまとめて反映
+        if (chunkUpdates.size > 0) {
+          batchUpdateFiles(chunkUpdates);
+        }
       }
 
       // PSDでサムネイルがなかったファイルはフル読み込みでフォールバック
       if (filesNeedingThumbnail.length > 0) {
         const files = usePsdStore.getState().files;
+        const thumbUpdates = new Map<string, Partial<PsdFile>>();
         for (const fileId of filesNeedingThumbnail) {
           const file = files.find((f) => f.id === fileId);
           if (!file) continue;
@@ -304,7 +314,7 @@ export function usePsdLoader() {
             );
 
             const result = await parsePsdBuffer(arrayBuffer);
-            updateFile(file.id, {
+            thumbUpdates.set(file.id, {
               thumbnailUrl: result.thumbnailData,
               thumbnailStatus: result.thumbnailData ? "ready" : "error",
             });
@@ -312,11 +322,14 @@ export function usePsdLoader() {
             console.error(`Failed to generate thumbnail for ${file.fileName}:`, error);
           }
         }
+        if (thumbUpdates.size > 0) {
+          batchUpdateFiles(thumbUpdates);
+        }
       }
 
       // 仕様チェックはSpecCheckViewでのみ実行される（useSpecCheckerが自動検出）
     },
-    [setFiles, updateFile, replaceFile, setLoadingStatus]
+    [setFiles, updateFile, batchUpdateFiles, replaceFile, setLoadingStatus]
   );
 
   return { loadFolder, loadFolderWithSubfolders, loadFiles };

@@ -106,6 +106,30 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
     setPairingDialogMode("manual");
   };
 
+  // バッチモード完了時: 出力サブフォルダを抽出（2つならKENBAN差分比較可能）
+  const batchSubfolderDirs = useMemo(() => {
+    if (settings.mode !== "batch" || phase !== "complete" || results.length === 0) return [];
+    const firstSuccess = results.find((r) => r.success && r.outputFile);
+    if (!firstSuccess?.outputFile) return [];
+    // 親フォルダを算出（ファイル名除去→サブフォルダ除去）
+    const parts = firstSuccess.outputFile.replace(/\//g, "\\").split("\\");
+    parts.pop(); // ファイル名
+    parts.pop(); // サブフォルダ
+    const parentDir = parts.join("\\");
+
+    const dirs = new Set<string>();
+    for (const r of results) {
+      if (!r.success || !r.outputFile) continue;
+      const p = r.outputFile.replace(/\//g, "\\").split("\\");
+      p.pop(); // ファイル名除去
+      const dir = p.join("\\");
+      if (dir !== parentDir) {
+        dirs.add(dir);
+      }
+    }
+    return [...dirs].sort();
+  }, [settings.mode, phase, results]);
+
   // Per-result matched names for inline display in result table
   const resultMatchMap = useMemo(() => {
     if (phase !== "complete") return new Map<number, string[]>();
@@ -528,6 +552,27 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
           )}
           {phase === "complete" && (
             <>
+              {batchSubfolderDirs.length === 2 && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await invoke("launch_kenban_diff", {
+                        folderA: batchSubfolderDirs[0],
+                        folderB: batchSubfolderDirs[1],
+                        mode: "psd",
+                      });
+                    } catch (e) {
+                      alert(`KENBAN起動エラー: ${e}`);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm font-medium rounded-xl text-accent bg-accent/10 border border-accent/30 hover:bg-accent/20 transition-colors flex items-center gap-1.5"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  KENBANで差分比較
+                </button>
+              )}
               {(() => {
                 const firstSuccess = results.find(
                   (r) => r.success && r.outputFile

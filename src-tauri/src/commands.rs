@@ -2911,7 +2911,7 @@ pub async fn run_photoshop_tiff_convert(
 
 /// Launch KENBAN-viewer in diff mode with two folder paths
 #[tauri::command]
-pub async fn launch_kenban_diff(folder_a: String, folder_b: String) -> Result<(), String> {
+pub async fn launch_kenban_diff(folder_a: String, folder_b: String, mode: Option<String>) -> Result<(), String> {
     use std::process::Command;
 
     let local_app_data = std::env::var("LOCALAPPDATA")
@@ -2925,8 +2925,12 @@ pub async fn launch_kenban_diff(folder_a: String, folder_b: String) -> Result<()
         ));
     }
 
+    // mode: "tiff"（デフォルト）or "psd"
+    let mode_arg = mode.unwrap_or_else(|| "tiff".to_string());
+
     Command::new(&kenban_path)
         .arg("--diff")
+        .arg(&mode_arg)
         .arg(&folder_a)
         .arg(&folder_b)
         .spawn()

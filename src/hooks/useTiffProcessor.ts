@@ -148,6 +148,14 @@ export function useTiffProcessor() {
     if (targetFiles.length === 0) return;
 
     const store = useTiffStore.getState();
+    const { settings } = store;
+
+    // クロップ有効だが範囲未設定の場合は実行を阻止
+    if (settings.crop.enabled && !settings.crop.bounds) {
+      alert("クロップ範囲が設定されていません。\nクロップエディタで範囲を設定してください。");
+      return;
+    }
+
     store.setIsProcessing(true);
     store.clearResults();
     store.setProgress(0, targetFiles.length);
