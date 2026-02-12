@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLayerStore, PRESET_CONDITIONS, type HideCondition, type LayerActionMode } from "../../store/layerStore";
+import { useLayerStore, PRESET_CONDITIONS, type HideCondition, type LayerActionMode, type LayerSaveMode } from "../../store/layerStore";
 import { usePsdStore } from "../../store/psdStore";
 import { useLayerControl } from "../../hooks/useLayerControl";
 import { LayerControlResultDialog } from "./LayerControlResultDialog";
@@ -17,6 +17,8 @@ export function LayerControlPanel() {
   const isProcessing = useLayerStore((state) => state.isProcessing);
   const actionMode = useLayerStore((state) => state.actionMode);
   const setActionMode = useLayerStore((state) => state.setActionMode);
+  const saveMode = useLayerStore((state) => state.saveMode);
+  const setSaveMode = useLayerStore((state) => state.setSaveMode);
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
 
@@ -175,6 +177,12 @@ export function LayerControlPanel() {
 
       {/* アクションバー */}
       <div className="p-3 border-t border-white/5 space-y-2">
+        {/* 保存先切り替え */}
+        <SaveModeSelector
+          saveMode={saveMode}
+          onChange={setSaveMode}
+          folderHint={files.length > 0 ? files[0].filePath.replace(/\\/g, "/").split("/").slice(-2, -1)[0] || "" : ""}
+        />
         <div className="flex items-center justify-between text-xs text-text-muted">
           <span>対象: {targetCount} ファイル</span>
           <span>{selectedConditions.length} 条件選択中</span>
@@ -320,6 +328,53 @@ function ConditionItem({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
+      )}
+    </div>
+  );
+}
+
+// 保存先セレクター
+function SaveModeSelector({
+  saveMode,
+  onChange,
+  folderHint,
+}: {
+  saveMode: LayerSaveMode;
+  onChange: (mode: LayerSaveMode) => void;
+  folderHint: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="bg-bg-tertiary rounded-xl p-1 flex gap-1">
+        <button
+          className={`
+            flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200
+            ${saveMode === "overwrite"
+              ? "bg-bg-elevated text-text-primary shadow-sm"
+              : "text-text-secondary hover:text-text-primary"
+            }
+          `}
+          onClick={() => onChange("overwrite")}
+        >
+          上書き保存
+        </button>
+        <button
+          className={`
+            flex-1 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200
+            ${saveMode === "copyToFolder"
+              ? "bg-bg-elevated text-text-primary shadow-sm"
+              : "text-text-secondary hover:text-text-primary"
+            }
+          `}
+          onClick={() => onChange("copyToFolder")}
+        >
+          別フォルダに保存
+        </button>
+      </div>
+      {saveMode === "copyToFolder" && folderHint && (
+        <p className="text-[10px] text-text-muted px-1 leading-tight">
+          保存先: Desktop/Script_Output/レイヤー制御/{folderHint}/
+        </p>
       )}
     </div>
   );

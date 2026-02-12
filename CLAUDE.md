@@ -93,6 +93,7 @@
 - 部分一致/完全一致、大文字小文字の区別オプション
 - 非表示→表示（復元）モード: `doc.info.caption`にメタデータ保存、親グループの可視性も自動復元
 - 選択ファイルのみ / 全ファイル処理対応
+- **保存先選択**: 上書き保存 or 別フォルダに保存（`Desktop/Script_Output/レイヤー制御/{元フォルダ名}/`）。layerStoreの`saveMode`で管理、Rust側で出力先算出→JSXの`saveFolder`パラメータで`saveAs`先を切替
 - **詳細レポートダイアログ**: 処理完了後に中央モーダル（createPortal）でファイル別ツリー表示。親フォルダ∈情報付きでグループ/レイヤーの階層関係を表示（F/G/T/L種別バッジ）
 - JSX側: `changedNames`に`"テキスト「name」∈「parent」"`形式で親フォルダ情報を記録。フロント側`extractMatchedItems()`→`buildTree()`でツリー構築
 - **ビューアーモード**: LayerPreviewPanel内タブ切替（レイヤー構造/ビューアー）。全ファイルを対象に高解像度プレビュー表示（useHighResPreview maxSize=2000）。矢印キー/マウスホイール/矢印ボタンでページ送り（端でクランプ、循環なし）。P/Fショートカットはキャプチャフェーズでインターセプトしてビューアーの現在ファイルに対応
@@ -184,14 +185,18 @@
 ## UI構成
 
 ### レイアウト
-- **TopNav**: 上部ナビゲーション。タブでビュー切替（ファイル/レイヤー制御/仕様チェック/差替え/見開き分割/リネーム/TIFF化）
-- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | layers | split | replace | rename | tiff）
+- **TopNav**: 上部ナビゲーション。タブでビュー切替（仕様チェック/ビューアー/レイヤー制御/見開き分割/差替え/リネーム/TIFF化）
+- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | viewer | layers | split | replace | rename | tiff）
 - **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）、グローバルD&Dリスナー（useGlobalDragDrop）。`handleMouseDown`で領域外クリック時に選択解除（モーダルは`onMouseDown stopPropagation`で保護が必要）
 
 ### ビュー
 - **FileView**: ファイル一覧・サムネイル・メタデータ表示
 - **LayerControlView**: レイヤー制御パネル + LayerPreviewPanel（レイヤー構造タブ + ビューアータブ）
-- **SpecCheckView**: 仕様チェックテーブル（SpecCheckTable）
+- **SpecCheckView**: 仕様チェック（3カラム: CompactFileList | MetadataPanel | サムネイル/レイヤー構造/写植仕様タブ切替）
+  - viewMode切替: サムネイル（PreviewGrid）、レイヤー構造（SpecLayerGrid）、写植仕様（SpecTextGrid）
+  - SpecTextGrid: 使用フォントサマリー（種類数・レイヤー数）、サイズ統計（頻度順・基本ポイント数）、ファイル別テキストレイヤー一覧。フォント切替（デフォルト/プレビュー）、ソート切替（昇順/降順）
+  - SpecLayerGrid: 全ファイルのレイヤー構造をグリッド表示
+- **ViewerView**: 独立ビューアー（SpecViewerPanelを再利用）。画像+サイドバー（写植仕様/レイヤー構造タブ）。OS全画面（Tauri setFullscreen）、スプラッシュトランジション、矢印キー/ホイールナビ、P/Fショートカット
 - **ReplaceView**: レイヤー差替え
 - **SplitView**: 見開き分割
 - **RenameView**: リネーム（レイヤーリネーム / ファイルリネーム）
@@ -248,7 +253,8 @@ src/
 │   ├── views/             # ビューコンポーネント
 │   │   ├── FileView.tsx          # ファイル一覧ビュー
 │   │   ├── LayerControlView.tsx  # レイヤー制御ビュー
-│   │   ├── SpecCheckView.tsx     # 仕様チェックビュー
+│   │   ├── SpecCheckView.tsx     # 仕様チェックビュー（サムネイル/レイヤー/写植タブ切替）
+│   │   ├── ViewerView.tsx        # ビューアービュー（SpecViewerPanel再利用）
 │   │   ├── ReplaceView.tsx       # レイヤー差替えビュー
 │   │   ├── SplitView.tsx         # 見開き分割ビュー
 │   │   ├── RenameView.tsx        # リネームビュー（fileEntries→psdStore自動同期）
@@ -264,6 +270,10 @@ src/
 │   │   ├── SpecCheckTable.tsx    # 仕様チェック結果テーブル
 │   │   ├── SpecSelectionModal.tsx
 │   │   ├── FixGuidePanel.tsx
+│   │   ├── GuideSectionPanel.tsx
+│   │   ├── SpecLayerGrid.tsx     # レイヤー構造グリッド（全ファイル一覧）
+│   │   ├── SpecTextGrid.tsx      # 写植仕様グリッド（フォント/サイズ統計 + テキストレイヤー一覧）
+│   │   ├── SpecViewerPanel.tsx   # ビューアーパネル（画像+サイドバー、全画面対応）
 │   │   └── ConversionToast.tsx
 │   ├── guide-editor/      # ガイド線編集
 │   │   ├── GuideEditorModal.tsx
@@ -316,7 +326,8 @@ src/
 │   ├── useReplaceProcessor.ts
 │   ├── useTiffProcessor.ts     # TIFF化処理フック（設定マージ・invoke・結果処理）
 │   ├── useCropEditorKeyboard.ts # クロップエディタキーボード操作（Tachimi互換）
-│   └── useOpenInPhotoshop.ts    # Photoshopファイル起動（ユーティリティ + Pキーショートカット）
+│   ├── useOpenInPhotoshop.ts    # Photoshopファイル起動（ユーティリティ + Pキーショートカット）
+│   └── useFontResolver.ts      # フォント名解決フック（PostScript名→表示名・色マッピング・未インストール検出）
 ├── lib/
 │   ├── psd/
 │   │   └── parser.ts            # ag-psdラッパー、メタデータ抽出
@@ -326,7 +337,7 @@ src/
 │   ├── psdStore.ts        # ファイル一覧・選択状態
 │   ├── specStore.ts       # 仕様・チェック結果
 │   ├── guideStore.ts      # ガイド線状態
-│   ├── layerStore.ts      # レイヤー制御: actionMode, selectedConditions, customConditions
+│   ├── layerStore.ts      # レイヤー制御: actionMode, saveMode, selectedConditions, customConditions
 │   ├── viewStore.ts       # ビュー切替状態（activeView）
 │   ├── splitStore.ts      # 分割設定
 │   ├── replaceStore.ts    # 差替え設定
@@ -401,7 +412,15 @@ interface LayerNode {
   hasMask?: boolean;        // レイヤーマスク（ag-psd: mask/realMask）
   hasVectorMask?: boolean;  // ベクトルマスク（ag-psd: vectorMask）
   clipping?: boolean;       // クリッピングマスク（ag-psd: clipping）
+  textInfo?: TextInfo;      // テキストレイヤーのフォント・サイズ情報
   children?: LayerNode[];
+}
+
+// テキスト情報（parser.tsで抽出、ag-psd text.style/styleRunsから）
+interface TextInfo {
+  text: string;
+  fonts: string[];       // PostScript名（例: "KozMinPr6N-Regular"）
+  fontSizes: number[];   // ポイント数（DPI正規化済み: fontSize * 72/dpi）
 }
 
 // 仕様定義
@@ -467,6 +486,14 @@ useEffect(() => {
 14. **非PSDファイルの読み込み**: `isPsdFile()`で判定し、PSD以外は`stat()`でファイルサイズのみ取得。ag-psdパースはスキップ。Photoshopが開ける前提でファイル一覧に表示
 15. **ExtendScript `File.name` のURI符号化**: `File.name`は非ASCII文字をURIエンコードして返す（例: `校正_堀川` → `%E6%A0%A1%E6%AD%A3_%E5%A0%80%E5%B7%9D`）。`decodeURI(file.name)`で正しいファイル名を取得すること
 16. **PDF分割処理**: JSX側で`pdfPageIndex >= 0`の場合、`PDFOpenOptions`（`page`, `resolution: 600`, `mode: OpenDocumentMode.RGB`）でページ指定オープン。`fileInfos`は`{ path, pdfPageIndex }`形式で渡す（`pdfPageIndex: -1`は通常ファイル）
+
+## フォント名解決（Rust側）
+
+`resolve_font_names` コマンド: PostScript名からシステムフォントの表示名・スタイル名を解決
+- `fontdb::Database` でシステムフォントをロード（`OnceLock`でキャッシュ）
+- 日本語名優先（`Language::Japanese_Japan`）
+- サブファミリー名: `ttf_parser` で OpenType name table から ID 17 (Typographic Subfamily) → ID 2 (Subfamily) の優先順で抽出。日本語ロケール (0x0411) > 英語 (0x0409) > その他
+- フロント: `useFontResolver` フックが `invoke("resolve_font_names")` で一括解決。フォント色パレット割当、未インストール検出も管理
 
 ## 高速PSD読み込み（Rust側）
 
@@ -607,8 +634,9 @@ lastSelectedSpecId: string    // 前回選択した仕様ID
 | 操作 | キー | ビュー |
 |------|------|--------|
 | 全選択 | Ctrl+A | 全タブ（INPUT/TEXTAREA/SELECT内は除外） |
-| Photoshopで開く | P | レイヤー制御・仕様チェック（ビューアーモードでは表示中ファイル） |
+| Photoshopで開く | P | レイヤー制御・仕様チェック・ビューアー（表示中ファイル） |
 | フォルダを開く | F | 全タブ（ビューアーモードでは表示中ファイル） |
-| 前のページ | ←/↑ | レイヤー制御ビューアー |
-| 次のページ | →/↓ | レイヤー制御ビューアー |
-| ページ送り | マウスホイール | レイヤー制御ビューアー |
+| 前のページ | ←/↑ | レイヤー制御ビューアー・ビューアータブ |
+| 次のページ | →/↓ | レイヤー制御ビューアー・ビューアータブ |
+| ページ送り | マウスホイール | レイヤー制御ビューアー・ビューアータブ |
+| 全画面切替 | ボタン | ビューアータブ（Esc で解除） |

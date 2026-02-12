@@ -75,6 +75,12 @@ export interface Guide {
   position: number; // in pixels from top/left
 }
 
+export interface TextInfo {
+  text: string;
+  fonts: string[];
+  fontSizes: number[];
+}
+
 export interface LayerNode {
   id: string;
   name: string;
@@ -85,6 +91,7 @@ export interface LayerNode {
   hasMask?: boolean;
   hasVectorMask?: boolean;
   clipping?: boolean;
+  textInfo?: TextInfo;
   children?: LayerNode[];
 }
 

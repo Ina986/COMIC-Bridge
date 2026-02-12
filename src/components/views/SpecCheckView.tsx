@@ -14,6 +14,8 @@ import { CompactFileList } from "../common/CompactFileList";
 import { MetadataPanel } from "../metadata/MetadataPanel";
 import { FixGuidePanel } from "../spec-checker/FixGuidePanel";
 import { GuideSectionPanel } from "../spec-checker/GuideSectionPanel";
+import { SpecLayerGrid } from "../spec-checker/SpecLayerGrid";
+import { SpecTextGrid } from "../spec-checker/SpecTextGrid";
 import { DropZone } from "../file-browser/DropZone";
 import { THUMBNAIL_SIZES, type ThumbnailSize } from "../../types";
 
@@ -39,6 +41,7 @@ export function SpecCheckView() {
 
   const [showResults, setShowResults] = useState(false);
   const [showGuidePrompt, setShowGuidePrompt] = useState(false);
+  const [viewMode, setViewMode] = useState<"thumbnails" | "layers" | "text">("thumbnails");
   const guidePromptRef = useRef<HTMLDivElement>(null);
 
   const { checkAllFiles, isChecking } = useSpecChecker();
@@ -275,22 +278,61 @@ export function SpecCheckView() {
           )}
         </div>
 
+        {/* Separator */}
+        <div className="w-px h-5 bg-border flex-shrink-0" />
+
+        {/* View Mode Switcher */}
+        <div className="flex bg-bg-elevated rounded-md p-0.5 border border-white/5 flex-shrink-0">
+          <button
+            onClick={() => setViewMode("thumbnails")}
+            className={`px-2 py-1 text-[10px] rounded transition-all ${
+              viewMode === "thumbnails"
+                ? "bg-bg-tertiary text-text-primary font-medium shadow-sm"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            サムネイル
+          </button>
+          <button
+            onClick={() => setViewMode("layers")}
+            className={`px-2 py-1 text-[10px] rounded transition-all ${
+              viewMode === "layers"
+                ? "bg-bg-tertiary text-text-primary font-medium shadow-sm"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            レイヤー構造
+          </button>
+          <button
+            onClick={() => setViewMode("text")}
+            className={`px-2 py-1 text-[10px] rounded transition-all ${
+              viewMode === "text"
+                ? "bg-bg-tertiary text-text-primary font-medium shadow-sm"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            写植仕様
+          </button>
+        </div>
+
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Thumbnail Size */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-text-muted">サイズ:</span>
-          <select
-            className="bg-bg-tertiary border border-border rounded-md text-xs py-1 px-2 text-text-primary focus:border-accent focus:outline-none"
-            value={thumbnailSize}
-            onChange={(e) => setThumbnailSize(e.target.value as ThumbnailSize)}
-          >
-            {Object.entries(THUMBNAIL_SIZES).map(([key, { label }]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-        </div>
+        {/* Thumbnail Size (only in thumbnails mode) */}
+        {viewMode === "thumbnails" && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-muted">サイズ:</span>
+            <select
+              className="bg-bg-tertiary border border-border rounded-md text-xs py-1 px-2 text-text-primary focus:border-accent focus:outline-none"
+              value={thumbnailSize}
+              onChange={(e) => setThumbnailSize(e.target.value as ThumbnailSize)}
+            >
+              {Object.entries(THUMBNAIL_SIZES).map(([key, { label }]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Guidance Banner - when no spec selected */}
@@ -453,12 +495,14 @@ export function SpecCheckView() {
           )}
         </div>
 
-        {/* Right: Thumbnail Grid */}
+        {/* Right: Thumbnail Grid / Layer Grid */}
         <div className="flex-1 overflow-hidden relative" data-preview-grid>
-          <PreviewGrid />
+          {viewMode === "thumbnails" && <PreviewGrid />}
+          {viewMode === "layers" && <SpecLayerGrid />}
+          {viewMode === "text" && <SpecTextGrid />}
 
-          {/* Floating Action Buttons */}
-          {(stats.failed > 0 || stats.noGuides > 0) && (
+          {/* Floating Action Buttons (thumbnails mode only) */}
+          {viewMode === "thumbnails" && (stats.failed > 0 || stats.noGuides > 0) && (
             <div className="absolute bottom-6 right-6 flex flex-col items-end gap-4 z-10">
               {stats.noGuides > 0 && (
                 <button

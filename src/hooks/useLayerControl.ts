@@ -26,6 +26,7 @@ export function useLayerControl() {
   const setIsProcessing = useLayerStore((state) => state.setIsProcessing);
   const getSelectedConditions = useLayerStore((state) => state.getSelectedConditions);
   const actionMode = useLayerStore((state) => state.actionMode);
+  const saveMode = useLayerStore((state) => state.saveMode);
   const setLastResults = useLayerStore((state) => state.setLastResults);
 
   // HideCondition を JSX スクリプトが理解できる形式に変換
@@ -73,6 +74,7 @@ export function useLayerControl() {
           filePaths,
           conditions: layerConditions,
           mode: actionMode,
+          saveMode,
         }
       );
 
@@ -132,6 +134,7 @@ export function useLayerControl() {
     files,
     selectedFileIds,
     actionMode,
+    saveMode,
     getSelectedConditions,
     conditionsToLayerConditions,
     setIsProcessing,

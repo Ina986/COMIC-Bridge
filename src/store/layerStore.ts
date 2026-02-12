@@ -50,6 +50,9 @@ export interface LayerControlResult {
   error?: string;
 }
 
+// 保存モード
+export type LayerSaveMode = "overwrite" | "copyToFolder";
+
 interface LayerVisibilityState {
   // ファイルごとの変更されたレイヤー可視性を追跡
   // Map<fileId, Map<layerPath, visible>>
@@ -57,6 +60,9 @@ interface LayerVisibilityState {
 
   // 操作モード（非表示/表示）
   actionMode: LayerActionMode;
+
+  // 保存モード（上書き/別フォルダ）
+  saveMode: LayerSaveMode;
 
   // 選択中の非表示条件
   selectedConditions: string[];
@@ -75,6 +81,7 @@ interface LayerVisibilityState {
   setLayerVisibility: (fileId: string, layerPath: string, visible: boolean) => void;
   clearPendingChanges: (fileId?: string) => void;
   setActionMode: (mode: LayerActionMode) => void;
+  setSaveMode: (mode: LayerSaveMode) => void;
   toggleCondition: (conditionId: string) => void;
   addCustomCondition: (condition: Omit<HideCondition, "id">) => void;
   removeCustomCondition: (id: string) => void;
@@ -87,6 +94,7 @@ interface LayerVisibilityState {
 export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   pendingChanges: new Map(),
   actionMode: "hide",
+  saveMode: "overwrite",
   selectedConditions: [],
   customConditions: [],
   isProcessing: false,
@@ -116,6 +124,10 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
 
   setActionMode: (mode) => {
     set({ actionMode: mode });
+  },
+
+  setSaveMode: (mode) => {
+    set({ saveMode: mode });
   },
 
   toggleCondition: (conditionId) => {

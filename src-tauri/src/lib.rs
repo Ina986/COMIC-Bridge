@@ -41,6 +41,7 @@ pub fn run() {
             commands::get_pdf_thumbnail,
             commands::run_photoshop_tiff_convert,
             commands::launch_kenban_diff,
+            commands::resolve_font_names,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

@@ -89,7 +89,7 @@ async function extractEmbeddedThumbnail(psd: Psd): Promise<string | undefined> {
 export function extractMetadata(psd: Psd): PsdMetadata {
   const dpi = extractDpi(psd);
   const guides = extractGuides(psd);
-  const layerTree = extractLayerTree(psd.children || []);
+  const layerTree = extractLayerTree(psd.children || [], "", dpi);
   const alphaChannelInfo = extractAlphaChannelInfo(psd);
 
   return {
@@ -159,7 +159,7 @@ export function extractGuides(psd: Psd): Guide[] {
   }));
 }
 
-function extractLayerTree(children: Psd["children"], parentPath = ""): LayerNode[] {
+function extractLayerTree(children: Psd["children"], parentPath = "", dpi = 72): LayerNode[] {
   if (!children) return [];
 
   return children.map((child, index) => {
@@ -177,8 +177,44 @@ function extractLayerTree(children: Psd["children"], parentPath = ""): LayerNode
       clipping: !!childAny.clipping,
     };
 
+    // テキストレイヤーのフォント情報を抽出
+    if (child.text) {
+      const fonts = new Set<string>();
+      const fontSizes = new Set<number>();
+
+      // ag-psd の fontSize はドキュメント解像度に応じたピクセル相当値のため
+      // 72 / DPI でタイポグラフィポイントに正規化する
+      const ptScale = 72 / dpi;
+
+      // デフォルトスタイル
+      if (child.text.style?.font?.name) {
+        fonts.add(child.text.style.font.name);
+      }
+      if (child.text.style?.fontSize) {
+        fontSizes.add(parseFloat((child.text.style.fontSize * ptScale).toFixed(1)));
+      }
+
+      // styleRuns（テキスト内でフォントが混在する場合）
+      if (child.text.styleRuns) {
+        for (const run of child.text.styleRuns) {
+          if (run.style?.font?.name) {
+            fonts.add(run.style.font.name);
+          }
+          if (run.style?.fontSize) {
+            fontSizes.add(parseFloat((run.style.fontSize * ptScale).toFixed(1)));
+          }
+        }
+      }
+
+      node.textInfo = {
+        text: child.text.text || "",
+        fonts: [...fonts],
+        fontSizes: [...fontSizes].sort((a, b) => b - a),
+      };
+    }
+
     if (child.children && child.children.length > 0) {
-      node.children = extractLayerTree(child.children, path);
+      node.children = extractLayerTree(child.children, path, dpi);
     }
 
     return node;

@@ -37,10 +37,11 @@ function main() {
     }
 
     var results = [];
+    var saveFolder = settings.saveFolder || null;
 
     for (var i = 0; i < settings.files.length; i++) {
         var filePath = settings.files[i];
-        var result = processFile(filePath, settings.conditions, settings.mode);
+        var result = processFile(filePath, settings.conditions, settings.mode, saveFolder);
         results.push(result);
     }
 
@@ -54,7 +55,7 @@ function main() {
 /* -----------------------------------------------------
   File Processing
  ----------------------------------------------------- */
-function processFile(filePath, conditions, mode) {
+function processFile(filePath, conditions, mode, saveFolder) {
     var result = {
         filePath: filePath,
         success: false,
@@ -98,7 +99,17 @@ function processFile(filePath, conditions, mode) {
             var saveOptions = new PhotoshopSaveOptions();
             saveOptions.layers = true;
             saveOptions.embedColorProfile = true;
-            doc.saveAs(file, saveOptions, true, Extension.LOWERCASE);
+
+            if (saveFolder) {
+                var outputDir = new Folder(saveFolder);
+                if (!outputDir.exists) {
+                    createFolderRecursive(outputDir);
+                }
+                var outFile = new File(outputDir.fsName + "/" + decodeURI(file.name));
+                doc.saveAs(outFile, saveOptions, true, Extension.LOWERCASE);
+            } else {
+                doc.saveAs(file, saveOptions, true, Extension.LOWERCASE);
+            }
 
             // Push individual match details first
             for (var ci = 0; ci < changedNames.length; ci++) {
@@ -283,6 +294,16 @@ function saveHiddenLayerData(doc, paths, conditions) {
     } catch (e) {
         // Metadata save failure is non-critical
     }
+}
+
+/* -----------------------------------------------------
+  Folder Creation
+ ----------------------------------------------------- */
+function createFolderRecursive(folder) {
+    if (folder.exists) return true;
+    var parent = folder.parent;
+    if (!parent.exists) createFolderRecursive(parent);
+    return folder.create();
 }
 
 /* -----------------------------------------------------

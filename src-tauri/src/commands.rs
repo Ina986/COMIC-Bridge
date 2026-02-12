@@ -1,3 +1,5 @@
+use fontdb::{Database, Language};
+use ttf_parser::name_id;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage, imageops::FilterType};
 use psd::Psd;
 use serde::{Deserialize, Serialize};
@@ -973,6 +975,8 @@ pub struct LayerVisibilitySettings {
     pub mode: String, // "hide" or "show"
     #[serde(rename = "outputPath")]
     pub output_path: String,
+    #[serde(rename = "saveFolder", skip_serializing_if = "Option::is_none")]
+    pub save_folder: Option<String>,
 }
 
 /// Run Photoshop to change layer visibility in PSD files
@@ -982,6 +986,7 @@ pub async fn run_photoshop_layer_visibility(
     file_paths: Vec<String>,
     conditions: Vec<LayerCondition>,
     mode: String,
+    save_mode: Option<String>,
 ) -> Result<Vec<PhotoshopResult>, String> {
     use std::process::Command;
     use std::io::Write;
@@ -1016,12 +1021,37 @@ pub async fn run_photoshop_layer_visibility(
 
     let _ = fs::remove_file(&output_path);
 
+    // Compute save folder for "copyToFolder" mode
+    let save_folder = if save_mode.as_deref() == Some("copyToFolder") {
+        let home = std::env::var("USERPROFILE")
+            .unwrap_or_else(|_| std::env::var("HOME").unwrap_or_default());
+        let parent_name = file_paths
+            .first()
+            .and_then(|p| {
+                Path::new(p)
+                    .parent()
+                    .and_then(|par| par.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| "output".to_string());
+        let folder = Path::new(&home)
+            .join("Desktop")
+            .join("Script_Output")
+            .join("レイヤー制御")
+            .join(&parent_name);
+        let _ = fs::create_dir_all(&folder);
+        Some(folder.to_string_lossy().to_string().replace("\\", "/"))
+    } else {
+        None
+    };
+
     // Build settings JSON
     let settings = LayerVisibilitySettings {
         files: file_paths.iter().map(|p| p.replace("\\", "/")).collect(),
         conditions,
         mode,
         output_path: output_path.to_string_lossy().to_string().replace("\\", "/"),
+        save_folder,
     };
 
     let settings_json = serde_json::to_string_pretty(&settings)
@@ -2943,4 +2973,105 @@ pub async fn launch_kenban_diff(folder_a: String, folder_b: String, mode: Option
         .map_err(|e| format!("KENBAN起動エラー: {}", e))?;
 
     Ok(())
+}
+
+// ============================================
+// Font Name Resolution
+// ============================================
+
+/// システムフォントDBのキャッシュ（初回ロード後に再利用）
+static FONT_DB: OnceLock<Database> = OnceLock::new();
+
+fn get_font_db() -> &'static Database {
+    FONT_DB.get_or_init(|| {
+        let mut db = Database::new();
+        db.load_system_fonts();
+        db
+    })
+}
+
+/// フォント解決結果
+#[derive(Serialize)]
+pub struct FontResolveInfo {
+    pub display_name: String,
+    pub style_name: String,
+}
+
+/// OpenType name table からサブファミリー名を抽出する
+/// name ID 17 (Typographic Subfamily) を優先、なければ name ID 2 (Subfamily)
+/// 日本語ロケール (language_id 0x0411) を優先、なければ英語 (0x0409)
+fn extract_subfamily_name(db: &Database, face_id: fontdb::ID) -> Option<String> {
+    let mut result: Option<String> = None;
+
+    db.with_face_data(face_id, |data, face_index| {
+        let face = match ttf_parser::Face::parse(data, face_index) {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+
+        // name ID 17 (Typographic Subfamily) → name ID 2 (Subfamily) の優先順
+        for target_id in [name_id::TYPOGRAPHIC_SUBFAMILY, name_id::SUBFAMILY] {
+            let mut ja_name: Option<String> = None;
+            let mut en_name: Option<String> = None;
+            let mut any_name: Option<String> = None;
+
+            for name in face.names() {
+                if name.name_id != target_id {
+                    continue;
+                }
+                if let Some(s) = name.to_string() {
+                    // Platform 3 (Windows), language_id で判別
+                    if name.platform_id == ttf_parser::PlatformId::Windows {
+                        if name.language_id == 0x0411 {
+                            ja_name = Some(s);
+                        } else if name.language_id == 0x0409 {
+                            en_name = Some(s);
+                        } else if any_name.is_none() {
+                            any_name = Some(s);
+                        }
+                    } else if any_name.is_none() {
+                        any_name = Some(s);
+                    }
+                }
+            }
+
+            // 日本語 > 英語 > その他
+            let found = ja_name.or(en_name).or(any_name);
+            if found.is_some() {
+                result = found;
+                return;
+            }
+        }
+    });
+
+    result
+}
+
+/// PostScript名から表示用フォント名（和名優先）・スタイル名を解決する
+#[tauri::command]
+pub fn resolve_font_names(postscript_names: Vec<String>) -> HashMap<String, FontResolveInfo> {
+    let db = get_font_db();
+    let mut result = HashMap::new();
+
+    for face in db.faces() {
+        if postscript_names.contains(&face.post_script_name) {
+            // 日本語名を優先、なければ最初のファミリー名、それもなければPS名
+            let display_name = face.families.iter()
+                .find(|(_, lang)| *lang == Language::Japanese_Japan)
+                .or_else(|| face.families.first())
+                .map(|(name, _)| name.clone())
+                .unwrap_or_else(|| face.post_script_name.clone());
+
+            // OpenType name table からサブファミリー名を取得
+            let style_name = extract_subfamily_name(db, face.id)
+                .unwrap_or_else(|| "Regular".to_string());
+
+            result.insert(face.post_script_name.clone(), FontResolveInfo {
+                display_name,
+                style_name,
+            });
+        }
+    }
+
+    result
 }

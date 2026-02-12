@@ -400,3 +400,25 @@ img {
   0% { width: 100%; }
   100% { width: 0%; }
 }
+
+/* ===== Fullscreen ESC hint fade ===== */
+@keyframes fade-hint {
+  0%   { opacity: 0; transform: translate(-50%, -8px); }
+  15%  { opacity: 1; transform: translate(-50%, 0); }
+  70%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -4px); }
+}
+.animate-fade-hint {
+  animation: fade-hint 2.5s ease-in-out forwards;
+}
+
+/* ===== Fullscreen splash logo ===== */
+@keyframes fs-splash {
+  0%   { opacity: 0; transform: scale(0.9); }
+  30%  { opacity: 1; transform: scale(1); }
+  70%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.02); }
+}
+.animate-fs-splash {
+  animation: fs-splash 0.5s ease-out forwards;
+}
