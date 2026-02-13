@@ -42,7 +42,6 @@ pub fn run() {
             commands::run_photoshop_tiff_convert,
             commands::launch_kenban_diff,
             commands::resolve_font_names,
-            commands::parse_psd_metadata,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

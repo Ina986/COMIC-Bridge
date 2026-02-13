@@ -1,31 +1,16 @@
 import { useCallback } from "react";
 import { readDir, readFile, stat } from "@tauri-apps/plugin-fs";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
 import { useViewStore } from "../store/viewStore";
-import { parsePsdBufferFast } from "../lib/psd/parser";
+import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
 import { naturalCompare } from "../lib/naturalSort";
 import { isSupportedFile, isPsdFile, isPdfFile } from "../types";
 import type { PsdFile } from "../types";
-import type { ColorMode } from "../types";
 
 interface PdfInfoResult {
   page_count: number;
   pages: { width: number; height: number }[];
-}
-
-/** Rust parse_psd_metadata の返却型 */
-interface PsdParsedMeta {
-  truncated_path: string;
-  original_file_size: number;
-  width: number;
-  height: number;
-  color_mode: string;
-  bits_per_channel: number;
-  dpi: number;
-  guides: { direction: string; position: number }[];
-  thumbnail_base64: string | null;
-  alpha_channel_names: string[];
 }
 
 export function usePsdLoader() {
@@ -191,58 +176,23 @@ export function usePsdLoader() {
           chunk.map(async (file) => {
             try {
               if (isPsdFile(file.fileName)) {
-                // PSD/PSB: ハイブリッドパース（Rustメタデータ + ag-psd truncated）
-                const meta = await invoke<PsdParsedMeta>("parse_psd_metadata", {
-                  filePath: file.filePath,
-                });
+                // PSD/PSB: ag-psdでパース
+                const buffer = await readFile(file.filePath);
+                const arrayBuffer = buffer.buffer.slice(
+                  buffer.byteOffset,
+                  buffer.byteOffset + buffer.byteLength
+                );
 
-                // Rustから埋め込みサムネイルを取得
-                const rustThumbnail = meta.thumbnail_base64
-                  ? `data:image/jpeg;base64,${meta.thumbnail_base64}`
-                  : undefined;
+                const result = await parsePsdBufferFast(arrayBuffer);
 
-                // truncated PSDからレイヤーツリー+テキスト情報を取得（Image Dataなし）
-                let agResult;
-                try {
-                  const buffer = await readFile(meta.truncated_path);
-                  const arrayBuffer = buffer.buffer.slice(
-                    buffer.byteOffset,
-                    buffer.byteOffset + buffer.byteLength
-                  );
-                  agResult = await parsePsdBufferFast(arrayBuffer);
-                } catch (agErr) {
-                  console.warn(`ag-psd parse failed for ${file.fileName}, using Rust metadata only:`, agErr);
-                  agResult = null;
-                }
-
-                // Rustメタデータをベースに、ag-psdのレイヤーツリーで補完
-                const thumbnailUrl = rustThumbnail || agResult?.thumbnailData;
                 chunkUpdates.set(file.id, {
-                  metadata: {
-                    width: meta.width,
-                    height: meta.height,
-                    dpi: meta.dpi,
-                    colorMode: meta.color_mode as ColorMode,
-                    bitsPerChannel: meta.bits_per_channel,
-                    hasGuides: meta.guides.length > 0,
-                    guides: meta.guides.map((g) => ({
-                      direction: g.direction as "horizontal" | "vertical",
-                      position: Math.round(g.position),
-                    })),
-                    hasAlphaChannels: meta.alpha_channel_names.length > 0,
-                    alphaChannelCount: meta.alpha_channel_names.length,
-                    alphaChannelNames: meta.alpha_channel_names,
-                    // ag-psd由来（レイヤーツリー、テキスト情報、トンボ検出）
-                    layerCount: agResult?.metadata.layerCount ?? 0,
-                    layerTree: agResult?.metadata.layerTree ?? [],
-                    hasTombo: agResult?.metadata.hasTombo ?? false,
-                  },
-                  thumbnailUrl,
-                  thumbnailStatus: thumbnailUrl ? "ready" : "pending",
-                  fileSize: Number(meta.original_file_size),
+                  metadata: result.metadata,
+                  thumbnailUrl: result.thumbnailData,
+                  thumbnailStatus: result.thumbnailData ? "ready" : "pending",
+                  fileSize: buffer.byteLength,
                 });
 
-                if (!thumbnailUrl) {
+                if (!result.thumbnailData) {
                   filesNeedingThumbnail.push(file.id);
                 }
               } else if (isPdfFile(file.fileName)) {
@@ -348,7 +298,7 @@ export function usePsdLoader() {
         }
       }
 
-      // PSDでサムネイルがなかったファイルはRustプレビューでフォールバック
+      // PSDでサムネイルがなかったファイルはフル読み込みでフォールバック
       if (filesNeedingThumbnail.length > 0) {
         const files = usePsdStore.getState().files;
         const thumbUpdates = new Map<string, Partial<PsdFile>>();
@@ -357,21 +307,19 @@ export function usePsdLoader() {
           if (!file) continue;
 
           try {
-            const preview = await invoke<{
-              file_path: string;
-              original_width: number;
-              original_height: number;
-            }>("get_high_res_preview", {
-              filePath: file.filePath,
-              maxSize: 800,
-            });
+            const buffer = await readFile(file.filePath);
+            const arrayBuffer = buffer.buffer.slice(
+              buffer.byteOffset,
+              buffer.byteOffset + buffer.byteLength
+            );
+
+            const result = await parsePsdBuffer(arrayBuffer);
             thumbUpdates.set(file.id, {
-              thumbnailUrl: convertFileSrc(preview.file_path),
-              thumbnailStatus: "ready",
+              thumbnailUrl: result.thumbnailData,
+              thumbnailStatus: result.thumbnailData ? "ready" : "error",
             });
           } catch (error) {
             console.error(`Failed to generate thumbnail for ${file.fileName}:`, error);
-            thumbUpdates.set(file.id, { thumbnailStatus: "error" });
           }
         }
         if (thumbUpdates.size > 0) {

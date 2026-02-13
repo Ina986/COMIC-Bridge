@@ -16,57 +16,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // PSD Cache (for faster repeated access)
 // ============================================
 
-/// PSDキャッシュエントリ
-struct PsdCacheEntry {
-    rgba_data: Vec<u8>,
-    width: u32,
-    height: u32,
-    byte_size: usize,
-}
+/// PSD画像キャッシュ（プレビュー用）
+/// キー: ファイルパス、値: (画像データ, 幅, 高さ)
+static PSD_CACHE: OnceLock<Mutex<HashMap<String, (Vec<u8>, u32, u32)>>> = OnceLock::new();
 
-/// サイズベースPSDキャッシュ（最大300 MB）
-struct PsdCache {
-    entries: HashMap<String, PsdCacheEntry>,
-    total_bytes: usize,
-    insertion_order: Vec<String>,
-}
+/// PSDキャッシュの最大エントリ数
+const MAX_PSD_CACHE_ENTRIES: usize = 10;
 
-const MAX_PSD_CACHE_BYTES: usize = 300 * 1024 * 1024;
-
-impl PsdCache {
-    fn new() -> Self {
-        Self { entries: HashMap::new(), total_bytes: 0, insertion_order: Vec::new() }
-    }
-
-    fn get(&self, key: &str) -> Option<&PsdCacheEntry> {
-        self.entries.get(key)
-    }
-
-    fn insert(&mut self, key: String, entry: PsdCacheEntry) {
-        let entry_size = entry.byte_size;
-        // 容量超過なら古いものから退避
-        while self.total_bytes + entry_size > MAX_PSD_CACHE_BYTES && !self.insertion_order.is_empty() {
-            let oldest = self.insertion_order.remove(0);
-            if let Some(removed) = self.entries.remove(&oldest) {
-                self.total_bytes -= removed.byte_size;
-            }
-        }
-        self.total_bytes += entry_size;
-        self.insertion_order.push(key.clone());
-        self.entries.insert(key, entry);
-    }
-
-    fn clear(&mut self) {
-        self.entries.clear();
-        self.insertion_order.clear();
-        self.total_bytes = 0;
-    }
-}
-
-static PSD_CACHE: OnceLock<Mutex<PsdCache>> = OnceLock::new();
-
-fn get_psd_cache() -> &'static Mutex<PsdCache> {
-    PSD_CACHE.get_or_init(|| Mutex::new(PsdCache::new()))
+/// PSDキャッシュのハンドルを取得
+fn get_psd_cache() -> &'static Mutex<HashMap<String, (Vec<u8>, u32, u32)>> {
+    PSD_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 // ============================================
@@ -123,8 +82,8 @@ fn get_or_cache_psd(path: &Path) -> Result<DynamicImage, String> {
 
     // キャッシュをチェック
     if let Ok(cache) = get_psd_cache().lock() {
-        if let Some(entry) = cache.get(&path_str) {
-            if let Some(img) = ImageBuffer::from_raw(entry.width, entry.height, entry.rgba_data.clone()) {
+        if let Some((rgba_data, width, height)) = cache.get(&path_str) {
+            if let Some(img) = ImageBuffer::from_raw(*width, *height, rgba_data.clone()) {
                 return Ok(DynamicImage::ImageRgba8(img));
             }
         }
@@ -134,12 +93,14 @@ fn get_or_cache_psd(path: &Path) -> Result<DynamicImage, String> {
     let img = load_psd_fast(path)?;
     let rgba = img.to_rgba8();
     let (width, height) = rgba.dimensions();
-    let raw = rgba.as_raw().clone();
-    let byte_size = raw.len();
 
-    // キャッシュに追加（サイズベース退避）
+    // キャッシュに追加
     if let Ok(mut cache) = get_psd_cache().lock() {
-        cache.insert(path_str, PsdCacheEntry { rgba_data: raw, width, height, byte_size });
+        // メモリ制限: エントリ数を制限
+        if cache.len() >= MAX_PSD_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(path_str, (rgba.as_raw().clone(), width, height));
     }
 
     Ok(img)
@@ -1379,254 +1340,6 @@ pub async fn run_photoshop_split(
 }
 
 // ============================================
-// PSD Metadata Extraction (hybrid parser)
-// ============================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PsdParsedMeta {
-    pub truncated_path: String,
-    pub original_file_size: u64,
-    pub width: u32,
-    pub height: u32,
-    pub color_mode: String,
-    pub bits_per_channel: u16,
-    pub dpi: u32,
-    pub guides: Vec<PsdGuideInfo>,
-    pub thumbnail_base64: Option<String>,
-    pub alpha_channel_names: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PsdGuideInfo {
-    pub direction: String,
-    pub position: f64,
-}
-
-/// PSDメタデータ抽出 + truncated PSD書き出し（メモリ最適化）
-/// Image Dataセクション（ファイルの60-80%）を読み込まず、メタデータとサムネイルを直接抽出
-#[tauri::command]
-pub async fn parse_psd_metadata(file_path: String) -> Result<PsdParsedMeta, String> {
-    tokio::task::spawn_blocking(move || parse_psd_metadata_sync(&file_path))
-        .await
-        .map_err(|e| format!("Task error: {}", e))?
-}
-
-fn parse_psd_metadata_sync(file_path: &str) -> Result<PsdParsedMeta, String> {
-    let path = Path::new(file_path);
-    let file = File::open(path).map_err(|e| format!("Failed to open: {}", e))?;
-    let original_file_size = file.metadata()
-        .map_err(|e| format!("Metadata error: {}", e))?.len();
-    let mut reader = BufReader::with_capacity(64 * 1024, file);
-
-    let mut buf4 = [0u8; 4];
-    let mut buf2 = [0u8; 2];
-
-    // === Header (26 bytes) ===
-    let mut header = [0u8; 26];
-    reader.read_exact(&mut header).map_err(|e| format!("Header read: {}", e))?;
-    if &header[0..4] != b"8BPS" {
-        return Err("Not a valid PSD file".to_string());
-    }
-    let version = u16::from_be_bytes([header[4], header[5]]);
-    let channels = u16::from_be_bytes([header[12], header[13]]);
-    let height = u32::from_be_bytes([header[14], header[15], header[16], header[17]]);
-    let width = u32::from_be_bytes([header[18], header[19], header[20], header[21]]);
-    let bits_per_channel = u16::from_be_bytes([header[22], header[23]]);
-    let color_mode_num = u16::from_be_bytes([header[24], header[25]]);
-    let _ = channels;
-
-    let color_mode = match color_mode_num {
-        0 => "Bitmap", 1 => "Grayscale", 2 => "Indexed", 3 => "RGB",
-        4 => "CMYK", 7 => "Multichannel", 8 => "Duotone", 9 => "Lab",
-        _ => "Unknown",
-    }.to_string();
-
-    // === Color Mode Data Section ===
-    reader.read_exact(&mut buf4).map_err(|e| format!("Read error: {}", e))?;
-    let color_mode_len = u32::from_be_bytes(buf4);
-    reader.seek(SeekFrom::Current(color_mode_len as i64)).map_err(|e| format!("Seek: {}", e))?;
-
-    // === Image Resources Section ===
-    reader.read_exact(&mut buf4).map_err(|e| format!("Read error: {}", e))?;
-    let resources_len = u32::from_be_bytes(buf4);
-    let resources_start = reader.stream_position().map_err(|e| format!("Pos: {}", e))?;
-
-    // Image Resourcesを走査してメタデータ抽出
-    let mut dpi: u32 = 72;
-    let mut guides: Vec<PsdGuideInfo> = Vec::new();
-    let mut thumbnail_base64: Option<String> = None;
-    let mut alpha_channel_names: Vec<String> = Vec::new();
-
-    let resources_end = resources_start + resources_len as u64;
-    while reader.stream_position().map_err(|e| format!("Pos: {}", e))? < resources_end {
-        // Resource block: signature (4) + id (2) + pascal string + size (4) + data
-        reader.read_exact(&mut buf4).map_err(|e| format!("Res sig: {}", e))?;
-        if &buf4 != b"8BIM" && &buf4 != b"MeSa" {
-            break; // 不正ブロック → 走査終了
-        }
-
-        reader.read_exact(&mut buf2).map_err(|e| format!("Res id: {}", e))?;
-        let resource_id = u16::from_be_bytes(buf2);
-
-        // Pascal string (パディング付き)
-        let mut pascal_len_buf = [0u8; 1];
-        reader.read_exact(&mut pascal_len_buf).map_err(|e| format!("Pascal: {}", e))?;
-        let pascal_len = pascal_len_buf[0] as u64;
-        let padded_pascal = if (pascal_len + 1) % 2 != 0 { pascal_len + 1 } else { pascal_len };
-        reader.seek(SeekFrom::Current(padded_pascal as i64)).map_err(|e| format!("Seek: {}", e))?;
-
-        // Data size
-        reader.read_exact(&mut buf4).map_err(|e| format!("Res size: {}", e))?;
-        let data_size = u32::from_be_bytes(buf4);
-        let data_start = reader.stream_position().map_err(|e| format!("Pos: {}", e))?;
-
-        match resource_id {
-            // 0x03ED (1005): Resolution Info
-            0x03ED => {
-                if data_size >= 16 {
-                    // Fixed-point 16.16: horizontal DPI
-                    reader.read_exact(&mut buf4).map_err(|e| format!("DPI: {}", e))?;
-                    let h_res_fixed = u32::from_be_bytes(buf4);
-                    dpi = (h_res_fixed >> 16).max(1);
-                }
-            }
-            // 0x0408 (1032): Grid and Guide Information
-            0x0408 => {
-                if data_size >= 16 {
-                    // Skip version (4) + grid info (8)
-                    reader.seek(SeekFrom::Current(12)).map_err(|e| format!("Seek: {}", e))?;
-                    reader.read_exact(&mut buf4).map_err(|e| format!("Guide count: {}", e))?;
-                    let guide_count = u32::from_be_bytes(buf4);
-                    for _ in 0..guide_count.min(1000) {
-                        let mut guide_buf = [0u8; 5];
-                        if reader.read_exact(&mut guide_buf).is_err() { break; }
-                        let position_fixed = i32::from_be_bytes([guide_buf[0], guide_buf[1], guide_buf[2], guide_buf[3]]);
-                        let direction = guide_buf[4];
-                        guides.push(PsdGuideInfo {
-                            direction: if direction == 0 { "vertical".to_string() } else { "horizontal".to_string() },
-                            position: position_fixed as f64 / 32.0, // Fixed 27.5
-                        });
-                    }
-                }
-            }
-            // 0x040C (1036): Thumbnail (JFIF)
-            0x040C => {
-                if data_size > 28 {
-                    // Skip thumbnail header (28 bytes): format, w, h, stride, total, size, bpp, planes
-                    reader.seek(SeekFrom::Current(28)).map_err(|e| format!("Seek: {}", e))?;
-                    let jpeg_size = (data_size - 28) as usize;
-                    let mut jpeg_data = vec![0u8; jpeg_size];
-                    reader.read_exact(&mut jpeg_data).map_err(|e| format!("Thumb: {}", e))?;
-                    // JPEG data → base64
-                    thumbnail_base64 = Some(base64_encode(&jpeg_data));
-                }
-            }
-            // 0x0419 (1049): Alpha Channel Names (Unicode)
-            0x0419 => {
-                if data_size > 0 {
-                    let mut alpha_data = vec![0u8; data_size as usize];
-                    reader.read_exact(&mut alpha_data).map_err(|e| format!("Alpha: {}", e))?;
-                    // Unicode strings separated by null terminators
-                    let mut i = 0;
-                    while i + 1 < alpha_data.len() {
-                        // Each string is length-prefixed (u32 = character count)
-                        if i + 4 > alpha_data.len() { break; }
-                        let char_count = u32::from_be_bytes([alpha_data[i], alpha_data[i+1], alpha_data[i+2], alpha_data[i+3]]) as usize;
-                        i += 4;
-                        if i + char_count * 2 > alpha_data.len() { break; }
-                        let chars: Vec<u16> = (0..char_count).map(|j| {
-                            u16::from_be_bytes([alpha_data[i + j*2], alpha_data[i + j*2 + 1]])
-                        }).collect();
-                        let name = String::from_utf16_lossy(&chars);
-                        if !name.is_empty() {
-                            alpha_channel_names.push(name);
-                        }
-                        i += char_count * 2;
-                    }
-                }
-            }
-            // 0x0410 (1040): Alpha Channel Names (Pascal strings) — fallback
-            0x0410 => {
-                if alpha_channel_names.is_empty() && data_size > 0 {
-                    let mut alpha_data = vec![0u8; data_size as usize];
-                    reader.read_exact(&mut alpha_data).map_err(|e| format!("Alpha: {}", e))?;
-                    let mut i = 0;
-                    while i < alpha_data.len() {
-                        let len = alpha_data[i] as usize;
-                        i += 1;
-                        if i + len > alpha_data.len() { break; }
-                        let name = String::from_utf8_lossy(&alpha_data[i..i+len]).to_string();
-                        if !name.is_empty() {
-                            alpha_channel_names.push(name);
-                        }
-                        i += len;
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        // データ末尾にシーク（パディング考慮）
-        let padded_size = if data_size % 2 != 0 { data_size + 1 } else { data_size };
-        reader.seek(SeekFrom::Start(data_start + padded_size as u64))
-            .map_err(|e| format!("Seek next: {}", e))?;
-    }
-
-    // Image Resources末尾にシーク
-    reader.seek(SeekFrom::Start(resources_end)).map_err(|e| format!("Seek: {}", e))?;
-
-    // === Layer and Mask Information Section ===
-    if version == 2 {
-        let mut buf8 = [0u8; 8];
-        reader.read_exact(&mut buf8).map_err(|e| format!("Read: {}", e))?;
-        let layer_len = u64::from_be_bytes(buf8);
-        reader.seek(SeekFrom::Current(layer_len as i64)).map_err(|e| format!("Seek: {}", e))?;
-    } else {
-        reader.read_exact(&mut buf4).map_err(|e| format!("Read: {}", e))?;
-        let layer_len = u32::from_be_bytes(buf4);
-        reader.seek(SeekFrom::Current(layer_len as i64)).map_err(|e| format!("Seek: {}", e))?;
-    }
-
-    // ここがImage Dataセクションの開始 = truncated PSDの末尾
-    let metadata_end = reader.stream_position().map_err(|e| format!("Pos: {}", e))?;
-
-    // === Truncated PSD書き出し（ディスクキャッシュ付き） ===
-    let modified_secs = get_file_modified_secs(path);
-    let path_hash = {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        file_path.hash(&mut hasher);
-        format!("{:016x}", hasher.finish())
-    };
-    let temp_dir = std::env::temp_dir();
-    let temp_filename = format!("manga_psd_meta_{}_{}.psd", path_hash, modified_secs);
-    let temp_path = temp_dir.join(&temp_filename);
-
-    if !temp_path.exists() {
-        reader.seek(SeekFrom::Start(0)).map_err(|e| format!("Seek: {}", e))?;
-        let mut meta_buf = vec![0u8; metadata_end as usize];
-        reader.read_exact(&mut meta_buf).map_err(|e| format!("Read truncated: {}", e))?;
-        fs::write(&temp_path, &meta_buf).map_err(|e| format!("Write temp: {}", e))?;
-        eprintln!("PSD metadata truncated: {} -> {} bytes ({:.0}% reduction)",
-            original_file_size, metadata_end, (1.0 - metadata_end as f64 / original_file_size as f64) * 100.0);
-    }
-
-    Ok(PsdParsedMeta {
-        truncated_path: temp_path.to_string_lossy().to_string(),
-        original_file_size,
-        width,
-        height,
-        color_mode,
-        bits_per_channel,
-        dpi,
-        guides,
-        thumbnail_base64,
-        alpha_channel_names,
-    })
-}
-
-// ============================================
 // Fast PSD Loading (from tachimi_standalone)
 // ============================================
 
@@ -2016,9 +1729,7 @@ pub async fn cleanup_preview_files() -> Result<u32, String> {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                let is_preview = filename.starts_with("manga_psd_preview_") && filename.ends_with(".jpg");
-                let is_meta = filename.starts_with("manga_psd_meta_") && filename.ends_with(".psd");
-                if is_preview || is_meta {
+                if filename.starts_with("manga_psd_preview_") && filename.ends_with(".jpg") {
                     // Check if file is older than 1 hour
                     if let Ok(metadata) = fs::metadata(&path) {
                         if let Ok(modified) = metadata.modified() {
