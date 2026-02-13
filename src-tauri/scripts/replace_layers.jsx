@@ -328,6 +328,12 @@ function main() {
     app.displayDialogs = DialogModes.NO;
     var results = [];
 
+    // Initial heartbeat: signal script has started
+    try {
+        var pf = new File(tempFolder + "/psd_replace_progress.txt");
+        pf.open("w"); pf.write("0/" + String(pairs.length)); pf.close();
+    } catch (e_hb0) {}
+
     try {
         for (var i = 0; i < pairs.length; i++) {
             var pair = pairs[i];

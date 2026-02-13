@@ -45,6 +45,12 @@ function main() {
     var globalSettings = config.globalSettings;
     var results = [];
 
+    // Initial heartbeat: signal script has started
+    try {
+        var pf = new File(tempFolder + "/psd_tiff_progress.txt");
+        pf.open("w"); pf.write("0/" + String(config.files.length)); pf.close();
+    } catch (e_hb0) {}
+
     for (var i = 0; i < config.files.length; i++) {
         var fileConfig = config.files[i];
         var result = processFile(fileConfig, globalSettings);

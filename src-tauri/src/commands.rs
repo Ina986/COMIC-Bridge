@@ -2275,52 +2275,71 @@ pub async fn run_photoshop_replace(
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
     // Poll for results — heartbeat-based timeout
-    // JSX writes psd_replace_progress.txt after each pair; we reset timeout on progress
+    // JSX writes "X/N" to psd_replace_progress.txt; no timeout while X < N
     let pair_count = jobs_normalized.pairs.len();
     let poll_interval_ms: u64 = 500;
-    let per_pair_timeout_secs: u64 = 300; // 5 min per pair max
-    let initial_timeout_secs: u64 = 120;  // 2 min to start processing
+    let initial_timeout_secs: u64 = 600;  // 10 min for PS startup + first pair
+    let final_timeout_secs: u64 = 120;    // 2 min after last pair for result file
     let progress_path = temp_dir.join("psd_replace_progress.txt");
     let _ = fs::remove_file(&progress_path);
     let mut last_progress = String::new();
     let mut polls_since_progress: u64 = 0;
-    let mut current_timeout_polls = (initial_timeout_secs * 1000) / poll_interval_ms;
-    eprintln!("Replace - Heartbeat timeout: {}s initial, {}s per pair, {} pairs",
-        initial_timeout_secs, per_pair_timeout_secs, pair_count);
+    let mut all_done = false; // true when progress shows N/N
+    eprintln!("Replace - Heartbeat: {}s initial, no timeout during processing, {} pairs",
+        initial_timeout_secs, pair_count);
 
     loop {
         // Check if final result is ready
         if output_path.exists() {
             if let Ok(content) = fs::read_to_string(&output_path) {
                 if content.trim().starts_with('[') && content.trim().ends_with(']') {
-                    eprintln!("Replace output ready after {} polls", polls_since_progress);
+                    eprintln!("Replace output ready");
                     break;
                 }
             }
         }
 
-        // Check heartbeat progress file
+        // Check heartbeat progress file ("X/N" format)
         if let Ok(content) = fs::read_to_string(&progress_path) {
             let trimmed = content.trim().to_string();
             if !trimmed.is_empty() && trimmed != last_progress {
                 eprintln!("Replace progress: {}", trimmed);
-                last_progress = trimmed;
+                last_progress = trimmed.clone();
                 polls_since_progress = 0;
-                current_timeout_polls = (per_pair_timeout_secs * 1000) / poll_interval_ms;
+                // Parse "X/N" to check if all pairs are done
+                if let Some((current, total)) = trimmed.split_once('/') {
+                    if let (Ok(c), Ok(t)) = (current.parse::<u64>(), total.parse::<u64>()) {
+                        all_done = c >= t && t > 0;
+                    }
+                }
             }
         }
 
         polls_since_progress += 1;
-        if polls_since_progress >= current_timeout_polls {
-            eprintln!("Replace timed out (no progress for {}s)", current_timeout_polls * poll_interval_ms / 1000);
+
+        // Timeout logic: only enforce timeout before first heartbeat or after N/N
+        let timeout_polls = if last_progress.is_empty() {
+            (initial_timeout_secs * 1000) / poll_interval_ms
+        } else if all_done {
+            (final_timeout_secs * 1000) / poll_interval_ms
+        } else {
+            u64::MAX // no timeout while processing
+        };
+
+        if polls_since_progress >= timeout_polls {
+            if last_progress.is_empty() {
+                eprintln!("Replace timed out (no heartbeat from Photoshop after {}s)", initial_timeout_secs);
+            } else {
+                eprintln!("Replace timed out (result file not written after last progress)");
+            }
             break;
         }
 
         std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
 
-        if polls_since_progress > 0 && polls_since_progress % 20 == 0 {
-            eprintln!("Still waiting for Photoshop replace... ({}s since last progress)",
-                polls_since_progress * poll_interval_ms / 1000);
+        if polls_since_progress > 0 && polls_since_progress % 60 == 0 {
+            eprintln!("Still waiting for Photoshop replace... ({}s since last progress, {})",
+                polls_since_progress * poll_interval_ms / 1000, if last_progress.is_empty() { "waiting for start" } else { &last_progress });
         }
     }
     let _ = fs::remove_file(&progress_path);
@@ -2921,52 +2940,71 @@ pub async fn run_photoshop_tiff_convert(
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
     // Poll for results — heartbeat-based timeout
-    // JSX writes psd_tiff_progress.txt after each file; we reset timeout on progress
+    // JSX writes "X/N" to psd_tiff_progress.txt; no timeout while X < N
     let file_count = rewritten_json.matches("\"filePath\"").count().max(1);
     let poll_interval_ms: u64 = 500;
-    let per_file_timeout_secs: u64 = 300; // 5 min per file max
-    let initial_timeout_secs: u64 = 120;  // 2 min to start processing
+    let initial_timeout_secs: u64 = 600;  // 10 min for PS startup + first file
+    let final_timeout_secs: u64 = 120;    // 2 min after last file for result file
     let progress_path = temp_dir.join("psd_tiff_progress.txt");
     let _ = fs::remove_file(&progress_path);
     let mut last_progress = String::new();
     let mut polls_since_progress: u64 = 0;
-    let mut current_timeout_polls = (initial_timeout_secs * 1000) / poll_interval_ms;
-    eprintln!("TIFF Convert - Heartbeat timeout: {}s initial, {}s per file, {} files",
-        initial_timeout_secs, per_file_timeout_secs, file_count);
+    let mut all_done = false; // true when progress shows N/N
+    eprintln!("TIFF Convert - Heartbeat: {}s initial, no timeout during processing, {} files",
+        initial_timeout_secs, file_count);
 
     loop {
         // Check if final result is ready
         if output_path.exists() {
             if let Ok(content) = fs::read_to_string(&output_path) {
                 if content.trim().starts_with('{') && content.contains("results") {
-                    eprintln!("TIFF Convert output ready after {} polls", polls_since_progress);
+                    eprintln!("TIFF Convert output ready");
                     break;
                 }
             }
         }
 
-        // Check heartbeat progress file
+        // Check heartbeat progress file ("X/N" format)
         if let Ok(content) = fs::read_to_string(&progress_path) {
             let trimmed = content.trim().to_string();
             if !trimmed.is_empty() && trimmed != last_progress {
                 eprintln!("TIFF Convert progress: {}", trimmed);
-                last_progress = trimmed;
+                last_progress = trimmed.clone();
                 polls_since_progress = 0;
-                current_timeout_polls = (per_file_timeout_secs * 1000) / poll_interval_ms;
+                // Parse "X/N" to check if all files are done
+                if let Some((current, total)) = trimmed.split_once('/') {
+                    if let (Ok(c), Ok(t)) = (current.parse::<u64>(), total.parse::<u64>()) {
+                        all_done = c >= t && t > 0;
+                    }
+                }
             }
         }
 
         polls_since_progress += 1;
-        if polls_since_progress >= current_timeout_polls {
-            eprintln!("TIFF Convert timed out (no progress for {}s)", current_timeout_polls * poll_interval_ms / 1000);
+
+        // Timeout logic: only enforce timeout before first heartbeat or after N/N
+        let timeout_polls = if last_progress.is_empty() {
+            (initial_timeout_secs * 1000) / poll_interval_ms
+        } else if all_done {
+            (final_timeout_secs * 1000) / poll_interval_ms
+        } else {
+            u64::MAX // no timeout while processing
+        };
+
+        if polls_since_progress >= timeout_polls {
+            if last_progress.is_empty() {
+                eprintln!("TIFF Convert timed out (no heartbeat from Photoshop after {}s)", initial_timeout_secs);
+            } else {
+                eprintln!("TIFF Convert timed out (result file not written after last progress)");
+            }
             break;
         }
 
         std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
 
-        if polls_since_progress > 0 && polls_since_progress % 20 == 0 {
-            eprintln!("Still waiting for Photoshop TIFF convert... ({}s since last progress)",
-                polls_since_progress * poll_interval_ms / 1000);
+        if polls_since_progress > 0 && polls_since_progress % 60 == 0 {
+            eprintln!("Still waiting for Photoshop TIFF convert... ({}s since last progress, {})",
+                polls_since_progress * poll_interval_ms / 1000, if last_progress.is_empty() { "waiting for start" } else { &last_progress });
         }
     }
     let _ = fs::remove_file(&progress_path);
