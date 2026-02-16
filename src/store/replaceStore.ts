@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   ReplaceMode,
   TextSubMode,
+  SwitchSubMode,
   PairingMode,
   SubfolderMode,
   ProcessingPhase,
@@ -66,6 +67,10 @@ interface ReplaceState {
   setImageSettings: (
     settings: Partial<ReplaceSettings["imageSettings"]>
   ) => void;
+  setSwitchSettings: (
+    settings: Partial<ReplaceSettings["switchSettings"]>
+  ) => void;
+  setSwitchSubMode: (subMode: SwitchSubMode) => void;
   setPairingMode: (mode: PairingMode) => void;
   setLinkCharacter: (char: string) => void;
   setGeneralSettings: (
@@ -116,6 +121,14 @@ const defaultSettings: ReplaceSettings = {
     replaceNamedGroup: false,
     namedGroupName: "棒消し",
     namedGroupPartialMatch: true,
+    placeFromBottom: true,
+  },
+  switchSettings: {
+    subMode: "whiteToBar",
+    whiteLayerName: "白消し",
+    whitePartialMatch: true,
+    barGroupName: "棒消し",
+    barPartialMatch: true,
     placeFromBottom: true,
   },
   pairingSettings: {
@@ -208,6 +221,22 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
       settings: {
         ...state.settings,
         imageSettings: { ...state.settings.imageSettings, ...newSettings },
+      },
+    })),
+
+  // スイッチ設定
+  setSwitchSettings: (newSettings) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        switchSettings: { ...state.settings.switchSettings, ...newSettings },
+      },
+    })),
+  setSwitchSubMode: (subMode) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        switchSettings: { ...state.settings.switchSettings, subMode },
       },
     })),
 

@@ -15,6 +15,8 @@ export function ReplacePanel() {
   const setTextGroupName = useReplaceStore((s) => s.setTextGroupName);
   const setTextPartialMatch = useReplaceStore((s) => s.setTextPartialMatch);
   const setImageSettings = useReplaceStore((s) => s.setImageSettings);
+  const setSwitchSettings = useReplaceStore((s) => s.setSwitchSettings);
+  const setSwitchSubMode = useReplaceStore((s) => s.setSwitchSubMode);
   const setGeneralSettings = useReplaceStore((s) => s.setGeneralSettings);
   const setSubfolderMode = useReplaceStore((s) => s.setSubfolderMode);
   const phase = useReplaceStore((s) => s.phase);
@@ -40,11 +42,13 @@ export function ReplacePanel() {
     !isScanning &&
     (settings.mode !== "image" || hasImageSelection);
 
+  const isSwitch = settings.mode === "switch";
+  const isWhiteToBar = settings.switchSettings.subMode === "whiteToBar";
+
   const handleSelectFolder = async (type: "source" | "target") => {
-    const title =
-      type === "source"
-        ? "植字データフォルダを選択"
-        : "画像データフォルダを選択";
+    const title = isSwitch
+      ? type === "source" ? "差替え元フォルダを選択" : "差替え対象フォルダを選択"
+      : type === "source" ? "植字データフォルダを選択" : "画像データフォルダを選択";
     const selected = await open({ directory: true, title });
     if (selected) {
       if (type === "source") setSourceFolder(selected as string);
@@ -92,15 +96,15 @@ export function ReplacePanel() {
           </h4>
           <div className="space-y-2">
             <FolderPicker
-              label="植字データ"
+              label={isSwitch ? (isWhiteToBar ? "棒消しデータ" : "白消しデータ") : "植字データ"}
               path={folders.sourceFolder}
               displayName={getLastFolderName(folders.sourceFolder)}
               onSelect={() => handleSelectFolder("source")}
               onClear={() => setSourceFolder(null)}
-              color="accent"
+              color={isSwitch ? "warning" : "accent"}
             />
             <FolderPicker
-              label="画像データ"
+              label={isSwitch ? "差替え対象PSD" : "画像データ"}
               path={folders.targetFolder}
               displayName={getLastFolderName(folders.targetFolder)}
               onSelect={() => handleSelectFolder("target")}
@@ -349,6 +353,68 @@ export function ReplacePanel() {
                   >
                     <span className="text-[10px] text-text-secondary">
                       フォントサイズを丸める
+                    </span>
+                  </CheckBox>
+                  <CheckBox
+                    checked={settings.generalSettings.skipResize}
+                    onChange={(v) => setGeneralSettings({ skipResize: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      サイズ変更を行わない
+                    </span>
+                  </CheckBox>
+                </div>
+              </div>
+            )}
+
+            {/* Switch Mode */}
+            <ModeCard
+              mode="switch"
+              currentMode={settings.mode}
+              label="スイッチ差替え"
+              description="白消し ⇔ 棒消し を切り替え"
+              icon={<SwitchIcon />}
+              color="warning"
+              onSelect={setMode}
+            />
+            {settings.mode === "switch" && (
+              <div className="ml-3 pl-3 border-l-2 border-warning/30 space-y-2">
+                <label
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => setSwitchSubMode("whiteToBar")}
+                >
+                  <RadioDot selected={settings.switchSettings.subMode === "whiteToBar"} />
+                  <div>
+                    <span className="text-xs text-text-primary">
+                      白消し → 棒消し
+                    </span>
+                    <p className="text-[10px] text-text-muted">
+                      白消しレイヤーを非表示にして棒消しグループをコピー
+                    </p>
+                  </div>
+                </label>
+                <label
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => setSwitchSubMode("barToWhite")}
+                >
+                  <RadioDot selected={settings.switchSettings.subMode === "barToWhite"} />
+                  <div>
+                    <span className="text-xs text-text-primary">
+                      棒消し → 白消し
+                    </span>
+                    <p className="text-[10px] text-text-muted">
+                      棒消しグループを非表示にして白消しレイヤーをコピー
+                    </p>
+                  </div>
+                </label>
+
+                <div className="pt-1 mt-1 border-t border-warning/15 space-y-1.5">
+                  <CheckBox
+                    checked={settings.switchSettings.placeFromBottom}
+                    onChange={(v) => setSwitchSettings({ placeFromBottom: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      下から数えて同じ位置に配置
                     </span>
                   </CheckBox>
                   <CheckBox
@@ -660,6 +726,24 @@ function BatchIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+      />
+    </svg>
+  );
+}
+
+function SwitchIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4"
       />
     </svg>
   );

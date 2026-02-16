@@ -51,6 +51,8 @@ export function ReplaceDropZone() {
   const batchParentRef = useRef<HTMLDivElement>(null!);
 
   const isBatch = settings.mode === "batch";
+  const isSwitch = settings.mode === "switch";
+  const isWhiteToBar = settings.switchSettings.subMode === "whiteToBar";
   // 排他制御: 親フォルダモード ↔ 個別指定モード
   const parentActive = isBatch && !!folders.targetFolder;
   const individualActive = isBatch && !folders.targetFolder && batchFolders.some((f) => f.name === "白消し" || f.name === "棒消し");
@@ -285,13 +287,13 @@ export function ReplaceDropZone() {
       onDrop={preventDrag}
     >
       <div className="flex items-stretch gap-6 w-full max-w-5xl">
-        {/* === 植字データ（左） === */}
+        {/* === 植字データ / 差替え元（左） === */}
         <div ref={sourceRef} className="flex-1 min-w-0">
           <DropCard
-            label="植字データ"
-            sublabel="テキスト等を取り出すファイル"
+            label={isSwitch ? (isWhiteToBar ? "棒消しデータ" : "白消しデータ") : "植字データ"}
+            sublabel={isSwitch ? (isWhiteToBar ? "差し替え用の棒消しレイヤーを含むファイル" : "差し替え用の白消しレイヤーを含むファイル") : "テキスト等を取り出すファイル"}
             icon={<TextIcon />}
-            color="pink"
+            color={isSwitch ? "amber" : "pink"}
             folderPath={folders.sourceFolder}
             fileCount={sourceFileCount}
             isFileSelection={!!folders.sourceFiles}
@@ -312,7 +314,7 @@ export function ReplaceDropZone() {
             </span>
           ) : (
             <span className="text-[10px] font-medium text-text-muted">
-              {settings.mode === "text" ? "テキスト差替え" : settings.mode === "batch" ? "一括差替え" : "画像差替え"}
+              {settings.mode === "text" ? "テキスト差替え" : settings.mode === "batch" ? "一括差替え" : settings.mode === "switch" ? "スイッチ差替え" : "画像差替え"}
             </span>
           )}
 
@@ -332,7 +334,9 @@ export function ReplaceDropZone() {
               stroke="currentColor"
               strokeWidth={2.5}
             >
-              {settings.mode === "text" ? (
+              {settings.mode === "switch" ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4" />
+              ) : settings.mode === "text" ? (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7m0 0l-7 7m7-7H4" />
               ) : (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7m0 0l7-7m-7 7h16" />
@@ -369,8 +373,8 @@ export function ReplaceDropZone() {
             />
           ) : (
             <DropCard
-              label="画像データ"
-              sublabel="ベースとなる原稿ファイル"
+              label={isSwitch ? "差替え対象PSD" : "画像データ"}
+              sublabel={isSwitch ? (isWhiteToBar ? "白消しレイヤーが非表示になります" : "棒消しグループが非表示になります") : "ベースとなる原稿ファイル"}
               icon={<ImageIcon />}
               color="purple"
               folderPath={folders.targetFolder}
@@ -395,7 +399,7 @@ interface DropCardProps {
   label: string;
   sublabel: string;
   icon: React.ReactNode;
-  color: "pink" | "purple";
+  color: "pink" | "purple" | "amber";
   folderPath: string | null;
   fileCount: number | null;
   isFileSelection?: boolean;
@@ -434,6 +438,15 @@ function DropCard({
           : "border-text-muted/20 hover:border-accent-secondary/40 hover:bg-accent-secondary/5",
       icon: "from-accent-secondary to-[#a78bfa]",
       badge: "bg-accent-secondary/15 text-accent-secondary",
+    },
+    amber: {
+      border: isDragOver
+        ? "border-warning bg-warning/10 shadow-[inset_0_0_40px_rgba(245,158,11,0.12)]"
+        : folderPath
+          ? "border-warning/40 bg-warning/5"
+          : "border-text-muted/20 hover:border-warning/40 hover:bg-warning/5",
+      icon: "from-warning to-[#fbbf24]",
+      badge: "bg-warning/15 text-warning",
     },
   };
 
@@ -509,7 +522,7 @@ function DropCard({
             </div>
           </div>
 
-          <p className={`text-lg font-display font-medium mb-2 transition-colors duration-300 ${isDragOver ? (color === "pink" ? "text-accent" : "text-accent-secondary") : "text-text-primary"}`}>
+          <p className={`text-lg font-display font-medium mb-2 transition-colors duration-300 ${isDragOver ? (color === "pink" ? "text-accent" : color === "amber" ? "text-warning" : "text-accent-secondary") : "text-text-primary"}`}>
             {label}
           </p>
           <p className="text-xs text-text-muted mb-4">{sublabel}</p>

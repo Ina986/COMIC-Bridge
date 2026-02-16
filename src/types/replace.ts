@@ -10,8 +10,9 @@ export interface ScannedFileGroup {
 }
 
 // === 差替えモード ===
-export type ReplaceMode = "text" | "image" | "batch";
+export type ReplaceMode = "text" | "image" | "batch" | "switch";
 export type TextSubMode = "textLayers" | "namedGroup";
+export type SwitchSubMode = "whiteToBar" | "barToWhite";
 export type PairingMode =
   | "fileOrder"
   | "numericKey"
@@ -45,6 +46,16 @@ export interface ImageModeSettings {
   placeFromBottom: boolean; // 下から数えて同じ位置に配置
 }
 
+// === スイッチモード設定 ===
+export interface SwitchModeSettings {
+  subMode: SwitchSubMode;
+  whiteLayerName: string;      // e.g. "白消し"
+  whitePartialMatch: boolean;
+  barGroupName: string;        // e.g. "棒消し"
+  barPartialMatch: boolean;
+  placeFromBottom: boolean;    // 下から数えて同じ位置に配置
+}
+
 // === ペアリング設定 ===
 export interface PairingSettings {
   mode: PairingMode;
@@ -69,6 +80,7 @@ export interface ReplaceSettings {
   mode: ReplaceMode;
   textSettings: TextModeSettings;
   imageSettings: ImageModeSettings;
+  switchSettings: SwitchModeSettings;
   pairingSettings: PairingSettings;
   generalSettings: GeneralSettings;
   subfolderSettings: SubfolderSettings;

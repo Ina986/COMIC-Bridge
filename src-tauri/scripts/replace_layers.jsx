@@ -294,10 +294,12 @@ function main() {
     var pairs = settings.pairs;
     var textSettings = settings.textSettings;
     var imageSettings = settings.imageSettings;
+    var switchSettings = settings.switchSettings;
     var generalSettings = settings.generalSettings;
 
     var isBatchMode = (mode === "batch");
     var isImageOnlyMode = (mode === "image");
+    var isSwitchMode = (mode === "switch");
     // テキスト差替え / バッチモード: 通常方向(source→target), 画像差替え: 逆方向(target→source)
     var isReverseDirection = isImageOnlyMode;
 
@@ -340,6 +342,7 @@ function main() {
             var result = processPair(pair, {
                 isReverseDirection: isReverseDirection,
                 isBatchMode: isBatchMode,
+                isSwitchMode: isSwitchMode,
                 shouldReplaceText: shouldReplaceText,
                 shouldReplaceTextGroup: shouldReplaceTextGroup,
                 shouldReplaceBackground: shouldReplaceBackground,
@@ -352,7 +355,13 @@ function main() {
                 specialName: specialName,
                 specialPartialMatch: specialPartialMatch,
                 groupName: groupName,
-                groupPartialMatch: groupPartialMatch
+                groupPartialMatch: groupPartialMatch,
+                switchSubMode: isSwitchMode ? switchSettings.subMode : "",
+                switchWhiteName: isSwitchMode ? switchSettings.whiteLayerName : "",
+                switchWhitePartialMatch: isSwitchMode ? switchSettings.whitePartialMatch : false,
+                switchBarName: isSwitchMode ? switchSettings.barGroupName : "",
+                switchBarPartialMatch: isSwitchMode ? switchSettings.barPartialMatch : false,
+                switchPlaceFromBottom: isSwitchMode ? switchSettings.placeFromBottom : false
             });
             results.push(result);
 
@@ -737,6 +746,117 @@ function processPair(pair, opts) {
                 }
             }
             if (igCount > 0) result.changes.push("グループ「" + opts.groupName + "」" + igCount + " 個を複製");
+        }
+
+        // === 5. Switch mode: hide + copy ===
+        if (opts.isSwitchMode) {
+            if (opts.switchSubMode === "whiteToBar") {
+                // Case A: targetDoc has white-erase layers -> hide them, copy bar-erase groups from sourceDoc
+                // Step 1: Hide white-erase layers in targetDoc
+                setActiveDocument(targetDoc);
+                var whiteLayersToHide = [];
+                collectSpecialLayers(targetDoc, whiteLayersToHide, opts.switchWhiteName, opts.switchWhitePartialMatch);
+                var whHiddenCount = 0;
+                for (var wh = 0; wh < whiteLayersToHide.length; wh++) {
+                    try { whiteLayersToHide[wh].visible = false; whHiddenCount++; } catch (e_wh) {}
+                }
+                if (whHiddenCount > 0) {
+                    result.changes.push("\u975E\u8868\u793A: \u300C" + opts.switchWhiteName + "\u300D" + whHiddenCount + " \u500B");
+                }
+
+                // Step 2: Copy bar-erase groups from sourceDoc to targetDoc
+                setActiveDocument(sourceDoc);
+                var barGroupsToCopy = [];
+                collectSpecialLayerSets(sourceDoc, barGroupsToCopy, opts.switchBarName, opts.switchBarPartialMatch);
+                var bgCopiedCount = 0;
+                for (var bg = 0; bg < barGroupsToCopy.length; bg++) {
+                    var bGroup = barGroupsToCopy[bg];
+                    var bContainer = targetDoc;
+                    var bPlacement = ElementPlacement.PLACEATBEGINNING;
+                    var bRelative = null;
+                    try {
+                        if (bGroup.parent.typename === 'LayerSet') {
+                            var bParent = findLayerSetByName(targetDoc, bGroup.parent.name);
+                            if (bParent) bContainer = bParent;
+                        }
+                        if (opts.switchPlaceFromBottom) {
+                            var bIdxBottom = getIndexFromBottom(bGroup);
+                            setActiveDocument(targetDoc);
+                            if (bIdxBottom >= 0) {
+                                var bElem = getElementAtIndexFromBottom(bContainer, bIdxBottom);
+                                if (bElem) { bRelative = bElem; bPlacement = ElementPlacement.PLACEAFTER; }
+                                else bPlacement = ElementPlacement.PLACEATEND;
+                            }
+                        } else {
+                            var bIdx = getIndexInParent(bGroup);
+                            if (bIdx >= 0) {
+                                setActiveDocument(targetDoc);
+                                var bElem2 = getElementAtIndex(bContainer, bIdx);
+                                if (bElem2) { bRelative = bElem2; bPlacement = ElementPlacement.PLACEBEFORE; }
+                                else bPlacement = ElementPlacement.PLACEATEND;
+                            }
+                        }
+                        setActiveDocument(sourceDoc);
+                        var dupBG = bRelative ? bGroup.duplicate(bRelative, bPlacement) : bGroup.duplicate(bContainer, bPlacement);
+                        setActiveDocument(targetDoc);
+                        clearLayerColor(dupBG);
+                        if (opts.skipResize) { dupBG.translate(centerOffsetX, centerOffsetY); }
+                        result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + bGroup.name + "\u300D");
+                        bgCopiedCount++;
+                    } catch (e_bg) {}
+                }
+                if (bgCopiedCount > 0) {
+                    result.changes.push("\u30B0\u30EB\u30FC\u30D7\u300C" + opts.switchBarName + "\u300D" + bgCopiedCount + " \u500B\u3092\u8907\u88FD");
+                }
+
+            } else if (opts.switchSubMode === "barToWhite") {
+                // Case B: targetDoc has bar-erase groups -> hide them, copy white-erase layers from sourceDoc
+                // Step 1: Hide bar-erase groups in targetDoc
+                setActiveDocument(targetDoc);
+                var barGroupsToHide = [];
+                collectSpecialLayerSets(targetDoc, barGroupsToHide, opts.switchBarName, opts.switchBarPartialMatch);
+                var brHiddenCount = 0;
+                for (var bh = 0; bh < barGroupsToHide.length; bh++) {
+                    try { barGroupsToHide[bh].visible = false; brHiddenCount++; } catch (e_bh) {}
+                }
+                if (brHiddenCount > 0) {
+                    result.changes.push("\u975E\u8868\u793A: \u300C" + opts.switchBarName + "\u300D" + brHiddenCount + " \u500B");
+                }
+
+                // Step 2: Copy white-erase layers from sourceDoc to targetDoc
+                setActiveDocument(sourceDoc);
+                var whiteLayersToCopy = [];
+                collectSpecialLayers(sourceDoc, whiteLayersToCopy, opts.switchWhiteName, opts.switchWhitePartialMatch);
+                var wlCopiedCount = 0;
+                for (var wl = 0; wl < whiteLayersToCopy.length; wl++) {
+                    var wLayer = whiteLayersToCopy[wl];
+                    var wContainer = targetDoc;
+                    var wPlacement = ElementPlacement.PLACEATBEGINNING;
+                    var wRelative = null;
+                    try {
+                        if (wLayer.parent.typename === 'LayerSet') {
+                            var wParent = findLayerSetByName(targetDoc, wLayer.parent.name);
+                            if (wParent) wContainer = wParent;
+                        }
+                        var wBelow = getLayerBelow(wLayer);
+                        if (wBelow) {
+                            setActiveDocument(targetDoc);
+                            var wBelowTarget = findArtLayerByName_InContainer(wContainer, wBelow.name);
+                            if (wBelowTarget) { wRelative = wBelowTarget; wPlacement = ElementPlacement.PLACEBEFORE; }
+                        } else {
+                            wPlacement = ElementPlacement.PLACEATEND;
+                        }
+                        setActiveDocument(sourceDoc);
+                        var dupWL = wRelative ? wLayer.duplicate(wRelative, wPlacement) : wLayer.duplicate(wContainer, wPlacement);
+                        if (opts.skipResize) { setActiveDocument(targetDoc); dupWL.translate(centerOffsetX, centerOffsetY); }
+                        result.changes.push("  \u2192 \u30EC\u30A4\u30E4\u30FC\u300C" + wLayer.name + "\u300D");
+                        wlCopiedCount++;
+                    } catch (e_wl) {}
+                }
+                if (wlCopiedCount > 0) {
+                    result.changes.push("\u30EC\u30A4\u30E4\u30FC\u300C" + opts.switchWhiteName + "\u300D" + wlCopiedCount + " \u500B\u3092\u8907\u88FD");
+                }
+            }
         }
 
         // === 保存処理 ===

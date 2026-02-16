@@ -79,6 +79,10 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
         return "画像差替え";
       case "batch":
         return "白消し・棒消し同時処理";
+      case "switch":
+        return settings.switchSettings.subMode === "whiteToBar"
+          ? "白消し → 棒消し 切り替え"
+          : "棒消し → 白消し 切り替え";
     }
   };
 
@@ -90,6 +94,8 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
         return "画像データ → 植字データ";
       case "batch":
         return "サブフォルダ → 植字データ";
+      case "switch":
+        return "差替え元 → 差替え対象PSD";
     }
   };
 

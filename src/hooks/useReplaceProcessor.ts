@@ -561,6 +561,7 @@ export function useReplaceProcessor() {
             pairs: pairEntries,
             textSettings: currentSettings.textSettings,
             imageSettings: currentSettings.imageSettings,
+            switchSettings: currentSettings.switchSettings,
             generalSettings: currentSettings.generalSettings,
             outputPath: "", // Rust側で設定される
           },

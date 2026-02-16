@@ -2180,6 +2180,22 @@ pub struct ReplaceGeneralSettings {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ReplaceSwitchSettings {
+    #[serde(rename = "subMode")]
+    pub sub_mode: String,
+    #[serde(rename = "whiteLayerName")]
+    pub white_layer_name: String,
+    #[serde(rename = "whitePartialMatch")]
+    pub white_partial_match: bool,
+    #[serde(rename = "barGroupName")]
+    pub bar_group_name: String,
+    #[serde(rename = "barPartialMatch")]
+    pub bar_partial_match: bool,
+    #[serde(rename = "placeFromBottom")]
+    pub place_from_bottom: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReplacePairEntry {
     #[serde(rename = "sourceFile")]
     pub source_file: String,
@@ -2197,6 +2213,8 @@ pub struct ReplaceJobSettings {
     pub text_settings: ReplaceTextSettings,
     #[serde(rename = "imageSettings")]
     pub image_settings: ReplaceImageSettings,
+    #[serde(rename = "switchSettings")]
+    pub switch_settings: ReplaceSwitchSettings,
     #[serde(rename = "generalSettings")]
     pub general_settings: ReplaceGeneralSettings,
     #[serde(rename = "outputPath")]
