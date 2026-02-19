@@ -20,6 +20,7 @@ pub fn run() {
             commands::run_photoshop_guide_apply,
             commands::run_photoshop_prepare,
             commands::run_photoshop_layer_visibility,
+            commands::run_photoshop_layer_organize,
             commands::run_photoshop_split,
             commands::get_high_res_preview,
             commands::cleanup_preview_files,
@@ -29,6 +30,7 @@ pub fn run() {
             commands::list_folder_contents,
             commands::read_text_file,
             commands::write_text_file,
+            commands::delete_file,
             commands::path_exists,
             commands::run_photoshop_replace,
             commands::run_photoshop_rename,
@@ -42,6 +44,9 @@ pub fn run() {
             commands::run_photoshop_tiff_convert,
             commands::launch_kenban_diff,
             commands::resolve_font_names,
+            commands::run_photoshop_scan_psd,
+            commands::poll_scan_psd_progress,
+            commands::detect_psd_folders,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

@@ -13,6 +13,49 @@ use thiserror::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ============================================
+// Natural sort comparison (1, 2, 10, 11...)
+// ============================================
+
+fn natural_sort_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let mut ai = a.chars().peekable();
+    let mut bi = b.chars().peekable();
+
+    loop {
+        match (ai.peek(), bi.peek()) {
+            (None, None) => return std::cmp::Ordering::Equal,
+            (None, Some(_)) => return std::cmp::Ordering::Less,
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(&ac), Some(&bc)) => {
+                if ac.is_ascii_digit() && bc.is_ascii_digit() {
+                    // 数値部分を丸ごと比較
+                    let mut an = String::new();
+                    while let Some(&c) = ai.peek() {
+                        if c.is_ascii_digit() { an.push(c); ai.next(); } else { break; }
+                    }
+                    let mut bn = String::new();
+                    while let Some(&c) = bi.peek() {
+                        if c.is_ascii_digit() { bn.push(c); bi.next(); } else { break; }
+                    }
+                    let na: u64 = an.parse().unwrap_or(0);
+                    let nb: u64 = bn.parse().unwrap_or(0);
+                    match na.cmp(&nb) {
+                        std::cmp::Ordering::Equal => continue,
+                        other => return other,
+                    }
+                } else {
+                    let al = ac.to_lowercase().next().unwrap_or(ac);
+                    let bl = bc.to_lowercase().next().unwrap_or(bc);
+                    match al.cmp(&bl) {
+                        std::cmp::Ordering::Equal => { ai.next(); bi.next(); }
+                        other => return other,
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================
 // PSD Cache (for faster repeated access)
 // ============================================
 
@@ -1122,6 +1165,162 @@ pub async fn run_photoshop_layer_visibility(
 }
 
 // ============================================
+// Photoshop Layer Organize (フォルダ格納)
+// ============================================
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LayerOrganizeSettings {
+    files: Vec<String>,
+    #[serde(rename = "targetGroupName")]
+    target_group_name: String,
+    #[serde(rename = "includeSpecial")]
+    include_special: bool,
+    #[serde(rename = "outputPath")]
+    output_path: String,
+    #[serde(rename = "saveFolder", skip_serializing_if = "Option::is_none")]
+    save_folder: Option<String>,
+}
+
+/// Run Photoshop to organize layers into a target group
+#[tauri::command]
+pub async fn run_photoshop_layer_organize(
+    app_handle: tauri::AppHandle,
+    file_paths: Vec<String>,
+    target_group_name: String,
+    include_special: bool,
+    save_mode: Option<String>,
+) -> Result<Vec<PhotoshopResult>, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found. Please install Adobe Photoshop.".to_string())?;
+
+    // Resolve script path
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+
+    let script_path = resource_path.join("scripts").join("organize_layers.jsx");
+
+    let script_path_str = if script_path.exists() {
+        script_path.to_string_lossy().to_string()
+    } else {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("organize_layers.jsx");
+        if dev_script.exists() {
+            dev_script.to_string_lossy().to_string()
+        } else {
+            return Err("Layer organize script not found".to_string());
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let settings_path = temp_dir.join("psd_layer_organize_settings.json");
+    let output_path = temp_dir.join("psd_layer_organize_results.json");
+
+    let _ = fs::remove_file(&output_path);
+
+    // Compute save folder for "copyToFolder" mode
+    let save_folder = if save_mode.as_deref() == Some("copyToFolder") {
+        let home = std::env::var("USERPROFILE")
+            .unwrap_or_else(|_| std::env::var("HOME").unwrap_or_default());
+        let parent_name = file_paths
+            .first()
+            .and_then(|p| {
+                Path::new(p)
+                    .parent()
+                    .and_then(|par| par.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| "output".to_string());
+        let folder = Path::new(&home)
+            .join("Desktop")
+            .join("Script_Output")
+            .join("レイヤー整理")
+            .join(&parent_name);
+        let _ = fs::create_dir_all(&folder);
+        Some(folder.to_string_lossy().to_string().replace("\\", "/"))
+    } else {
+        None
+    };
+
+    // Build settings JSON
+    let settings = LayerOrganizeSettings {
+        files: file_paths.iter().map(|p| p.replace("\\", "/")).collect(),
+        target_group_name,
+        include_special,
+        output_path: output_path.to_string_lossy().to_string().replace("\\", "/"),
+        save_folder,
+    };
+
+    let settings_json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+
+    let mut settings_file = fs::File::create(&settings_path)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    settings_file.write_all(&[0xEF, 0xBB, 0xBF])
+        .map_err(|e| format!("Failed to write BOM: {}", e))?;
+    settings_file.write_all(settings_json.as_bytes())
+        .map_err(|e| format!("Failed to write settings: {}", e))?;
+
+    eprintln!("Layer organize - Photoshop: {}", ps_path);
+    eprintln!("Layer organize - Script: {}", script_path_str);
+    eprintln!("Layer organize - Files: {}", file_paths.len());
+
+    let _output = Command::new(&ps_path)
+        .arg("-r")
+        .arg(&script_path_str)
+        .output()
+        .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    // Poll for results
+    let max_wait_secs = 120;
+    let poll_interval_ms = 500;
+    let max_polls = (max_wait_secs * 1000) / poll_interval_ms;
+
+    for poll in 0..max_polls {
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                if content.trim().starts_with('[') && content.trim().ends_with(']') {
+                    eprintln!("Layer organize output ready after {} polls", poll);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+
+        if poll > 0 && poll % 20 == 0 {
+            eprintln!("Still waiting for Photoshop... ({} seconds)", poll * poll_interval_ms / 1000);
+        }
+    }
+
+    if output_path.exists() {
+        let results_json = fs::read_to_string(&output_path)
+            .map_err(|e| format!("Failed to read results: {}", e))?;
+
+        let results: Vec<PhotoshopResult> = serde_json::from_str(&results_json)
+            .map_err(|e| format!("Failed to parse results: {}. JSON was: {}", e, results_json))?;
+
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
+        Ok(results)
+    } else {
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+        Err("Photoshop did not produce output file. Script may have failed.".to_string())
+    }
+}
+
+// ============================================
 // Photoshop Split Processing
 // ============================================
 
@@ -2085,6 +2284,17 @@ pub async fn write_text_file(file_path: String, content: String) -> Result<(), S
         .map_err(|e| format!("Failed to write file: {}", e))
 }
 
+/// Delete a file (no error if it doesn't exist)
+#[tauri::command]
+pub async fn delete_file(file_path: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    if path.exists() {
+        fs::remove_file(path)
+            .map_err(|e| format!("Failed to delete file: {}", e))?;
+    }
+    Ok(())
+}
+
 /// Check if a file or directory exists
 #[tauri::command]
 pub async fn path_exists(path: String) -> Result<bool, String> {
@@ -2206,6 +2416,32 @@ pub struct ReplacePairEntry {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ComposeElementEntry {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub element_type: String,
+    pub label: String,
+    pub source: String,
+    #[serde(rename = "customName")]
+    pub custom_name: Option<String>,
+    #[serde(rename = "customKind")]
+    pub custom_kind: Option<String>,
+    #[serde(rename = "partialMatch")]
+    pub partial_match: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReplaceComposeSettings {
+    pub elements: Vec<ComposeElementEntry>,
+    #[serde(rename = "restSource")]
+    pub rest_source: String,
+    #[serde(rename = "skipResize")]
+    pub skip_resize: bool,
+    #[serde(rename = "roundFontSize")]
+    pub round_font_size: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ReplaceJobSettings {
     pub mode: String,
     pub pairs: Vec<ReplacePairEntry>,
@@ -2217,6 +2453,8 @@ pub struct ReplaceJobSettings {
     pub switch_settings: ReplaceSwitchSettings,
     #[serde(rename = "generalSettings")]
     pub general_settings: ReplaceGeneralSettings,
+    #[serde(rename = "composeSettings")]
+    pub compose_settings: Option<ReplaceComposeSettings>,
     #[serde(rename = "outputPath")]
     pub output_path: String,
 }
@@ -3155,6 +3393,293 @@ fn extract_subfamily_name(db: &Database, face_id: fontdb::ID) -> Option<String> 
     });
 
     result
+}
+
+// ============================================
+// Scan PSD (フォントプリセット管理ツール)
+// ============================================
+
+/// Run scan_psd_core.jsx in Photoshop with settings JSON → results JSON pattern
+#[tauri::command]
+pub async fn run_photoshop_scan_psd(
+    app_handle: tauri::AppHandle,
+    settings_json: String,
+) -> Result<String, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshopが見つかりません。Adobe Photoshopをインストールしてください。".to_string())?;
+
+    // Resolve script path (dev → resource)
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("リソースディレクトリの取得に失敗: {}", e))?;
+
+    let script_path_str = {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("scan_psd_core.jsx");
+        let bundled_script = resource_path.join("scripts").join("scan_psd_core.jsx");
+        if dev_script.exists() {
+            dev_script.to_string_lossy().to_string()
+        } else if bundled_script.exists() {
+            bundled_script.to_string_lossy().to_string()
+        } else {
+            return Err("scan_psd_core.jsx が見つかりません".to_string());
+        }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let settings_path = temp_dir.join("psd_scan_settings.json");
+    let output_path = temp_dir.join("psd_scan_results.json");
+    let progress_path = temp_dir.join("psd_scan_progress.json");
+
+    // Clean up previous run
+    let _ = fs::remove_file(&output_path);
+    let _ = fs::remove_file(&progress_path);
+
+    // Write settings JSON with BOM (required for ExtendScript Japanese paths)
+    let mut settings_file = fs::File::create(&settings_path)
+        .map_err(|e| format!("設定ファイルの作成に失敗: {}", e))?;
+    settings_file.write_all(&[0xEF, 0xBB, 0xBF])
+        .map_err(|e| format!("BOM書き込み失敗: {}", e))?;
+    settings_file.write_all(settings_json.as_bytes())
+        .map_err(|e| format!("設定書き込み失敗: {}", e))?;
+    drop(settings_file);
+
+    // Copy script to temp (avoids Japanese path DDE forwarding issues)
+    let temp_script = temp_dir.join("scan_psd_core_temp.jsx");
+    fs::copy(&script_path_str, &temp_script)
+        .map_err(|e| format!("スクリプトのコピーに失敗: {}", e))?;
+    let script_to_run = temp_script.to_string_lossy().to_string();
+
+    eprintln!("Scan PSD - Photoshop: {}", ps_path);
+    eprintln!("Scan PSD - Script (source): {}", script_path_str);
+    eprintln!("Scan PSD - Script (temp): {}", script_to_run);
+
+    // spawn() for non-blocking
+    let _child = Command::new(&ps_path)
+        .arg("-r")
+        .arg(&script_to_run)
+        .spawn()
+        .map_err(|e| format!("Photoshop起動エラー: {}", e))?;
+
+    // Poll for results — heartbeat-based timeout
+    let poll_interval_ms: u64 = 500;
+    let initial_timeout_secs: u64 = 600;  // 10 min for PS startup
+    let final_timeout_secs: u64 = 120;    // 2 min after last file
+    let mut last_progress = String::new();
+    let mut polls_since_progress: u64 = 0;
+    let mut all_done = false;
+
+    loop {
+        // Check if final result is ready
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                let trimmed = content.trim();
+                // Skip BOM if present
+                let json_str = if trimmed.starts_with('\u{feff}') {
+                    &trimmed[3..]
+                } else {
+                    trimmed
+                };
+                if json_str.starts_with('{') {
+                    eprintln!("Scan PSD output ready");
+                    break;
+                }
+            }
+        }
+
+        // Check heartbeat progress file
+        if let Ok(content) = fs::read_to_string(&progress_path) {
+            let trimmed = content.trim().to_string();
+            // Skip BOM
+            let clean = if trimmed.starts_with('\u{feff}') {
+                trimmed[3..].to_string()
+            } else {
+                trimmed
+            };
+            if !clean.is_empty() && clean != last_progress {
+                eprintln!("Scan PSD progress: {}", clean);
+                last_progress = clean.clone();
+                polls_since_progress = 0;
+                // Parse JSON progress {"current":X,"total":N,"message":"..."}
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&clean) {
+                    if let (Some(c), Some(t)) = (v["current"].as_u64(), v["total"].as_u64()) {
+                        all_done = c >= t && t > 0;
+                    }
+                }
+            }
+        }
+
+        polls_since_progress += 1;
+
+        let timeout_polls = if last_progress.is_empty() {
+            (initial_timeout_secs * 1000) / poll_interval_ms
+        } else if all_done {
+            (final_timeout_secs * 1000) / poll_interval_ms
+        } else {
+            u64::MAX
+        };
+
+        if polls_since_progress >= timeout_polls {
+            if last_progress.is_empty() {
+                eprintln!("Scan PSD timed out (no heartbeat after {}s)", initial_timeout_secs);
+            } else {
+                eprintln!("Scan PSD timed out (result file not written after last progress)");
+            }
+            break;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
+
+        if polls_since_progress > 0 && polls_since_progress % 60 == 0 {
+            eprintln!("Still waiting for Photoshop scan... ({}s since last progress)",
+                polls_since_progress * poll_interval_ms / 1000);
+        }
+    }
+
+    if output_path.exists() {
+        let results_json = fs::read_to_string(&output_path)
+            .map_err(|e| format!("結果ファイルの読み込み失敗: {}", e))?;
+
+        // Strip BOM if present
+        let clean_json = if results_json.starts_with('\u{feff}') {
+            results_json[3..].to_string()
+        } else {
+            results_json
+        };
+
+        // Cleanup temp files
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+        let _ = fs::remove_file(&progress_path);
+        let _ = fs::remove_file(&temp_script);
+
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+
+        Ok(clean_json)
+    } else {
+        let _ = fs::remove_file(&temp_script);
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+        Err("Photoshopが結果ファイルを出力しませんでした。スクリプトが失敗した可能性があります。".to_string())
+    }
+}
+
+/// Poll scan PSD progress from temp file
+#[tauri::command]
+pub fn poll_scan_psd_progress() -> Result<Option<String>, String> {
+    let progress_path = std::env::temp_dir().join("psd_scan_progress.json");
+    if progress_path.exists() {
+        let content = fs::read_to_string(&progress_path)
+            .map_err(|e| format!("進捗ファイル読み込み失敗: {}", e))?;
+        let trimmed = content.trim();
+        let clean = if trimmed.starts_with('\u{feff}') {
+            &trimmed[3..]
+        } else {
+            trimmed
+        };
+        if clean.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(clean.to_string()))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// 指定フォルダのPSD/PSBファイル有無を判定し、サブフォルダ一覧を返す
+/// - 直下にPSD/PSBがある → そのフォルダ自身を返す
+/// - 直下にPSD/PSBがない → PSD/PSBを含むサブフォルダ一覧を返す
+#[tauri::command]
+pub async fn detect_psd_folders(folder_path: String) -> Result<serde_json::Value, String> {
+    let root = Path::new(&folder_path);
+    if !root.is_dir() {
+        return Err(format!("フォルダが存在しません: {}", folder_path));
+    }
+
+    let psd_extensions = ["psd", "psb"];
+
+    // 直下のPSD/PSBファイルをチェック
+    let has_direct_psd = fs::read_dir(root)
+        .map_err(|e| format!("フォルダ読み込み失敗: {}", e))?
+        .filter_map(|e| e.ok())
+        .any(|entry| {
+            if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                if let Some(ext) = entry.path().extension() {
+                    return psd_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str());
+                }
+            }
+            false
+        });
+
+    if has_direct_psd {
+        // 直下にPSDがある → そのフォルダ自体を返す
+        let name = root.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| folder_path.clone());
+        return Ok(serde_json::json!({
+            "mode": "direct",
+            "folders": [{
+                "path": folder_path,
+                "name": name,
+            }]
+        }));
+    }
+
+    // サブフォルダを検索し、PSD/PSBを含むものを自然順ソートで返す
+    let mut sub_results: Vec<(String, String)> = Vec::new();
+
+    let entries = fs::read_dir(root)
+        .map_err(|e| format!("フォルダ読み込み失敗: {}", e))?;
+
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let dir_name = path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        // _. で始まるフォルダを除外
+        if dir_name.starts_with('_') || dir_name.starts_with('.') {
+            continue;
+        }
+        // サブフォルダ内にPSD/PSBがあるか
+        let has_psd = fs::read_dir(&path)
+            .map(|rd| rd.filter_map(|e| e.ok()).any(|e| {
+                if e.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                    if let Some(ext) = e.path().extension() {
+                        return psd_extensions.contains(&ext.to_string_lossy().to_lowercase().as_str());
+                    }
+                }
+                false
+            }))
+            .unwrap_or(false);
+
+        if has_psd {
+            sub_results.push((path.to_string_lossy().to_string(), dir_name));
+        }
+    }
+
+    // 自然順ソート (1, 2, 10, 11)
+    sub_results.sort_by(|a, b| natural_sort_cmp(&a.1, &b.1));
+
+    let folders: Vec<serde_json::Value> = sub_results.iter().map(|(p, n)| {
+        serde_json::json!({ "path": p, "name": n })
+    }).collect();
+
+    Ok(serde_json::json!({
+        "mode": "subfolders",
+        "folders": folders,
+    }))
 }
 
 /// PostScript名から表示用フォント名（和名優先）・スタイル名を解決する

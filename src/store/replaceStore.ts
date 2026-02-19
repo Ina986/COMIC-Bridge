@@ -13,6 +13,10 @@ import type {
   PairingDialogMode,
   ScannedFileGroup,
   FilePair,
+  ComposeSource,
+  ComposeRestSource,
+  ComposeElement,
+  ComposeSettings,
 } from "../types/replace";
 
 export interface BatchFolder {
@@ -77,6 +81,14 @@ interface ReplaceState {
     settings: Partial<ReplaceSettings["generalSettings"]>
   ) => void;
   setSubfolderMode: (mode: SubfolderMode) => void;
+
+  // Actions - 合成設定
+  setComposeSettings: (settings: Partial<ComposeSettings>) => void;
+  setComposeElementSource: (elementId: string, source: ComposeSource) => void;
+  addComposeElement: (element: ComposeElement) => void;
+  removeComposeElement: (elementId: string) => void;
+  updateComposeElement: (elementId: string, updates: Partial<ComposeElement>) => void;
+  setComposeRestSource: (source: ComposeRestSource) => void;
 
   // Actions - モーダル
   openModal: () => void;
@@ -143,6 +155,18 @@ const defaultSettings: ReplaceSettings = {
   },
   subfolderSettings: {
     mode: "none",
+  },
+  composeSettings: {
+    elements: [
+      { id: "textFolders", type: "textFolders", label: "テキストフォルダ", source: "A" },
+      { id: "background", type: "background", label: "背景", source: "B" },
+      { id: "manuscript", type: "namedGroup", label: "#原稿#", source: "B", customName: "#原稿#", partialMatch: false },
+      { id: "specialLayer", type: "specialLayer", label: "白消し", source: "B", customName: "白消し", partialMatch: true },
+      { id: "namedGroup", type: "namedGroup", label: "棒消し", source: "B", customName: "棒消し", partialMatch: true },
+    ],
+    restSource: "B",
+    skipResize: false,
+    roundFontSize: true,
   },
 };
 
@@ -274,6 +298,71 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
       settings: {
         ...state.settings,
         subfolderSettings: { mode },
+      },
+    })),
+
+  // 合成設定
+  setComposeSettings: (newSettings) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        composeSettings: { ...state.settings.composeSettings, ...newSettings },
+      },
+    })),
+  setComposeElementSource: (elementId, source) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        composeSettings: {
+          ...state.settings.composeSettings,
+          elements: state.settings.composeSettings.elements.map((el) =>
+            el.id === elementId ? { ...el, source } : el
+          ),
+        },
+      },
+    })),
+  addComposeElement: (element) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        composeSettings: {
+          ...state.settings.composeSettings,
+          elements: [...state.settings.composeSettings.elements, element],
+        },
+      },
+    })),
+  removeComposeElement: (elementId) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        composeSettings: {
+          ...state.settings.composeSettings,
+          elements: state.settings.composeSettings.elements.filter(
+            (el) => el.id !== elementId
+          ),
+        },
+      },
+    })),
+  updateComposeElement: (elementId, updates) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        composeSettings: {
+          ...state.settings.composeSettings,
+          elements: state.settings.composeSettings.elements.map((el) =>
+            el.id === elementId ? { ...el, ...updates } : el
+          ),
+        },
+      },
+    })),
+  setComposeRestSource: (source) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        composeSettings: {
+          ...state.settings.composeSettings,
+          restSource: source,
+        },
       },
     })),
 

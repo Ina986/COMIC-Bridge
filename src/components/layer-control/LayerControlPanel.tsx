@@ -19,13 +19,18 @@ export function LayerControlPanel() {
   const setActionMode = useLayerStore((state) => state.setActionMode);
   const saveMode = useLayerStore((state) => state.saveMode);
   const setSaveMode = useLayerStore((state) => state.setSaveMode);
+  const organizeTargetName = useLayerStore((state) => state.organizeTargetName);
+  const setOrganizeTargetName = useLayerStore((state) => state.setOrganizeTargetName);
+  const organizeIncludeSpecial = useLayerStore((state) => state.organizeIncludeSpecial);
+  const setOrganizeIncludeSpecial = useLayerStore((state) => state.setOrganizeIncludeSpecial);
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
 
-  const { applyLayerVisibility } = useLayerControl();
+  const { applyLayerVisibility, organizeLayersIntoFolder } = useLayerControl();
 
   const targetCount = selectedFileIds.length > 0 ? selectedFileIds.length : files.length;
   const isHideMode = actionMode === "hide";
+  const isOrganizeMode = actionMode === "organize";
 
   const handleAddCustom = () => {
     if (!customName.trim()) return;
@@ -40,11 +45,19 @@ export function LayerControlPanel() {
 
   const handleApply = async () => {
     try {
-      await applyLayerVisibility();
+      if (isOrganizeMode) {
+        await organizeLayersIntoFolder();
+      } else {
+        await applyLayerVisibility();
+      }
     } catch (error) {
-      console.error("Layer visibility change failed:", error);
+      console.error("Layer operation failed:", error);
     }
   };
+
+  const canExecute = isOrganizeMode
+    ? !isProcessing && files.length > 0 && organizeTargetName.trim() !== ""
+    : !isProcessing && selectedConditions.length > 0 && files.length > 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -54,10 +67,13 @@ export function LayerControlPanel() {
           <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          レイヤー可視性
+          {isOrganizeMode ? "レイヤー整理" : "レイヤー可視性"}
         </h3>
         <p className="text-xs text-text-muted mt-1">
-          条件を選択してレイヤーを一括操作
+          {isOrganizeMode
+            ? "レイヤーを指定フォルダに格納"
+            : "条件を選択してレイヤーを一括操作"
+          }
         </p>
       </div>
 
@@ -67,9 +83,9 @@ export function LayerControlPanel() {
         <div className="bg-bg-tertiary rounded-xl p-1 flex gap-1">
           <ModeButton
             mode="hide"
-            label="非表示にする"
+            label="非表示"
             icon={
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
               </svg>
             }
@@ -78,9 +94,9 @@ export function LayerControlPanel() {
           />
           <ModeButton
             mode="show"
-            label="表示する"
+            label="表示"
             icon={
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
@@ -88,8 +104,91 @@ export function LayerControlPanel() {
             currentMode={actionMode}
             onChange={setActionMode}
           />
+          <ModeButton
+            mode="organize"
+            label="フォルダ格納"
+            icon={
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+            }
+            currentMode={actionMode}
+            onChange={setActionMode}
+          />
         </div>
 
+        {isOrganizeMode ? (
+          /* 整理モード設定 */
+          <>
+            {/* 格納先フォルダ名 */}
+            <div>
+              <h4 className="text-xs font-medium text-text-muted mb-2">格納先フォルダ名</h4>
+              <input
+                type="text"
+                value={organizeTargetName}
+                onChange={(e) => setOrganizeTargetName(e.target.value)}
+                placeholder="#原稿#"
+                className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-warning focus:outline-none"
+              />
+            </div>
+
+            {/* 格納対象 */}
+            <div className="bg-bg-tertiary rounded-xl p-3 space-y-3">
+              <h4 className="text-xs font-medium text-text-muted">格納対象</h4>
+              <p className="text-xs text-text-secondary leading-relaxed">
+                テキストレイヤー・グループ・背景レイヤーを除く、ドキュメント直下の全レイヤーを格納先フォルダに移動します。
+              </p>
+
+              {/* 白消し・棒消し含むチェックボックス */}
+              <div
+                className={`
+                  flex items-center gap-2 p-2.5 rounded-xl cursor-pointer transition-all duration-200
+                  ${organizeIncludeSpecial
+                    ? "bg-warning/15 border border-warning/50"
+                    : "bg-bg-secondary border border-white/5 hover:border-white/10"
+                  }
+                `}
+                onClick={() => setOrganizeIncludeSpecial(!organizeIncludeSpecial)}
+              >
+                <div
+                  className={`
+                    w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all duration-200
+                    ${organizeIncludeSpecial
+                      ? "bg-warning border-warning"
+                      : "border-text-muted/50"
+                    }
+                  `}
+                >
+                  {organizeIncludeSpecial && (
+                    <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-sm text-text-primary flex-1">白消し・棒消しも含む</span>
+              </div>
+              {!organizeIncludeSpecial && (
+                <p className="text-[10px] text-text-muted px-1 leading-tight">
+                  名前に「白消し」「棒消し」を含むレイヤーは除外されます
+                </p>
+              )}
+            </div>
+
+            {/* フォルダ作成 */}
+            <div className="bg-bg-tertiary rounded-xl p-3">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-accent-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs text-text-secondary">
+                  フォルダが存在しない場合は自動作成されます
+                </p>
+              </div>
+            </div>
+          </>
+        ) : (
+          /* 非表示/表示モード: 既存の条件リスト */
+          <>
         {/* プリセット条件 */}
         <div>
           <h4 className="text-xs font-medium text-text-muted mb-2">プリセット条件</h4>
@@ -172,6 +271,8 @@ export function LayerControlPanel() {
             </button>
           </div>
         </div>
+          </>
+        )}
 
       </div>
 
@@ -182,19 +283,22 @@ export function LayerControlPanel() {
           saveMode={saveMode}
           onChange={setSaveMode}
           folderHint={files.length > 0 ? files[0].filePath.replace(/\\/g, "/").split("/").slice(-2, -1)[0] || "" : ""}
+          isOrganizeMode={isOrganizeMode}
         />
         <div className="flex items-center justify-between text-xs text-text-muted">
           <span>対象: {targetCount} ファイル</span>
-          <span>{selectedConditions.length} 条件選択中</span>
+          {!isOrganizeMode && <span>{selectedConditions.length} 条件選択中</span>}
         </div>
         <button
           onClick={handleApply}
-          disabled={isProcessing || selectedConditions.length === 0 || files.length === 0}
+          disabled={!canExecute}
           className={`
             w-full px-4 py-3 text-sm font-medium rounded-xl text-white
-            ${isHideMode
-              ? "bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:shadow-[0_6px_20px_rgba(255,107,157,0.4)]"
-              : "bg-gradient-to-r from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)] hover:shadow-[0_6px_20px_rgba(0,212,170,0.4)]"
+            ${isOrganizeMode
+              ? "bg-gradient-to-r from-warning to-amber-500 shadow-[0_4px_15px_rgba(245,158,11,0.3)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.4)]"
+              : isHideMode
+                ? "bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:shadow-[0_6px_20px_rgba(255,107,157,0.4)]"
+                : "bg-gradient-to-r from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)] hover:shadow-[0_6px_20px_rgba(0,212,170,0.4)]"
             }
             hover:-translate-y-0.5
             transition-all duration-200
@@ -206,6 +310,13 @@ export function LayerControlPanel() {
             <>
               <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
               処理中...
+            </>
+          ) : isOrganizeMode ? (
+            <>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              フォルダに格納
             </>
           ) : isHideMode ? (
             <>
@@ -247,17 +358,19 @@ function ModeButton({
   onChange: (mode: LayerActionMode) => void;
 }) {
   const isSelected = currentMode === mode;
-  const isHide = mode === "hide";
+
+  const selectedClass =
+    mode === "hide" ? "bg-accent text-white"
+    : mode === "show" ? "bg-accent-tertiary text-white"
+    : "bg-warning text-white";
 
   return (
     <button
       className={`
-        flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200
-        flex items-center justify-center gap-1.5
+        flex-1 px-2 py-2 text-xs font-medium rounded-lg transition-all duration-200
+        flex items-center justify-center gap-1
         ${isSelected
-          ? isHide
-            ? "bg-accent text-white"
-            : "bg-accent-tertiary text-white"
+          ? selectedClass
           : "text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
         }
       `}
@@ -338,10 +451,12 @@ function SaveModeSelector({
   saveMode,
   onChange,
   folderHint,
+  isOrganizeMode = false,
 }: {
   saveMode: LayerSaveMode;
   onChange: (mode: LayerSaveMode) => void;
   folderHint: string;
+  isOrganizeMode?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
@@ -373,7 +488,7 @@ function SaveModeSelector({
       </div>
       {saveMode === "copyToFolder" && folderHint && (
         <p className="text-[10px] text-text-muted px-1 leading-tight">
-          保存先: Desktop/Script_Output/レイヤー制御/{folderHint}/
+          保存先: Desktop/Script_Output/{isOrganizeMode ? "レイヤー整理" : "レイヤー制御"}/{folderHint}/
         </p>
       )}
     </div>

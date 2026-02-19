@@ -52,6 +52,7 @@ export function ReplaceDropZone() {
 
   const isBatch = settings.mode === "batch";
   const isSwitch = settings.mode === "switch";
+  const isCompose = settings.mode === "compose";
   const isWhiteToBar = settings.switchSettings.subMode === "whiteToBar";
   // 排他制御: 親フォルダモード ↔ 個別指定モード
   const parentActive = isBatch && !!folders.targetFolder;
@@ -252,8 +253,8 @@ export function ReplaceDropZone() {
   // ダイアログでフォルダ選択
   const handleSelectFolder = async (type: "source" | "target" | "batch-parent" | "batch-shiro" | "batch-bou") => {
     const titles: Record<string, string> = {
-      source: "植字データフォルダを選択",
-      target: "画像データフォルダを選択",
+      source: isCompose ? "原稿Aフォルダを選択" : "植字データフォルダを選択",
+      target: isCompose ? "原稿Bフォルダを選択" : "画像データフォルダを選択",
       "batch-parent": "画像データ親フォルダを選択",
       "batch-shiro": "白消しフォルダを選択",
       "batch-bou": "棒消しフォルダを選択",
@@ -287,11 +288,11 @@ export function ReplaceDropZone() {
       onDrop={preventDrag}
     >
       <div className="flex items-stretch gap-6 w-full max-w-5xl">
-        {/* === 植字データ / 差替え元（左） === */}
+        {/* === 植字データ / 差替え元 / 原稿A（左） === */}
         <div ref={sourceRef} className="flex-1 min-w-0">
           <DropCard
-            label={isSwitch ? (isWhiteToBar ? "棒消しデータ" : "白消しデータ") : "植字データ"}
-            sublabel={isSwitch ? (isWhiteToBar ? "差し替え用の棒消しレイヤーを含むファイル" : "差し替え用の白消しレイヤーを含むファイル") : "テキスト等を取り出すファイル"}
+            label={isCompose ? "原稿A" : isSwitch ? (isWhiteToBar ? "棒消しデータ" : "白消しデータ") : "植字データ"}
+            sublabel={isCompose ? "テキスト等を取り出すファイル" : isSwitch ? (isWhiteToBar ? "差し替え用の棒消しレイヤーを含むファイル" : "差し替え用の白消しレイヤーを含むファイル") : "テキスト等を取り出すファイル"}
             icon={<TextIcon />}
             color={isSwitch ? "amber" : "pink"}
             folderPath={folders.sourceFolder}
@@ -314,7 +315,7 @@ export function ReplaceDropZone() {
             </span>
           ) : (
             <span className="text-[10px] font-medium text-text-muted">
-              {settings.mode === "text" ? "テキスト差替え" : settings.mode === "batch" ? "一括差替え" : settings.mode === "switch" ? "スイッチ差替え" : "画像差替え"}
+              {settings.mode === "text" ? "テキスト差替え" : settings.mode === "batch" ? "一括差替え" : settings.mode === "switch" ? "スイッチ差替え" : settings.mode === "compose" ? "合成" : "画像差替え"}
             </span>
           )}
 
@@ -334,7 +335,9 @@ export function ReplaceDropZone() {
               stroke="currentColor"
               strokeWidth={2.5}
             >
-              {settings.mode === "switch" ? (
+              {settings.mode === "compose" ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4-4m-4 4l4 4" />
+              ) : settings.mode === "switch" ? (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4" />
               ) : settings.mode === "text" ? (
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7m0 0l-7 7m7-7H4" />
@@ -373,8 +376,8 @@ export function ReplaceDropZone() {
             />
           ) : (
             <DropCard
-              label={isSwitch ? "差替え対象PSD" : "画像データ"}
-              sublabel={isSwitch ? (isWhiteToBar ? "白消しレイヤーが非表示になります" : "棒消しグループが非表示になります") : "ベースとなる原稿ファイル"}
+              label={isCompose ? "原稿B" : isSwitch ? "差替え対象PSD" : "画像データ"}
+              sublabel={isCompose ? "画像等を取り出すファイル" : isSwitch ? (isWhiteToBar ? "白消しレイヤーが非表示になります" : "棒消しグループが非表示になります") : "ベースとなる原稿ファイル"}
               icon={<ImageIcon />}
               color="purple"
               folderPath={folders.targetFolder}

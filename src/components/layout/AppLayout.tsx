@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { TopNav } from "./TopNav";
 import { ViewRouter } from "./ViewRouter";
 import { GuideEditorModal } from "../guide-editor/GuideEditorModal";
+import { ErrorBoundary } from "../ErrorBoundary";
 
 import { ConversionToast } from "../spec-checker/ConversionToast";
 import { usePsdStore } from "../../store/psdStore";
@@ -56,7 +57,9 @@ export function AppLayout() {
       <TopNav />
 
       {/* View Content */}
-      <ViewRouter />
+      <ErrorBoundary>
+        <ViewRouter />
+      </ErrorBoundary>
 
       {/* Guide Editor Modal */}
       {isEditorOpen && <GuideEditorModal />}

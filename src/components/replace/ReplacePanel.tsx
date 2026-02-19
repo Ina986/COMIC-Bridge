@@ -3,7 +3,7 @@ import { useReplaceStore } from "../../store/replaceStore";
 import { useReplaceProcessor } from "../../hooks/useReplaceProcessor";
 import { ReplacePairingModal } from "./ReplacePairingModal";
 import { ReplaceToast } from "./ReplaceToast";
-import type { ReplaceMode } from "../../types/replace";
+import type { ReplaceMode, ComposeSource, ComposeRestSource } from "../../types/replace";
 
 export function ReplacePanel() {
   const folders = useReplaceStore((s) => s.folders);
@@ -19,6 +19,12 @@ export function ReplacePanel() {
   const setSwitchSubMode = useReplaceStore((s) => s.setSwitchSubMode);
   const setGeneralSettings = useReplaceStore((s) => s.setGeneralSettings);
   const setSubfolderMode = useReplaceStore((s) => s.setSubfolderMode);
+  const setComposeSettings = useReplaceStore((s) => s.setComposeSettings);
+  const setComposeElementSource = useReplaceStore((s) => s.setComposeElementSource);
+  const addComposeElement = useReplaceStore((s) => s.addComposeElement);
+  const removeComposeElement = useReplaceStore((s) => s.removeComposeElement);
+  const updateComposeElement = useReplaceStore((s) => s.updateComposeElement);
+  const setComposeRestSource = useReplaceStore((s) => s.setComposeRestSource);
   const phase = useReplaceStore((s) => s.phase);
   const isModalOpen = useReplaceStore((s) => s.isModalOpen);
 
@@ -37,18 +43,27 @@ export function ReplacePanel() {
     settings.imageSettings.replaceSpecialLayer ||
     settings.imageSettings.replaceNamedGroup;
 
+  // 合成モードで少なくとも1つexclude以外の要素があるか
+  const hasComposeSelection =
+    settings.composeSettings.elements.some((el) => el.source !== "exclude") ||
+    settings.composeSettings.restSource !== "none";
+
   const canProceed =
     hasBothFolders &&
     !isScanning &&
-    (settings.mode !== "image" || hasImageSelection);
+    (settings.mode !== "image" || hasImageSelection) &&
+    (settings.mode !== "compose" || hasComposeSelection);
 
   const isSwitch = settings.mode === "switch";
+  const isCompose = settings.mode === "compose";
   const isWhiteToBar = settings.switchSettings.subMode === "whiteToBar";
 
   const handleSelectFolder = async (type: "source" | "target") => {
-    const title = isSwitch
-      ? type === "source" ? "差替え元フォルダを選択" : "差替え対象フォルダを選択"
-      : type === "source" ? "植字データフォルダを選択" : "画像データフォルダを選択";
+    const title = isCompose
+      ? type === "source" ? "原稿Aフォルダを選択" : "原稿Bフォルダを選択"
+      : isSwitch
+        ? type === "source" ? "差替え元フォルダを選択" : "差替え対象フォルダを選択"
+        : type === "source" ? "植字データフォルダを選択" : "画像データフォルダを選択";
     const selected = await open({ directory: true, title });
     if (selected) {
       if (type === "source") setSourceFolder(selected as string);
@@ -96,7 +111,7 @@ export function ReplacePanel() {
           </h4>
           <div className="space-y-2">
             <FolderPicker
-              label={isSwitch ? (isWhiteToBar ? "棒消しデータ" : "白消しデータ") : "植字データ"}
+              label={isCompose ? "原稿A" : isSwitch ? (isWhiteToBar ? "棒消しデータ" : "白消しデータ") : "植字データ"}
               path={folders.sourceFolder}
               displayName={getLastFolderName(folders.sourceFolder)}
               onSelect={() => handleSelectFolder("source")}
@@ -104,7 +119,7 @@ export function ReplacePanel() {
               color={isSwitch ? "warning" : "accent"}
             />
             <FolderPicker
-              label={isSwitch ? "差替え対象PSD" : "画像データ"}
+              label={isCompose ? "原稿B" : isSwitch ? "差替え対象PSD" : "画像データ"}
               path={folders.targetFolder}
               displayName={getLastFolderName(folders.targetFolder)}
               onSelect={() => handleSelectFolder("target")}
@@ -428,6 +443,135 @@ export function ReplacePanel() {
                 </div>
               </div>
             )}
+
+            {/* Compose Mode */}
+            <ModeCard
+              mode="compose"
+              currentMode={settings.mode}
+              label="合成"
+              description="2種類の原稿から要素を選択して合成"
+              icon={<ComposeIcon />}
+              color="warning"
+              onSelect={setMode}
+            />
+            {settings.mode === "compose" && (
+              <div className="ml-3 pl-3 border-l-2 border-warning/30 space-y-2">
+                <p className="text-[10px] text-text-muted">
+                  原稿Aと原稿Bから要素ごとにソースを選択して合成します。
+                </p>
+
+                {/* Element list */}
+                <div className="space-y-1.5">
+                  {settings.composeSettings.elements.map((el) => (
+                    <div key={el.id}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-primary flex-1 min-w-0 truncate">
+                          {el.label}
+                        </span>
+                        <SourcePill
+                          value={el.source}
+                          onChange={(s) => setComposeElementSource(el.id, s)}
+                        />
+                        {el.type === "custom" && (
+                          <button
+                            onClick={() => removeComposeElement(el.id)}
+                            className="flex-shrink-0 p-0.5 rounded text-text-muted hover:text-error transition-colors"
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Options for specialLayer / namedGroup / custom */}
+                      {(el.type === "specialLayer" || el.type === "namedGroup" || el.type === "custom") && el.source !== "exclude" && (
+                        <div className="ml-4 mt-1 space-y-1">
+                          {el.type === "custom" && (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={el.customName || ""}
+                                onChange={(e) => updateComposeElement(el.id, { customName: e.target.value, label: e.target.value || "カスタム" })}
+                                placeholder="検索名"
+                                className="flex-1 bg-bg-elevated border border-white/10 rounded-lg px-2 py-1 text-[10px] text-text-primary focus:border-warning focus:outline-none"
+                              />
+                              <select
+                                value={el.customKind || "layer"}
+                                onChange={(e) => updateComposeElement(el.id, { customKind: e.target.value as "layer" | "group" })}
+                                className="bg-bg-elevated border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-text-primary focus:border-warning focus:outline-none"
+                              >
+                                <option value="layer">レイヤー</option>
+                                <option value="group">グループ</option>
+                              </select>
+                            </div>
+                          )}
+                          <CheckBox
+                            checked={el.partialMatch ?? true}
+                            onChange={(v) => updateComposeElement(el.id, { partialMatch: v })}
+                          >
+                            <span className="text-[10px] text-text-secondary">部分一致</span>
+                          </CheckBox>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add custom element */}
+                <button
+                  onClick={() => {
+                    const id = "custom_" + Date.now();
+                    addComposeElement({
+                      id,
+                      type: "custom",
+                      label: "カスタム",
+                      source: "A",
+                      customName: "",
+                      customKind: "layer",
+                      partialMatch: true,
+                    });
+                  }}
+                  className="flex items-center gap-1 text-[10px] text-warning hover:text-warning/80 transition-colors"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  カスタム要素を追加
+                </button>
+
+                {/* Rest source */}
+                <div className="pt-1.5 mt-1.5 border-t border-warning/15">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-text-primary flex-1">指定以外</span>
+                    <RestSourcePill
+                      value={settings.composeSettings.restSource}
+                      onChange={setComposeRestSource}
+                    />
+                  </div>
+                </div>
+
+                {/* Options */}
+                <div className="pt-1 mt-1 border-t border-warning/15 space-y-1.5">
+                  <CheckBox
+                    checked={settings.composeSettings.skipResize}
+                    onChange={(v) => setComposeSettings({ skipResize: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      サイズ変更を行わない
+                    </span>
+                  </CheckBox>
+                  <CheckBox
+                    checked={settings.composeSettings.roundFontSize}
+                    onChange={(v) => setComposeSettings({ roundFontSize: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      フォントサイズを丸める
+                    </span>
+                  </CheckBox>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -437,7 +581,9 @@ export function ReplacePanel() {
       <div className="p-3 border-t border-white/5 space-y-2">
         {!hasBothFolders && (
           <p className="text-[10px] text-text-muted text-center">
-            植字データと画像データのフォルダを選択してください
+            {isCompose
+              ? "原稿Aと原稿Bのフォルダを選択してください"
+              : "植字データと画像データのフォルダを選択してください"}
           </p>
         )}
         <button
@@ -746,5 +892,95 @@ function SwitchIcon() {
         d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4"
       />
     </svg>
+  );
+}
+
+function ComposeIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zm-5 9l3 3m0 0l3-3m-3 3V10"
+      />
+    </svg>
+  );
+}
+
+function SourcePill({
+  value,
+  onChange,
+}: {
+  value: ComposeSource;
+  onChange: (value: ComposeSource) => void;
+}) {
+  const options: { key: ComposeSource; label: string }[] = [
+    { key: "A", label: "A" },
+    { key: "B", label: "B" },
+    { key: "exclude", label: "除外" },
+  ];
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
+      {options.map((opt) => (
+        <button
+          key={opt.key}
+          onClick={() => onChange(opt.key)}
+          className={`px-2 py-0.5 text-[10px] font-medium transition-colors
+            ${value === opt.key
+              ? opt.key === "A"
+                ? "bg-accent text-white"
+                : opt.key === "B"
+                  ? "bg-accent-secondary text-white"
+                  : "bg-text-muted/30 text-text-primary"
+              : "bg-bg-elevated text-text-muted hover:text-text-secondary"
+            }
+          `}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RestSourcePill({
+  value,
+  onChange,
+}: {
+  value: ComposeRestSource;
+  onChange: (value: ComposeRestSource) => void;
+}) {
+  const options: { key: ComposeRestSource; label: string }[] = [
+    { key: "A", label: "原稿A" },
+    { key: "B", label: "原稿B" },
+    { key: "none", label: "なし" },
+  ];
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
+      {options.map((opt) => (
+        <button
+          key={opt.key}
+          onClick={() => onChange(opt.key)}
+          className={`px-2 py-0.5 text-[10px] font-medium transition-colors
+            ${value === opt.key
+              ? opt.key === "A"
+                ? "bg-accent text-white"
+                : opt.key === "B"
+                  ? "bg-accent-secondary text-white"
+                  : "bg-text-muted/30 text-text-primary"
+              : "bg-bg-elevated text-text-muted hover:text-text-secondary"
+            }
+          `}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
   );
 }

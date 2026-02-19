@@ -4,8 +4,10 @@ import { ViewerView } from "../views/ViewerView";
 import { LayerControlView } from "../views/LayerControlView";
 import { SplitView } from "../views/SplitView";
 import { ReplaceView } from "../views/ReplaceView";
+import { ComposeView } from "../views/ComposeView";
 import { RenameView } from "../views/RenameView";
 import { TiffView } from "../views/TiffView";
+import { ScanPsdView } from "../views/ScanPsdView";
 
 export function ViewRouter() {
   const activeView = useViewStore((s) => s.activeView);
@@ -17,8 +19,10 @@ export function ViewRouter() {
       {activeView === "layers" && <LayerControlView />}
       {activeView === "split" && <SplitView />}
       {activeView === "replace" && <ReplaceView />}
+      {activeView === "compose" && <ComposeView />}
       {activeView === "rename" && <RenameView />}
       {activeView === "tiff" && <TiffView />}
+      {activeView === "scanPsd" && <ScanPsdView />}
     </div>
   );
 }

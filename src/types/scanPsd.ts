@@ -1,0 +1,197 @@
+// === Scan PSD 型定義 ===
+
+// --- 作品情報 ---
+export interface ScanWorkInfo {
+  genre: string;
+  label: string;
+  authorType: "single" | "dual" | "none";
+  author: string;
+  artist: string;
+  original: string;
+  title: string;
+  subtitle: string;
+  editor: string;
+  volume: number;
+  storagePath: string;
+  notes: string;
+}
+
+// --- フォント ---
+export interface ScanFontSizeEntry {
+  size: number;
+  count: number;
+}
+
+export interface ScanFontEntry {
+  name: string; // PostScript名
+  displayName: string; // 表示名
+  count: number;
+  sizes: ScanFontSizeEntry[];
+}
+
+// --- プリセット ---
+export interface FontPreset {
+  name: string; // プリセット名（表示名）
+  subName: string; // 役割（セリフ、モノローグ等）
+  font: string; // PostScript名
+  fontSize?: string;
+  description?: string;
+}
+
+// --- サイズ統計 ---
+export interface ScanSizeStats {
+  mostFrequent: { size: number; count: number } | null;
+  sizes: ScanFontSizeEntry[];
+  excludeRange: { min: number; max: number } | null;
+  allSizes: Record<string, number>;
+}
+
+// --- ストローク ---
+export interface ScanStrokeEntry {
+  size: number;
+  count: number;
+  fontSizes: number[];
+  maxFontSize: number | null;
+}
+
+// --- ガイドセット ---
+export interface ScanGuideSet {
+  horizontal: number[];
+  vertical: number[];
+  count: number;
+  docNames: string[];
+  docWidth: number;
+  docHeight: number;
+}
+
+// --- テキストレイヤー ---
+export interface ScanTextLayer {
+  layerName: string;
+  content: string;
+  fontSize: number;
+  fontName: string;
+  displayFontName: string;
+}
+
+// --- テキストログエントリ ---
+export interface TextLogEntry {
+  content: string;
+  yPos: number;
+  layerName: string;
+  fontSize: number;
+  isLinked: boolean;
+  linkGroupId: string | null;
+}
+
+// --- ルビ ---
+export interface RubyEntry {
+  id: string;
+  parentText: string;
+  rubyText: string;
+  volume: number;
+  page: number;
+  order: number;
+}
+
+// --- スキャン結果全体 ---
+export interface ScanData {
+  fonts: ScanFontEntry[];
+  sizeStats: ScanSizeStats;
+  allFontSizes: Record<string, number>;
+  strokeStats: { sizes: ScanStrokeEntry[] };
+  guideSets: ScanGuideSet[];
+  textLayersByDoc: Record<string, ScanTextLayer[]>;
+  scannedFolders: Record<string, { files: string[]; scanDate: string }>;
+  processedFiles: number;
+  workInfo: ScanWorkInfo;
+  textLogByFolder: Record<string, Record<string, TextLogEntry[]>>;
+  folderVolumeMapping?: Record<string, number>;
+  startVolume?: number;
+  editedRubyList?: RubyEntry[];
+}
+
+// --- JSON出力形式（プリセットJSON）---
+export interface PresetJsonData {
+  presetData: {
+    workInfo?: ScanWorkInfo;
+    presets?: Record<string, FontPreset[]>;
+    fontSizeStats?: ScanSizeStats;
+    strokeSizes?: ScanStrokeEntry[];
+    guides?: { horizontal: number[]; vertical: number[] };
+    guideSets?: ScanGuideSet[];
+    selectedGuideSetIndex?: number;
+    excludedGuideIndices?: number[];
+    rubyList?: RubyEntry[];
+    selectionRanges?: unknown;
+    createdAt?: string;
+  };
+}
+
+// --- モード・タブ ---
+export type ScanPsdMode = "new" | "edit" | "scandata";
+export type ScanPsdTab = 0 | 1 | 2 | 3 | 4;
+
+// --- 定数 ---
+export const GENRE_LABELS: Record<string, string[]> = {
+  "一般女性": ["Ropopo!", "コイパレ", "キスカラ", "カルコミ", "ウーコミ!", "シェノン"],
+  TL: ["TLオトメチカ", "LOVE FLICK", "乙女チック", "ウーコミkiss!", "シェノン+", "@夜噺"],
+  BL: ["NuPu", "spicomi", "MooiComics", "BLオトメチカ", "BOYS FAN"],
+  "一般男性": ["DEDEDE", "GG-COMICS", "コミックREBEL"],
+  "メンズ": ["カゲキヤコミック", "もえスタビースト", "@夜噺＋"],
+  "タテコミ": ["GIGATOON"],
+};
+
+export const FONT_SUB_NAME_MAP: { keywords: string[]; subName: string }[] = [
+  { keywords: ["f910", "コミックw4", "comicw4"], subName: "セリフ" },
+  { keywords: ["中丸ゴシック", "nakamarugo", "nakamaru"], subName: "モノローグ" },
+  { keywords: ["平成明朝体w7", "heiseimin"], subName: "回想内ネーム" },
+  {
+    keywords: ["ＤＦ平成ゴシック体 W9", "ＤＦ平成ゴシック体 w9", "平成ゴシック体w9", "平成ゴシック体 w9", "heiseigow9"],
+    subName: "怒鳴り（シリアス）",
+  },
+  {
+    keywords: ["ＤＦ平成ゴシック体 W7", "ＤＦ平成ゴシック体 w7", "平成ゴシック体w7", "平成ゴシック体 w7", "heiseigow7"],
+    subName: "語気強く（通常）",
+  },
+  {
+    keywords: ["ＤＦ平成ゴシック体 W5", "ＤＦ平成ゴシック体 w5", "平成ゴシック体w5", "平成ゴシック体 w5", "heiseigow5"],
+    subName: "ナレーション",
+  },
+  { keywords: ["コミックフォント太", "comicfont太"], subName: "語気強く（通常）" },
+  { keywords: ["新ゴ pr5 db", "a-otf 新ゴ pr5 db", "shingo-db", "shingopr5-db"], subName: "語気強く（通常）" },
+  { keywords: ["リュウミンu", "ryuminu"], subName: "悲鳴" },
+  { keywords: ["ヒラギノ丸ゴ", "hiragino maru", "hiraginomarugopro"], subName: "SNSなど" },
+  { keywords: ["源暎ラテゴ", "geneilatego", "geneila"], subName: "電話・テレビ" },
+  { keywords: ["康印体", "kouin"], subName: "おどろ" },
+  { keywords: ["綜藝", "sougei", "sougeimoji"], subName: "ギャグテイスト" },
+];
+
+export const DEFAULT_WORK_INFO: ScanWorkInfo = {
+  genre: "",
+  label: "",
+  authorType: "single",
+  author: "",
+  artist: "",
+  original: "",
+  title: "",
+  subtitle: "",
+  editor: "",
+  volume: 1,
+  storagePath: "",
+  notes: "",
+};
+
+export const TAB_LABELS = ["作品情報", "フォント種類", "フォントサイズ", "タチキリ枠", "テキスト"] as const;
+
+export function getAutoSubName(fontName: string): string {
+  if (!fontName) return "";
+  const lower = fontName.toLowerCase();
+  for (const entry of FONT_SUB_NAME_MAP) {
+    for (const keyword of entry.keywords) {
+      if (lower.includes(keyword.toLowerCase())) {
+        return entry.subName;
+      }
+    }
+  }
+  return "";
+}

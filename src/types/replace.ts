@@ -10,7 +10,7 @@ export interface ScannedFileGroup {
 }
 
 // === 差替えモード ===
-export type ReplaceMode = "text" | "image" | "batch" | "switch";
+export type ReplaceMode = "text" | "image" | "batch" | "switch" | "compose";
 export type TextSubMode = "textLayers" | "namedGroup";
 export type SwitchSubMode = "whiteToBar" | "barToWhite";
 export type PairingMode =
@@ -56,6 +56,29 @@ export interface SwitchModeSettings {
   placeFromBottom: boolean;    // 下から数えて同じ位置に配置
 }
 
+// === 合成モード要素ソース ===
+export type ComposeSource = "A" | "B" | "exclude";
+export type ComposeRestSource = "A" | "B" | "none";
+
+// === 合成モード要素定義 ===
+export interface ComposeElement {
+  id: string;
+  type: "textFolders" | "background" | "specialLayer" | "namedGroup" | "custom";
+  label: string;
+  source: ComposeSource;
+  customName?: string;
+  customKind?: "layer" | "group";
+  partialMatch?: boolean;
+}
+
+// === 合成モード設定 ===
+export interface ComposeSettings {
+  elements: ComposeElement[];
+  restSource: ComposeRestSource;
+  skipResize: boolean;
+  roundFontSize: boolean;
+}
+
 // === ペアリング設定 ===
 export interface PairingSettings {
   mode: PairingMode;
@@ -84,6 +107,7 @@ export interface ReplaceSettings {
   pairingSettings: PairingSettings;
   generalSettings: GeneralSettings;
   subfolderSettings: SubfolderSettings;
+  composeSettings: ComposeSettings;
 }
 
 // === フォルダ選択 ===

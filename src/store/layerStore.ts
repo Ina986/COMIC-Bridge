@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 // 操作モード
-export type LayerActionMode = "hide" | "show";
+export type LayerActionMode = "hide" | "show" | "organize";
 
 // レイヤー非表示条件の型
 export interface HideCondition {
@@ -70,6 +70,10 @@ interface LayerVisibilityState {
   // カスタム条件
   customConditions: HideCondition[];
 
+  // フォルダ格納設定
+  organizeTargetName: string;
+  organizeIncludeSpecial: boolean;
+
   // 処理中フラグ
   isProcessing: boolean;
 
@@ -89,6 +93,8 @@ interface LayerVisibilityState {
   getSelectedConditions: () => HideCondition[];
   setLastResults: (results: LayerControlResult[], mode: LayerActionMode) => void;
   clearLastResults: () => void;
+  setOrganizeTargetName: (name: string) => void;
+  setOrganizeIncludeSpecial: (include: boolean) => void;
 }
 
 export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
@@ -97,6 +103,8 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   saveMode: "overwrite",
   selectedConditions: [],
   customConditions: [],
+  organizeTargetName: "#原稿#",
+  organizeIncludeSpecial: false,
   isProcessing: false,
   lastResults: [],
   lastActionMode: null,
@@ -168,5 +176,11 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   },
   clearLastResults: () => {
     set({ lastResults: [], lastActionMode: null });
+  },
+  setOrganizeTargetName: (name) => {
+    set({ organizeTargetName: name });
+  },
+  setOrganizeIncludeSpecial: (include) => {
+    set({ organizeIncludeSpecial: include });
   },
 }));

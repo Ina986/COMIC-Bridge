@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useReplaceStore } from "../store/replaceStore";
+import { useComposeStore } from "../store/composeStore";
 import type {
   FilePair,
   PairingJob,
@@ -105,7 +105,7 @@ function pairByFileOrder(
       sourceName: getDisplayName(sourceFiles[i]),
       targetFile: targetFiles[i],
       targetName: getDisplayName(targetFiles[i]),
-      pairIndex: 0, // assigned later
+      pairIndex: 0,
     });
   }
   return pairs;
@@ -174,18 +174,19 @@ function pairByLinkCharacter(
   return pairs;
 }
 
-export function useReplaceProcessor() {
-  const folders = useReplaceStore((s) => s.folders);
-  const settings = useReplaceStore((s) => s.settings);
-  const setPhase = useReplaceStore((s) => s.setPhase);
-  const setProgress = useReplaceStore((s) => s.setProgress);
-  const setCurrentPair = useReplaceStore((s) => s.setCurrentPair);
-  const addResult = useReplaceStore((s) => s.addResult);
-  const clearResults = useReplaceStore((s) => s.clearResults);
-  const setPairingJobs = useReplaceStore((s) => s.setPairingJobs);
-  const setDetectedLinkChar = useReplaceStore((s) => s.setDetectedLinkChar);
-  const setScannedFileGroups = useReplaceStore((s) => s.setScannedFileGroups);
-  const openModal = useReplaceStore((s) => s.openModal);
+export function useComposeProcessor() {
+  const folders = useComposeStore((s) => s.folders);
+  const pairingSettings = useComposeStore((s) => s.pairingSettings);
+  const subfolderSettings = useComposeStore((s) => s.subfolderSettings);
+  const setPhase = useComposeStore((s) => s.setPhase);
+  const setProgress = useComposeStore((s) => s.setProgress);
+  const setCurrentPair = useComposeStore((s) => s.setCurrentPair);
+  const addResult = useComposeStore((s) => s.addResult);
+  const clearResults = useComposeStore((s) => s.clearResults);
+  const setPairingJobs = useComposeStore((s) => s.setPairingJobs);
+  const setDetectedLinkChar = useComposeStore((s) => s.setDetectedLinkChar);
+  const setScannedFileGroups = useComposeStore((s) => s.setScannedFileGroups);
+  const openModal = useComposeStore((s) => s.openModal);
 
   // --- ペアリングを計算 ---
   const computePairs = useCallback(
@@ -193,7 +194,7 @@ export function useReplaceProcessor() {
       sourceFiles: string[],
       targetFiles: string[]
     ): { pairs: FilePair[]; detectedChar: string | null } => {
-      const mode = settings.pairingSettings.mode;
+      const mode = pairingSettings.mode;
       let detectedChar: string | null = null;
       let pairs: FilePair[];
 
@@ -208,7 +209,7 @@ export function useReplaceProcessor() {
           pairs = pairByLinkCharacter(
             sourceFiles,
             targetFiles,
-            settings.pairingSettings.linkCharacter
+            pairingSettings.linkCharacter
           );
           break;
         case "linkCharAuto":
@@ -225,7 +226,7 @@ export function useReplaceProcessor() {
 
       return { pairs, detectedChar };
     },
-    [settings.pairingSettings]
+    [pairingSettings]
   );
 
   // --- タイムスタンプ生成 (YYYY-MM-DD_HH-mm) ---
@@ -237,16 +238,7 @@ export function useReplaceProcessor() {
 
   // --- フォルダスキャン → ペアリング → モーダル起動 ---
   const scanAndPair = useCallback(async () => {
-    const currentBatchFolders = useReplaceStore.getState().batchFolders;
-
-    // バッチモード: sourceFolder + batchFolders が必要
-    // 通常モード: sourceFolder + targetFolder が必要
-    if (!folders.sourceFolder) return;
-    if (settings.mode === "batch") {
-      if (currentBatchFolders.length === 0 && !folders.targetFolder) return;
-    } else {
-      if (!folders.targetFolder) return;
-    }
+    if (!folders.sourceFolder || !folders.targetFolder) return;
 
     setPhase("scanning");
     setDetectedLinkChar(null);
@@ -256,68 +248,17 @@ export function useReplaceProcessor() {
       const scannedGroups: ScannedFileGroup[] = [];
       let globalPairIndex = 0;
       let globalDetectedChar: string | null = null;
-      const currentGeneralSettings = useReplaceStore.getState().settings.generalSettings;
+      const currentGeneralSettings = useComposeStore.getState().generalSettings;
       const folderName = currentGeneralSettings.outputFolderName.trim() || makeTimestamp();
-      const outBase = `__desktop__/Script_Output/差替えファイル_出力/${folderName}`;
+      const outBase = `__desktop__/Script_Output/合成ファイル_出力/${folderName}`;
 
-      if (settings.mode === "batch") {
-        // --- バッチモード ---
-        let batchTargets: { name: string; path: string }[] = [];
-
-        if (currentBatchFolders.length > 0) {
-          // 個別指定モード: batchFolders をそのまま使用
-          batchTargets = currentBatchFolders.map((f) => ({ name: f.name, path: f.path }));
-        } else if (folders.targetFolder) {
-          // 親フォルダモード: サブフォルダを自動検出
-          const subfolders = await invoke<string[]>("list_subfolders", {
-            folderPath: folders.targetFolder,
-          });
-          batchTargets = subfolders.map((sf) => ({
-            name: getFolderName(sf),
-            path: sf,
-          }));
-        }
-
-        for (const target of batchTargets) {
-          const subFiles = await invoke<string[]>("list_folder_files", {
-            folderPath: target.path,
-            recursive: false,
-          });
-          const plantFiles = folders.sourceFiles
-            ? [...folders.sourceFiles].sort()
-            : await invoke<string[]>("list_folder_files", {
-                folderPath: folders.sourceFolder!,
-                recursive: false,
-              });
-
-          const { pairs, detectedChar } = computePairs(subFiles, plantFiles);
-          if (detectedChar) globalDetectedChar = detectedChar;
-
-          const indexedPairs = pairs.map((p) => ({
-            ...p,
-            pairIndex: globalPairIndex++,
-          }));
-
-          jobs.push({
-            description: `${target.name} → 植字データ`,
-            pairs: indexedPairs,
-            outputDir: `${outBase}/${target.name}_差替え後PSD`,
-          });
-          scannedGroups.push({
-            groupKey: target.name,
-            sourceFiles: plantFiles,
-            targetFiles: subFiles,
-            outputDirSuffix: `/${target.name}_差替え後PSD`,
-          });
-        }
-      } else if (settings.subfolderSettings.mode === "advanced") {
+      if (subfolderSettings.mode === "advanced") {
         // --- サブフォルダ対応モード ---
         const targetSubs = await invoke<string[]>("list_subfolders", {
           folderPath: folders.targetFolder,
         });
 
         if (targetSubs.length === 0) {
-          // ケースA: Targetにサブフォルダなし → Source全階層を再帰検索
           const sourceFiles = folders.sourceFiles
             ? [...folders.sourceFiles].sort()
             : await invoke<string[]>("list_folder_files", {
@@ -331,10 +272,7 @@ export function useReplaceProcessor() {
                 recursive: false,
               });
 
-          const { pairs, detectedChar } = computePairs(
-            sourceFiles,
-            targetFiles
-          );
+          const { pairs, detectedChar } = computePairs(sourceFiles, targetFiles);
           if (detectedChar) globalDetectedChar = detectedChar;
 
           const indexedPairs = pairs.map((p) => ({
@@ -354,13 +292,11 @@ export function useReplaceProcessor() {
             outputDirSuffix: "",
           });
         } else {
-          // ケースB: Targetにサブフォルダあり
           const sourceSubs = await invoke<string[]>("list_subfolders", {
             folderPath: folders.sourceFolder,
           });
 
           if (sourceSubs.length === targetSubs.length) {
-            // ケースB-1: フォルダ数一致 → 名前順ペアリング
             for (let i = 0; i < sourceSubs.length; i++) {
               const srcFiles = await invoke<string[]>("list_folder_files", {
                 folderPath: sourceSubs[i],
@@ -393,7 +329,6 @@ export function useReplaceProcessor() {
               });
             }
           } else {
-            // ケースB-2: フォルダ数不一致 → 数字でペアリング
             const sourceMap = new Map<number, string>();
             for (const sf of sourceSubs) {
               const num = getNumberFromFolderName(sf);
@@ -413,10 +348,7 @@ export function useReplaceProcessor() {
                   recursive: false,
                 });
 
-                const { pairs, detectedChar } = computePairs(
-                  srcFiles,
-                  tgtFiles
-                );
+                const { pairs, detectedChar } = computePairs(srcFiles, tgtFiles);
                 if (detectedChar) globalDetectedChar = detectedChar;
 
                 const indexedPairs = pairs.map((p) => ({
@@ -483,13 +415,12 @@ export function useReplaceProcessor() {
       setPhase("idle");
       openModal();
     } catch (err) {
-      console.error("Scan/Pair error:", err);
+      console.error("Compose Scan/Pair error:", err);
       setPhase("error");
     }
   }, [
     folders,
-    settings.mode,
-    settings.subfolderSettings.mode,
+    subfolderSettings.mode,
     computePairs,
     setPhase,
     setDetectedLinkChar,
@@ -500,24 +431,21 @@ export function useReplaceProcessor() {
 
   // --- Photoshop 実行 ---
   const executeReplacement = useCallback(async () => {
-    const state = useReplaceStore.getState();
+    const state = useComposeStore.getState();
     const { pairingJobs: jobs, pairingDialogMode, manualPairs,
       excludedPairIndices, scannedFileGroups } = state;
-    const currentSettings = state.settings;
+    const currentGeneralSettings = state.generalSettings;
+    const currentComposeSettings = state.composeSettings;
 
-    // 出力パス再計算（ダイアログで変更された可能性がある）
-    const folderName = currentSettings.generalSettings.outputFolderName.trim() || makeTimestamp();
-    const outBase = `__desktop__/Script_Output/差替えファイル_出力/${folderName}`;
+    const folderName = currentGeneralSettings.outputFolderName.trim() || makeTimestamp();
+    const outBase = `__desktop__/Script_Output/合成ファイル_出力/${folderName}`;
 
-    // 実行ペアを構築
     let pairEntries: { sourceFile: string; targetFile: string; outputDir: string }[];
     let allPairs: FilePair[];
 
     if (pairingDialogMode === "manual") {
-      // 手動モード: manualPairsを使用
       allPairs = manualPairs;
       pairEntries = manualPairs.map((p) => {
-        // ファイルが属するグループを見つけて出力パスを解決
         const group = scannedFileGroups.find(
           (g) => g.sourceFiles.includes(p.sourceFile) || g.targetFiles.includes(p.targetFile)
         );
@@ -528,7 +456,6 @@ export function useReplaceProcessor() {
         };
       });
     } else {
-      // 自動モード: excludedを除外
       allPairs = jobs.flatMap((job) =>
         job.pairs.filter((p) => !excludedPairIndices.has(p.pairIndex))
       );
@@ -545,33 +472,71 @@ export function useReplaceProcessor() {
 
     if (allPairs.length === 0) return;
 
+    const currentOrganizePre = state.organizePre;
+
     setPhase("processing");
     clearResults();
     setProgress(0, allPairs.length);
 
     try {
+      // --- 前処理: フォルダ格納 ---
+      if (currentOrganizePre.enabled && currentOrganizePre.targetName.trim()) {
+        setCurrentPair("原稿Bをフォルダ格納中...");
 
-      setCurrentPair("Photoshopで処理中...");
+        // 原稿B（target）ファイルの重複排除リスト
+        const targetFiles = [...new Set(pairEntries.map((p) => p.targetFile))];
+
+        await invoke("run_photoshop_layer_organize", {
+          filePaths: targetFiles,
+          targetGroupName: currentOrganizePre.targetName.trim(),
+          includeSpecial: currentOrganizePre.includeSpecial,
+          saveMode: "overwrite",
+        });
+      }
+
+      setCurrentPair("Photoshopで合成処理中...");
+
+      // compose以外のモード設定はダミー値（Rust構造体に必要）
+      const defaultTextSettings = {
+        subMode: "textLayers" as const,
+        groupName: "",
+        partialMatch: false,
+      };
+      const defaultImageSettings = {
+        replaceBackground: false,
+        replaceSpecialLayer: false,
+        specialLayerName: "",
+        specialLayerPartialMatch: false,
+        replaceNamedGroup: false,
+        namedGroupName: "",
+        namedGroupPartialMatch: false,
+        placeFromBottom: false,
+      };
+      const defaultSwitchSettings = {
+        subMode: "whiteToBar" as const,
+        whiteLayerName: "白消し",
+        whitePartialMatch: true,
+        barGroupName: "棒消し",
+        barPartialMatch: true,
+        placeFromBottom: true,
+      };
 
       const psResults = await invoke<PhotoshopResult[]>(
         "run_photoshop_replace",
         {
           jobs: {
-            mode: currentSettings.mode,
+            mode: "compose",
             pairs: pairEntries,
-            textSettings: currentSettings.textSettings,
-            imageSettings: currentSettings.imageSettings,
-            switchSettings: currentSettings.switchSettings,
-            generalSettings: currentSettings.generalSettings,
-            composeSettings: currentSettings.mode === "compose"
-              ? currentSettings.composeSettings
-              : null,
-            outputPath: "", // Rust側で設定される
+            textSettings: defaultTextSettings,
+            imageSettings: defaultImageSettings,
+            switchSettings: defaultSwitchSettings,
+            generalSettings: currentGeneralSettings,
+            composeSettings: currentComposeSettings,
+            outputPath: "",
           },
         }
       );
 
-      // 結果をペアに紐付け
       for (let i = 0; i < psResults.length; i++) {
         const psResult = psResults[i];
         const pair = allPairs[i];
@@ -594,10 +559,9 @@ export function useReplaceProcessor() {
       setPhase("complete");
       setCurrentPair(null);
     } catch (err) {
-      console.error("Replace execution error:", err);
+      console.error("Compose execution error:", err);
 
-      // エラー時は未処理ペアにエラー結果を追加
-      const currentResults = useReplaceStore.getState().results;
+      const currentResults = useComposeStore.getState().results;
       const processedIndices = new Set(currentResults.map((r) => r.pairIndex));
 
       for (const pair of allPairs) {
