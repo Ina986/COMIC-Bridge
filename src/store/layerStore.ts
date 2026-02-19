@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 // 操作モード
-export type LayerActionMode = "hide" | "show" | "organize";
+export type LayerActionMode = "hide" | "show" | "organize" | "layerMove";
 
 // レイヤー非表示条件の型
 export interface HideCondition {
@@ -74,6 +74,18 @@ interface LayerVisibilityState {
   organizeTargetName: string;
   organizeIncludeSpecial: boolean;
 
+  // レイヤー整理（条件ベース移動）設定
+  layerMoveTargetName: string;
+  layerMoveCreateIfMissing: boolean;
+  layerMoveSearchScope: "all" | "group";
+  layerMoveSearchGroupName: string;
+  layerMoveCondTextLayer: boolean;
+  layerMoveCondSubgroupTop: boolean;
+  layerMoveCondSubgroupBottom: boolean;
+  layerMoveCondNameEnabled: boolean;
+  layerMoveCondName: string;
+  layerMoveCondNamePartial: boolean;
+
   // 処理中フラグ
   isProcessing: boolean;
 
@@ -95,6 +107,16 @@ interface LayerVisibilityState {
   clearLastResults: () => void;
   setOrganizeTargetName: (name: string) => void;
   setOrganizeIncludeSpecial: (include: boolean) => void;
+  setLayerMoveTargetName: (name: string) => void;
+  setLayerMoveCreateIfMissing: (value: boolean) => void;
+  setLayerMoveSearchScope: (scope: "all" | "group") => void;
+  setLayerMoveSearchGroupName: (name: string) => void;
+  setLayerMoveCondTextLayer: (value: boolean) => void;
+  setLayerMoveCondSubgroupTop: (value: boolean) => void;
+  setLayerMoveCondSubgroupBottom: (value: boolean) => void;
+  setLayerMoveCondNameEnabled: (value: boolean) => void;
+  setLayerMoveCondName: (name: string) => void;
+  setLayerMoveCondNamePartial: (value: boolean) => void;
 }
 
 export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
@@ -105,6 +127,16 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   customConditions: [],
   organizeTargetName: "#原稿#",
   organizeIncludeSpecial: false,
+  layerMoveTargetName: "",
+  layerMoveCreateIfMissing: true,
+  layerMoveSearchScope: "all",
+  layerMoveSearchGroupName: "",
+  layerMoveCondTextLayer: false,
+  layerMoveCondSubgroupTop: false,
+  layerMoveCondSubgroupBottom: false,
+  layerMoveCondNameEnabled: false,
+  layerMoveCondName: "",
+  layerMoveCondNamePartial: false,
   isProcessing: false,
   lastResults: [],
   lastActionMode: null,
@@ -182,5 +214,35 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   },
   setOrganizeIncludeSpecial: (include) => {
     set({ organizeIncludeSpecial: include });
+  },
+  setLayerMoveTargetName: (name) => {
+    set({ layerMoveTargetName: name });
+  },
+  setLayerMoveCreateIfMissing: (value) => {
+    set({ layerMoveCreateIfMissing: value });
+  },
+  setLayerMoveSearchScope: (scope) => {
+    set({ layerMoveSearchScope: scope });
+  },
+  setLayerMoveSearchGroupName: (name) => {
+    set({ layerMoveSearchGroupName: name });
+  },
+  setLayerMoveCondTextLayer: (value) => {
+    set({ layerMoveCondTextLayer: value });
+  },
+  setLayerMoveCondSubgroupTop: (value) => {
+    set({ layerMoveCondSubgroupTop: value });
+  },
+  setLayerMoveCondSubgroupBottom: (value) => {
+    set({ layerMoveCondSubgroupBottom: value });
+  },
+  setLayerMoveCondNameEnabled: (value) => {
+    set({ layerMoveCondNameEnabled: value });
+  },
+  setLayerMoveCondName: (name) => {
+    set({ layerMoveCondName: name });
+  },
+  setLayerMoveCondNamePartial: (value) => {
+    set({ layerMoveCondNamePartial: value });
   },
 }));

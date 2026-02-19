@@ -106,6 +106,8 @@ export function LayerControlResultDialog() {
   const errorCount = lastResults.filter((r) => !r.success).length;
   const totalChanged = lastResults.reduce((acc, r) => acc + r.changedCount, 0);
   const isHideMode = lastActionMode === "hide";
+  const isOrganizeMode = lastActionMode === "organize";
+  const isLayerMoveMode = lastActionMode === "layerMove";
 
   const matchDetails = lastResults
     .filter((r) => r.success)
@@ -116,9 +118,17 @@ export function LayerControlResultDialog() {
     .filter((d) => d.tree.length > 0);
 
   // Theme colors based on mode
-  const accent = isHideMode
-    ? { detail: "bg-accent-secondary/5 border-accent-secondary/20", detailHeader: "bg-accent-secondary/10 border-accent-secondary/15", detailTitle: "text-accent-secondary", detailDivider: "divide-accent-secondary/10", btn: "from-accent to-accent-secondary shadow-glow-pink" }
-    : { detail: "bg-accent-tertiary/5 border-accent-tertiary/20", detailHeader: "bg-accent-tertiary/10 border-accent-tertiary/15", detailTitle: "text-accent-tertiary", detailDivider: "divide-accent-tertiary/10", btn: "from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)]" };
+  const accent = isLayerMoveMode
+    ? { detail: "bg-violet-500/5 border-violet-500/20", detailHeader: "bg-violet-500/10 border-violet-500/15", detailTitle: "text-violet-400", detailDivider: "divide-violet-500/10", btn: "from-violet-500 to-purple-500 shadow-[0_4px_15px_rgba(139,92,246,0.3)]" }
+    : isOrganizeMode
+      ? { detail: "bg-warning/5 border-warning/20", detailHeader: "bg-warning/10 border-warning/15", detailTitle: "text-warning", detailDivider: "divide-warning/10", btn: "from-warning to-amber-500 shadow-[0_4px_15px_rgba(245,158,11,0.3)]" }
+      : isHideMode
+        ? { detail: "bg-accent-secondary/5 border-accent-secondary/20", detailHeader: "bg-accent-secondary/10 border-accent-secondary/15", detailTitle: "text-accent-secondary", detailDivider: "divide-accent-secondary/10", btn: "from-accent to-accent-secondary shadow-glow-pink" }
+        : { detail: "bg-accent-tertiary/5 border-accent-tertiary/20", detailHeader: "bg-accent-tertiary/10 border-accent-tertiary/15", detailTitle: "text-accent-tertiary", detailDivider: "divide-accent-tertiary/10", btn: "from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)]" };
+
+  const changedLabel = isOrganizeMode || isLayerMoveMode
+    ? `${totalChanged} レイヤーを移動`
+    : `${totalChanged} レイヤーを${isHideMode ? "非表示" : "表示"}に変更`;
 
   const dialog = (
     <div
@@ -168,7 +178,7 @@ export function LayerControlResultDialog() {
                 </div>
                 <p className="text-xs text-success/70 mt-1">
                   {totalChanged > 0
-                    ? `${totalChanged} レイヤーを${isHideMode ? "非表示" : "表示"}に変更`
+                    ? changedLabel
                     : "一致するレイヤーなし"}
                 </p>
               </div>

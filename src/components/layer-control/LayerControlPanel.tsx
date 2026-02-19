@@ -26,11 +26,37 @@ export function LayerControlPanel() {
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
 
-  const { applyLayerVisibility, organizeLayersIntoFolder } = useLayerControl();
+  // レイヤー整理（条件ベース移動）のステート
+  const layerMoveTargetName = useLayerStore((state) => state.layerMoveTargetName);
+  const setLayerMoveTargetName = useLayerStore((state) => state.setLayerMoveTargetName);
+  const layerMoveCreateIfMissing = useLayerStore((state) => state.layerMoveCreateIfMissing);
+  const setLayerMoveCreateIfMissing = useLayerStore((state) => state.setLayerMoveCreateIfMissing);
+  const layerMoveSearchScope = useLayerStore((state) => state.layerMoveSearchScope);
+  const setLayerMoveSearchScope = useLayerStore((state) => state.setLayerMoveSearchScope);
+  const layerMoveSearchGroupName = useLayerStore((state) => state.layerMoveSearchGroupName);
+  const setLayerMoveSearchGroupName = useLayerStore((state) => state.setLayerMoveSearchGroupName);
+  const layerMoveCondTextLayer = useLayerStore((state) => state.layerMoveCondTextLayer);
+  const setLayerMoveCondTextLayer = useLayerStore((state) => state.setLayerMoveCondTextLayer);
+  const layerMoveCondSubgroupTop = useLayerStore((state) => state.layerMoveCondSubgroupTop);
+  const setLayerMoveCondSubgroupTop = useLayerStore((state) => state.setLayerMoveCondSubgroupTop);
+  const layerMoveCondSubgroupBottom = useLayerStore((state) => state.layerMoveCondSubgroupBottom);
+  const setLayerMoveCondSubgroupBottom = useLayerStore((state) => state.setLayerMoveCondSubgroupBottom);
+  const layerMoveCondNameEnabled = useLayerStore((state) => state.layerMoveCondNameEnabled);
+  const setLayerMoveCondNameEnabled = useLayerStore((state) => state.setLayerMoveCondNameEnabled);
+  const layerMoveCondName = useLayerStore((state) => state.layerMoveCondName);
+  const setLayerMoveCondName = useLayerStore((state) => state.setLayerMoveCondName);
+  const layerMoveCondNamePartial = useLayerStore((state) => state.layerMoveCondNamePartial);
+  const setLayerMoveCondNamePartial = useLayerStore((state) => state.setLayerMoveCondNamePartial);
+
+  const { applyLayerVisibility, organizeLayersIntoFolder, moveLayersByConditions } = useLayerControl();
 
   const targetCount = selectedFileIds.length > 0 ? selectedFileIds.length : files.length;
   const isHideMode = actionMode === "hide";
   const isOrganizeMode = actionMode === "organize";
+  const isLayerMoveMode = actionMode === "layerMove";
+
+  const hasAnyLayerMoveCondition = layerMoveCondTextLayer || layerMoveCondSubgroupTop || layerMoveCondSubgroupBottom || layerMoveCondNameEnabled;
+  const layerMoveCondCount = [layerMoveCondTextLayer, layerMoveCondSubgroupTop, layerMoveCondSubgroupBottom, layerMoveCondNameEnabled].filter(Boolean).length;
 
   const handleAddCustom = () => {
     if (!customName.trim()) return;
@@ -47,6 +73,8 @@ export function LayerControlPanel() {
     try {
       if (isOrganizeMode) {
         await organizeLayersIntoFolder();
+      } else if (isLayerMoveMode) {
+        await moveLayersByConditions();
       } else {
         await applyLayerVisibility();
       }
@@ -57,7 +85,9 @@ export function LayerControlPanel() {
 
   const canExecute = isOrganizeMode
     ? !isProcessing && files.length > 0 && organizeTargetName.trim() !== ""
-    : !isProcessing && selectedConditions.length > 0 && files.length > 0;
+    : isLayerMoveMode
+      ? !isProcessing && files.length > 0 && layerMoveTargetName.trim() !== "" && hasAnyLayerMoveCondition
+      : !isProcessing && selectedConditions.length > 0 && files.length > 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -67,12 +97,14 @@ export function LayerControlPanel() {
           <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          {isOrganizeMode ? "レイヤー整理" : "レイヤー可視性"}
+          {isLayerMoveMode ? "レイヤー整理" : isOrganizeMode ? "フォルダ格納" : "レイヤー可視性"}
         </h3>
         <p className="text-xs text-text-muted mt-1">
-          {isOrganizeMode
-            ? "レイヤーを指定フォルダに格納"
-            : "条件を選択してレイヤーを一括操作"
+          {isLayerMoveMode
+            ? "条件に一致するレイヤーを指定グループに移動"
+            : isOrganizeMode
+              ? "レイヤーを指定フォルダに格納"
+              : "条件を選択してレイヤーを一括操作"
           }
         </p>
       </div>
@@ -115,9 +147,146 @@ export function LayerControlPanel() {
             currentMode={actionMode}
             onChange={setActionMode}
           />
+          <ModeButton
+            mode="layerMove"
+            label="レイヤー整理"
+            icon={
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            }
+            currentMode={actionMode}
+            onChange={setActionMode}
+          />
         </div>
 
-        {isOrganizeMode ? (
+        {isLayerMoveMode ? (
+          /* レイヤー整理（条件ベース移動）モード設定 */
+          <>
+            {/* 検索範囲 */}
+            <div className="bg-bg-tertiary rounded-xl p-3 space-y-2">
+              <h4 className="text-xs font-medium text-text-muted">検索範囲</h4>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="layerMoveSearchScope"
+                    checked={layerMoveSearchScope === "all"}
+                    onChange={() => setLayerMoveSearchScope("all")}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-text-primary">ドキュメント全体</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="layerMoveSearchScope"
+                    checked={layerMoveSearchScope === "group"}
+                    onChange={() => setLayerMoveSearchScope("group")}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-text-primary">特定グループ内</span>
+                </label>
+                {layerMoveSearchScope === "group" && (
+                  <input
+                    type="text"
+                    value={layerMoveSearchGroupName}
+                    onChange={(e) => setLayerMoveSearchGroupName(e.target.value)}
+                    placeholder="グループ名"
+                    className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-violet-500 focus:outline-none ml-5"
+                    style={{ width: "calc(100% - 20px)" }}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* 移動先グループ */}
+            <div>
+              <h4 className="text-xs font-medium text-text-muted mb-2">移動先グループ</h4>
+              <input
+                type="text"
+                value={layerMoveTargetName}
+                onChange={(e) => setLayerMoveTargetName(e.target.value)}
+                placeholder="移動先グループ名"
+                className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-violet-500 focus:outline-none"
+              />
+              <div
+                className={`
+                  flex items-center gap-2 p-2.5 rounded-xl cursor-pointer transition-all duration-200 mt-2
+                  ${layerMoveCreateIfMissing
+                    ? "bg-violet-500/15 border border-violet-500/50"
+                    : "bg-bg-secondary border border-white/5 hover:border-white/10"
+                  }
+                `}
+                onClick={() => setLayerMoveCreateIfMissing(!layerMoveCreateIfMissing)}
+              >
+                <div
+                  className={`
+                    w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all duration-200
+                    ${layerMoveCreateIfMissing
+                      ? "bg-violet-500 border-violet-500"
+                      : "border-text-muted/50"
+                    }
+                  `}
+                >
+                  {layerMoveCreateIfMissing && (
+                    <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-sm text-text-primary flex-1">存在しない場合は新規作成</span>
+              </div>
+            </div>
+
+            {/* 条件（AND論理） */}
+            <div className="bg-bg-tertiary rounded-xl p-3 space-y-2">
+              <h4 className="text-xs font-medium text-text-muted">条件（すべて一致で移動）</h4>
+              <div className="space-y-1.5">
+                <LayerMoveConditionItem
+                  label="テキストレイヤー"
+                  checked={layerMoveCondTextLayer}
+                  onToggle={() => setLayerMoveCondTextLayer(!layerMoveCondTextLayer)}
+                />
+                <LayerMoveConditionItem
+                  label="サブグループの最上位レイヤー"
+                  checked={layerMoveCondSubgroupTop}
+                  onToggle={() => setLayerMoveCondSubgroupTop(!layerMoveCondSubgroupTop)}
+                />
+                <LayerMoveConditionItem
+                  label="サブグループの最下位レイヤー"
+                  checked={layerMoveCondSubgroupBottom}
+                  onToggle={() => setLayerMoveCondSubgroupBottom(!layerMoveCondSubgroupBottom)}
+                />
+                <LayerMoveConditionItem
+                  label="レイヤー名"
+                  checked={layerMoveCondNameEnabled}
+                  onToggle={() => setLayerMoveCondNameEnabled(!layerMoveCondNameEnabled)}
+                />
+                {layerMoveCondNameEnabled && (
+                  <div className="ml-7 space-y-1.5">
+                    <input
+                      type="text"
+                      value={layerMoveCondName}
+                      onChange={(e) => setLayerMoveCondName(e.target.value)}
+                      placeholder="レイヤー名"
+                      className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-violet-500 focus:outline-none"
+                    />
+                    <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={layerMoveCondNamePartial}
+                        onChange={(e) => setLayerMoveCondNamePartial(e.target.checked)}
+                        className="rounded accent-violet-500"
+                      />
+                      部分一致
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : isOrganizeMode ? (
           /* 整理モード設定 */
           <>
             {/* 格納先フォルダ名 */}
@@ -283,22 +452,27 @@ export function LayerControlPanel() {
           saveMode={saveMode}
           onChange={setSaveMode}
           folderHint={files.length > 0 ? files[0].filePath.replace(/\\/g, "/").split("/").slice(-2, -1)[0] || "" : ""}
-          isOrganizeMode={isOrganizeMode}
+          isOrganizeMode={isOrganizeMode || isLayerMoveMode}
         />
         <div className="flex items-center justify-between text-xs text-text-muted">
           <span>対象: {targetCount} ファイル</span>
-          {!isOrganizeMode && <span>{selectedConditions.length} 条件選択中</span>}
+          {isLayerMoveMode
+            ? <span>{layerMoveCondCount} 条件選択中</span>
+            : !isOrganizeMode && <span>{selectedConditions.length} 条件選択中</span>
+          }
         </div>
         <button
           onClick={handleApply}
           disabled={!canExecute}
           className={`
             w-full px-4 py-3 text-sm font-medium rounded-xl text-white
-            ${isOrganizeMode
-              ? "bg-gradient-to-r from-warning to-amber-500 shadow-[0_4px_15px_rgba(245,158,11,0.3)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.4)]"
-              : isHideMode
-                ? "bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:shadow-[0_6px_20px_rgba(255,107,157,0.4)]"
-                : "bg-gradient-to-r from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)] hover:shadow-[0_6px_20px_rgba(0,212,170,0.4)]"
+            ${isLayerMoveMode
+              ? "bg-gradient-to-r from-violet-500 to-purple-500 shadow-[0_4px_15px_rgba(139,92,246,0.3)] hover:shadow-[0_6px_20px_rgba(139,92,246,0.4)]"
+              : isOrganizeMode
+                ? "bg-gradient-to-r from-warning to-amber-500 shadow-[0_4px_15px_rgba(245,158,11,0.3)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.4)]"
+                : isHideMode
+                  ? "bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:shadow-[0_6px_20px_rgba(255,107,157,0.4)]"
+                  : "bg-gradient-to-r from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)] hover:shadow-[0_6px_20px_rgba(0,212,170,0.4)]"
             }
             hover:-translate-y-0.5
             transition-all duration-200
@@ -310,6 +484,13 @@ export function LayerControlPanel() {
             <>
               <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
               処理中...
+            </>
+          ) : isLayerMoveMode ? (
+            <>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+              レイヤーを移動
             </>
           ) : isOrganizeMode ? (
             <>
@@ -362,6 +543,7 @@ function ModeButton({
   const selectedClass =
     mode === "hide" ? "bg-accent text-white"
     : mode === "show" ? "bg-accent-tertiary text-white"
+    : mode === "layerMove" ? "bg-violet-500 text-white"
     : "bg-warning text-white";
 
   return (
@@ -442,6 +624,47 @@ function ConditionItem({
           </svg>
         </button>
       )}
+    </div>
+  );
+}
+
+// レイヤー整理用の条件チェックボックス
+function LayerMoveConditionItem({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className={`
+        flex items-center gap-2 p-2.5 rounded-xl cursor-pointer transition-all duration-200
+        ${checked
+          ? "bg-violet-500/15 border border-violet-500/50"
+          : "bg-bg-secondary border border-white/5 hover:border-white/10"
+        }
+      `}
+      onClick={onToggle}
+    >
+      <div
+        className={`
+          w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all duration-200
+          ${checked
+            ? "bg-violet-500 border-violet-500"
+            : "border-text-muted/50"
+          }
+        `}
+      >
+        {checked && (
+          <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+        )}
+      </div>
+      <span className="text-sm text-text-primary flex-1">{label}</span>
     </div>
   );
 }

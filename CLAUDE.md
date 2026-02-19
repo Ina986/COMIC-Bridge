@@ -88,12 +88,13 @@
 - 処理完了後にアプリウィンドウを前面に復帰（`window.set_focus()`）
 
 ### 6. レイヤー制御（Photoshop JSX経由）
-- **3つのアクションモード**: hide（非表示）/ show（復元）/ organize（レイヤー整理）
+- **4つのアクションモード**: hide（非表示）/ show（復元）/ organize（フォルダ格納）/ layerMove（レイヤー整理）
 - レイヤー表示/非表示の一括切り替え（`hide_layers.jsx`）
 - 条件指定: テキストレイヤー、テキストフォルダ、レイヤー名、フォルダ名、カスタム条件
 - 部分一致/完全一致、大文字小文字の区別オプション
 - 非表示→表示（復元）モード: `doc.info.caption`にメタデータ保存、親グループの可視性も自動復元
-- **organizeモード**: 指定名のグループ（デフォルト: "#原稿#"）にレイヤーを再グルーピング（`organize_layers.jsx`）。`organizeTargetName`でグループ名指定、`organizeIncludeSpecial`で特殊レイヤー（白消し・棒消し等）も含めるか選択。`run_photoshop_layer_organize` Rustコマンド経由
+- **organizeモード（フォルダ格納）**: 指定名のグループ（デフォルト: "#原稿#"）にレイヤーを再グルーピング（`organize_layers.jsx`）。`organizeTargetName`でグループ名指定、`organizeIncludeSpecial`で特殊レイヤー（白消し・棒消し等）も含めるか選択。`run_photoshop_layer_organize` Rustコマンド経由
+- **layerMoveモード（レイヤー整理）**: 条件ベースでレイヤーを指定グループに移動（`move_layers.jsx`）。4条件のAND判定: テキストレイヤー / サブグループ最上位 / サブグループ最下位 / レイヤー名一致（部分一致/完全一致）。検索範囲: ドキュメント全体 or 特定グループ内。移動先グループが存在しない場合は新規作成オプション。`run_photoshop_layer_move` Rustコマンド経由
 - 選択ファイルのみ / 全ファイル処理対応
 - **保存先選択**: 上書き保存 or 別フォルダに保存（`Desktop/Script_Output/レイヤー制御/{元フォルダ名}/`）。layerStoreの`saveMode`で管理、Rust側で出力先算出→JSXの`saveFolder`パラメータで`saveAs`先を切替
 - **詳細レポートダイアログ**: 処理完了後に中央モーダル（createPortal）でファイル別ツリー表示。親フォルダ∈情報付きでグループ/レイヤーの階層関係を表示（F/G/T/L種別バッジ）
@@ -463,7 +464,7 @@ src/
 │   ├── usePhotoshopConverter.ts  # Photoshop経由仕様変換（DPI/カラー/ビット深度）
 │   ├── usePreparePsd.ts          # PSD準備（仕様修正+ガイド適用の統合処理）
 │   ├── useHighResPreview.ts      # 高解像度プレビュー（3層キャッシュ）
-│   ├── useLayerControl.ts        # レイヤー制御（hide/show/organize）
+│   ├── useLayerControl.ts        # レイヤー制御（hide/show/organize/layerMove）
 │   ├── useSplitProcessor.ts      # 見開き分割処理
 │   ├── useRenameProcessor.ts     # リネーム処理（ファイル/レイヤー）
 │   ├── useReplaceProcessor.ts    # レイヤー差替え処理
@@ -487,7 +488,7 @@ src/
 │   ├── psdStore.ts        # ファイル一覧・選択状態（files, selectedFileIds, activeFileId, viewMode）
 │   ├── specStore.ts       # 仕様・チェック結果（specifications, checkResults, autoCheckEnabled）。localStorage永続化
 │   ├── guideStore.ts      # ガイド線状態（guides, history/future, selectedGuideIndex）
-│   ├── layerStore.ts      # レイヤー制御: actionMode(hide/show/organize), saveMode, selectedConditions, customConditions, organizeTargetName
+│   ├── layerStore.ts      # レイヤー制御: actionMode(hide/show/organize/layerMove), saveMode, selectedConditions, customConditions, organizeTargetName, layerMove条件（targetName/searchScope/conditions）
 │   ├── viewStore.ts       # ビュー切替状態（activeView: AppView）
 │   ├── splitStore.ts      # 分割設定（settings, selectionHistory/Future）
 │   ├── replaceStore.ts    # 差替え設定（folders, batchFolders, settings, pairingJobs, manualPairs, excludedPairIndices）
@@ -510,7 +511,8 @@ src-tauri/
 │   ├── apply_guides.jsx       # ガイド線適用
 │   ├── prepare_psd.jsx        # PSD準備（仕様修正+ガイド適用の統合処理）
 │   ├── hide_layers.jsx        # レイヤー表示/非表示
-│   ├── organize_layers.jsx    # レイヤー整理（グループ再構成）
+│   ├── organize_layers.jsx    # フォルダ格納（グループ再構成）
+│   ├── move_layers.jsx        # レイヤー整理（条件ベースのレイヤー移動）
 │   ├── split_psd.jsx          # 見開き分割
 │   ├── replace_layers.jsx     # レイヤー差替え＋合成処理
 │   ├── rename_psd.jsx         # レイヤーリネーム
@@ -526,7 +528,7 @@ src-tauri/
 └── src/
     ├── main.rs            # Tauriエントリポイント
     ├── lib.rs             # コマンド登録（invoke_handler）
-    ├── commands.rs        # 全Tauriコマンド（36コマンド）
+    ├── commands.rs        # 全Tauriコマンド（37コマンド）
     └── pdf.rs             # PDFレンダリング内部ヘルパー（pdfium-render）
 ```
 
@@ -685,7 +687,7 @@ pdfium-renderによるPDFプレビュー/サムネイル生成:
 5. **キャッシュ**: ディスクキャッシュ `manga_pdf_preview_{name}_{mtime}_{page}_{size}.jpg`（既存PSDキャッシュと同一パターン）
 6. **pdfium-render API注意**: ページインデックスは`u16`型（`PdfPageIndex`）、`PdfPoints`は`.value: f32`、`as_image()`は`DynamicImage`を直接返す
 
-## Rustコマンド一覧（commands.rs — 36コマンド）
+## Rustコマンド一覧（commands.rs — 37コマンド）
 
 ### Photoshop連携
 | コマンド | 引数 | 戻り値 | 用途 |
@@ -695,7 +697,8 @@ pdfium-renderによるPDFプレビュー/サムネイル生成:
 | `run_photoshop_guide_apply` | `file_paths, guides` | `Vec<PhotoshopResult>` | ガイド線適用 |
 | `run_photoshop_prepare` | `settings: PrepareSettings` | `Vec<PhotoshopResult>` | PSD準備（統合処理） |
 | `run_photoshop_layer_visibility` | `file_paths, conditions, mode, save_mode` | `Vec<PhotoshopResult>` | レイヤー表示/非表示 |
-| `run_photoshop_layer_organize` | `file_paths, target_group_name, include_special, save_mode` | `Vec<PhotoshopResult>` | レイヤー整理 |
+| `run_photoshop_layer_organize` | `file_paths, target_group_name, include_special, save_mode` | `Vec<PhotoshopResult>` | フォルダ格納 |
+| `run_photoshop_layer_move` | `file_paths, target_group_name, create_if_missing, search_scope, search_group_name, conditions, save_mode` | `Vec<PhotoshopResult>` | レイヤー整理（条件ベース移動） |
 | `run_photoshop_split` | 多数パラメータ（mode, format, quality, selection等） | `SplitResponse` | 見開き分割 |
 | `run_photoshop_replace` | `jobs: ReplaceJobSettings` | `Vec<PhotoshopResult>` | レイヤー差替え/合成 |
 | `run_photoshop_rename` | `settings: RenameJobSettings` | `Vec<PhotoshopResult>` | レイヤーリネーム |

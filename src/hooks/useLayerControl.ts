@@ -210,9 +210,102 @@ export function useLayerControl() {
     setLastResults,
   ]);
 
+  // 条件ベースでレイヤーをグループに移動
+  const moveLayersByConditions = useCallback(async () => {
+    const state = useLayerStore.getState();
+    const {
+      layerMoveTargetName,
+      layerMoveCreateIfMissing,
+      layerMoveSearchScope,
+      layerMoveSearchGroupName,
+      layerMoveCondTextLayer,
+      layerMoveCondSubgroupTop,
+      layerMoveCondSubgroupBottom,
+      layerMoveCondNameEnabled,
+      layerMoveCondName,
+      layerMoveCondNamePartial,
+    } = state;
+
+    if (!layerMoveTargetName.trim()) return;
+
+    const hasAnyCondition = layerMoveCondTextLayer || layerMoveCondSubgroupTop || layerMoveCondSubgroupBottom || layerMoveCondNameEnabled;
+    if (!hasAnyCondition) return;
+
+    const targetFiles = selectedFileIds.length > 0
+      ? files.filter((f) => selectedFileIds.includes(f.id))
+      : files;
+
+    if (targetFiles.length === 0) return;
+
+    setIsProcessing(true);
+
+    try {
+      const filePaths = targetFiles.map((f) => f.filePath);
+
+      const psResults = await invoke<PhotoshopResult[]>(
+        "run_photoshop_layer_move",
+        {
+          filePaths,
+          targetGroupName: layerMoveTargetName,
+          createIfMissing: layerMoveCreateIfMissing,
+          searchScope: layerMoveSearchScope,
+          searchGroupName: layerMoveSearchGroupName,
+          conditions: {
+            textLayer: layerMoveCondTextLayer,
+            subgroupTop: layerMoveCondSubgroupTop,
+            subgroupBottom: layerMoveCondSubgroupBottom,
+            nameEnabled: layerMoveCondNameEnabled,
+            namePattern: layerMoveCondName,
+            namePartial: layerMoveCondNamePartial,
+          },
+          saveMode,
+        }
+      );
+
+      const results: LayerControlResult[] = [];
+
+      for (const psResult of psResults) {
+        const normalizedPath = psResult.filePath.replace(/\//g, "\\");
+        const file = targetFiles.find(
+          (f) => f.filePath === psResult.filePath || f.filePath === normalizedPath
+        );
+
+        if (!file) continue;
+
+        const summaryLine = psResult.changes.find((c: string) => !c.startsWith("  "));
+        const changedMatch = summaryLine ? summaryLine.match(/(\d+)/) : null;
+        const changedCount = changedMatch ? parseInt(changedMatch[1], 10) : 0;
+
+        results.push({
+          fileName: file.fileName,
+          success: psResult.success,
+          changedCount,
+          changes: psResult.changes,
+          error: psResult.error || undefined,
+        });
+      }
+
+      setLastResults(results, "layerMove");
+
+      return results;
+    } catch (error) {
+      console.error("Layer move by conditions failed:", error);
+      throw error;
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [
+    files,
+    selectedFileIds,
+    saveMode,
+    setIsProcessing,
+    setLastResults,
+  ]);
+
   return {
     applyLayerVisibility,
     organizeLayersIntoFolder,
+    moveLayersByConditions,
   };
 }
 
