@@ -156,6 +156,24 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
     return [...dirs][0];
   }, [settings.mode, phase, results, folders.targetFolder]);
 
+  // スイッチ差替えモード完了時: 出力フォルダを抽出してKENBAN差分比較用に使う
+  const switchOutputDir = useMemo(() => {
+    if (settings.mode !== "switch" || phase !== "complete" || results.length === 0) return null;
+    if (!folders.targetFolder) return null;
+    const successResults = results.filter((r) => r.success && r.outputFile);
+    if (successResults.length === 0) return null;
+
+    const dirs = new Set<string>();
+    for (const r of successResults) {
+      const parts = r.outputFile!.replace(/\//g, "\\").split("\\");
+      parts.pop();
+      dirs.add(parts.join("\\"));
+    }
+
+    if (dirs.size !== 1) return null;
+    return [...dirs][0];
+  }, [settings.mode, phase, results, folders.targetFolder]);
+
   // Per-result matched names for inline display in result table
   const resultMatchMap = useMemo(() => {
     if (phase !== "complete") return new Map<number, string[]>();
@@ -585,6 +603,27 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
                       await invoke("launch_kenban_diff", {
                         folderA: folders.targetFolder,
                         folderB: imageOutputDir,
+                        mode: "psd",
+                      });
+                    } catch (e) {
+                      alert(`KENBAN起動エラー: ${e}`);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm font-medium rounded-xl text-accent bg-accent/10 border border-accent/30 hover:bg-accent/20 transition-colors flex items-center gap-1.5"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  KENBANで差分比較
+                </button>
+              )}
+              {switchOutputDir && folders.targetFolder && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await invoke("launch_kenban_diff", {
+                        folderA: folders.targetFolder,
+                        folderB: switchOutputDir,
                         mode: "psd",
                       });
                     } catch (e) {
