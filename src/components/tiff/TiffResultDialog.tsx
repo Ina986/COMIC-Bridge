@@ -29,9 +29,18 @@ export function TiffResultDialog() {
     return [...dirs].sort();
   }, [results, lastOutputDir]);
 
+  // PSD元フォルダ: currentFolderPathがなければファイルパスから導出
+  const effectivePsdFolder = useMemo(() => {
+    if (psdFolderPath) return psdFolderPath;
+    if (psdFiles.length === 0) return null;
+    // 個別ファイル選択時: 最初のファイルの親ディレクトリを使用
+    const first = psdFiles[0].filePath;
+    return first.replace(/[\\/][^\\/]+$/, "");
+  }, [psdFolderPath, psdFiles]);
+
   // PSD-TIFF差分比較用: TIFF出力フォルダ（cropBoundsがある場合のみ有効）
   const tiffOutputDir = useMemo(() => {
-    if (!psdFolderPath || !cropBounds || results.length === 0) return null;
+    if (!effectivePsdFolder || !cropBounds || results.length === 0) return null;
     const successResults = results.filter((r) => r.success && r.outputPath);
     if (successResults.length === 0) return null;
 
@@ -42,7 +51,7 @@ export function TiffResultDialog() {
     }
     if (dirs.size === 1) return [...dirs][0];
     return lastOutputDir;
-  }, [results, lastOutputDir, psdFolderPath, cropBounds]);
+  }, [results, lastOutputDir, effectivePsdFolder, cropBounds]);
 
   if (!showResultDialog || results.length === 0) return null;
 
@@ -167,7 +176,7 @@ export function TiffResultDialog() {
                   if (tiffPaths.length > 0) jsonPayload.filesB = tiffPaths;
 
                   await invoke("launch_kenban_diff", {
-                    folderA: psdFolderPath,
+                    folderA: effectivePsdFolder,
                     folderB: tiffOutputDir,
                     mode: "psd-tiff",
                     selectionJson: JSON.stringify(jsonPayload),
