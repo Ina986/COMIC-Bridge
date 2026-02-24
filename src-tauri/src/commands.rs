@@ -3478,7 +3478,12 @@ pub async fn run_photoshop_tiff_convert(
 
 /// Launch KENBAN-viewer in diff mode with two folder paths
 #[tauri::command]
-pub async fn launch_kenban_diff(folder_a: String, folder_b: String, mode: Option<String>) -> Result<(), String> {
+pub async fn launch_kenban_diff(
+    folder_a: String,
+    folder_b: String,
+    mode: Option<String>,
+    selection_json: Option<String>,
+) -> Result<(), String> {
     use std::process::Command;
 
     let local_app_data = std::env::var("LOCALAPPDATA")
@@ -3492,15 +3497,25 @@ pub async fn launch_kenban_diff(folder_a: String, folder_b: String, mode: Option
         ));
     }
 
-    // mode: "tiff"（デフォルト）or "psd"
+    // mode: "tiff"（デフォルト）, "psd", "psd-tiff"
     let mode_arg = mode.unwrap_or_else(|| "tiff".to_string());
 
-    Command::new(&kenban_path)
-        .arg("--diff")
+    let mut cmd = Command::new(&kenban_path);
+    cmd.arg("--diff")
         .arg(&mode_arg)
         .arg(&folder_a)
-        .arg(&folder_b)
-        .spawn()
+        .arg(&folder_b);
+
+    // 選択範囲JSONが指定されていれば、tempに書き出してパスを渡す
+    if let Some(json_content) = selection_json {
+        let temp_dir = std::env::temp_dir();
+        let json_path = temp_dir.join("kenban_selection_bounds.json");
+        std::fs::write(&json_path, &json_content)
+            .map_err(|e| format!("選択範囲JSON書き込みエラー: {}", e))?;
+        cmd.arg(json_path.to_string_lossy().to_string());
+    }
+
+    cmd.spawn()
         .map_err(|e| format!("KENBAN起動エラー: {}", e))?;
 
     Ok(())

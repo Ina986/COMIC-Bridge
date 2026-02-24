@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useTiffStore } from "../../store/tiffStore";
+import { usePsdStore } from "../../store/psdStore";
 import { invoke } from "@tauri-apps/api/core";
 
 export function TiffResultDialog() {
@@ -9,6 +10,9 @@ export function TiffResultDialog() {
   const results = useTiffStore((state) => state.results);
   const lastOutputDir = useTiffStore((state) => state.lastOutputDir);
   const processingDurationMs = useTiffStore((state) => state.processingDurationMs);
+  const cropBounds = useTiffStore((state) => state.settings.crop.bounds);
+  const psdFolderPath = usePsdStore((state) => state.currentFolderPath);
+  const psdFiles = usePsdStore((state) => state.files);
 
   // results の outputPath からユニークなサブフォルダを抽出（2つの場合のみKENBAN差分比較可能）
   const subfolderDirs = useMemo(() => {
@@ -24,6 +28,21 @@ export function TiffResultDialog() {
     }
     return [...dirs].sort();
   }, [results, lastOutputDir]);
+
+  // PSD-TIFF差分比較用: TIFF出力フォルダ（cropBoundsがある場合のみ有効）
+  const tiffOutputDir = useMemo(() => {
+    if (!psdFolderPath || !cropBounds || results.length === 0) return null;
+    const successResults = results.filter((r) => r.success && r.outputPath);
+    if (successResults.length === 0) return null;
+
+    const dirs = new Set<string>();
+    for (const r of successResults) {
+      const parent = r.outputPath!.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+      dirs.add(parent);
+    }
+    if (dirs.size === 1) return [...dirs][0];
+    return lastOutputDir;
+  }, [results, lastOutputDir, psdFolderPath, cropBounds]);
 
   if (!showResultDialog || results.length === 0) return null;
 
@@ -119,6 +138,39 @@ export function TiffResultDialog() {
                     folderA: subfolderDirs[0],
                     folderB: subfolderDirs[1],
                     mode: "tiff",
+                  });
+                } catch (e) {
+                  alert(`KENBAN起動エラー: ${e}`);
+                }
+              }}
+              className="px-4 py-2 text-sm font-medium text-accent bg-accent/10 border border-accent/30 rounded-xl hover:bg-accent/20 transition-colors"
+            >
+              KENBANで差分比較
+            </button>
+          )}
+          {tiffOutputDir && (
+            <button
+              onClick={async () => {
+                try {
+                  const successResults = results.filter((r) => r.success && r.outputPath);
+                  const psdPaths = successResults
+                    .map((r) => psdFiles.find((f) => f.fileName === r.fileName)?.filePath)
+                    .filter((p): p is string => !!p);
+                  const tiffPaths = successResults
+                    .map((r) => r.outputPath)
+                    .filter((p): p is string => !!p);
+
+                  const jsonPayload: Record<string, unknown> = {
+                    selectionRanges: [{ bounds: cropBounds }],
+                  };
+                  if (psdPaths.length > 0) jsonPayload.filesA = psdPaths;
+                  if (tiffPaths.length > 0) jsonPayload.filesB = tiffPaths;
+
+                  await invoke("launch_kenban_diff", {
+                    folderA: psdFolderPath,
+                    folderB: tiffOutputDir,
+                    mode: "psd-tiff",
+                    selectionJson: JSON.stringify(jsonPayload),
                   });
                 } catch (e) {
                   alert(`KENBAN起動エラー: ${e}`);

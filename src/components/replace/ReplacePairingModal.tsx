@@ -36,6 +36,7 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
   const excludedPairIndices = useReplaceStore((s) => s.excludedPairIndices);
   const manualPairs = useReplaceStore((s) => s.manualPairs);
   const setManualPairs = useReplaceStore((s) => s.setManualPairs);
+  const folders = useReplaceStore((s) => s.folders);
 
   const totalPairsCount = pairingJobs.reduce(
     (acc, job) => acc + job.pairs.length,
@@ -135,6 +136,25 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
     }
     return [...dirs].sort();
   }, [settings.mode, phase, results]);
+
+  // 画像差替えモード完了時: 出力フォルダを抽出してKENBAN差分比較用に使う
+  const imageOutputDir = useMemo(() => {
+    if (settings.mode !== "image" || phase !== "complete" || results.length === 0) return null;
+    if (!folders.targetFolder) return null;
+    const successResults = results.filter((r) => r.success && r.outputFile);
+    if (successResults.length === 0) return null;
+
+    const dirs = new Set<string>();
+    for (const r of successResults) {
+      const parts = r.outputFile!.replace(/\//g, "\\").split("\\");
+      parts.pop(); // ファイル名除去
+      dirs.add(parts.join("\\"));
+    }
+
+    // 出力先が1フォルダに収まる場合のみ表示
+    if (dirs.size !== 1) return null;
+    return [...dirs][0];
+  }, [settings.mode, phase, results, folders.targetFolder]);
 
   // Per-result matched names for inline display in result table
   const resultMatchMap = useMemo(() => {
@@ -558,6 +578,27 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
           )}
           {phase === "complete" && (
             <>
+              {imageOutputDir && folders.targetFolder && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await invoke("launch_kenban_diff", {
+                        folderA: folders.targetFolder,
+                        folderB: imageOutputDir,
+                        mode: "psd",
+                      });
+                    } catch (e) {
+                      alert(`KENBAN起動エラー: ${e}`);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm font-medium rounded-xl text-accent bg-accent/10 border border-accent/30 hover:bg-accent/20 transition-colors flex items-center gap-1.5"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  KENBANで差分比較
+                </button>
+              )}
               {batchSubfolderDirs.length === 2 && (
                 <button
                   onClick={async () => {

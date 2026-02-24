@@ -442,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "comic-bridge"
-version = "1.0.16"
+version = "1.0.18"
 dependencies = [
  "fontdb",
  "image",
