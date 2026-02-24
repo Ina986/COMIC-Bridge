@@ -28,6 +28,7 @@ export function TiffCropEditor() {
   const setPhase = useTiffStore((state) => state.setPhase);
   const cropMethod = useTiffStore((state) => state.cropMethod);
   const setCropStep = useTiffStore((state) => state.setCropStep);
+  const cropEnabled = useTiffStore((state) => state.settings.crop.enabled);
 
   // ガイド
   const cropGuides = useTiffStore((state) => state.cropGuides);
@@ -174,6 +175,7 @@ export function TiffCropEditor() {
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
       if (isPanning || isSpacePressed) return;
+      if (!cropEnabled) return;
       // ガイド選択解除
       if (selectedCropGuideIndex !== null) {
         setSelectedCropGuideIndex(null);
@@ -190,7 +192,7 @@ export function TiffCropEditor() {
         setCropBounds(newBounds);
       }
     },
-    [localBounds, screenToDoc, createCropFromCenter, setCropBounds, pushCropHistory, cropMethod, isPanning, isSpacePressed, setSelectedCropGuideIndex]
+    [localBounds, screenToDoc, createCropFromCenter, setCropBounds, pushCropHistory, cropMethod, isPanning, isSpacePressed, setSelectedCropGuideIndex, cropEnabled]
   );
 
   // --- ドラッグ (クロップ移動/リサイズ) ---
@@ -336,9 +338,10 @@ export function TiffCropEditor() {
 
   const handleRulerDragStart = useCallback(
     (direction: "horizontal" | "vertical", e: React.MouseEvent) => {
+      if (!cropEnabled) return;
       setRulerDragging({ direction, startPos: direction === "horizontal" ? e.clientY : e.clientX });
     },
-    []
+    [cropEnabled]
   );
 
   // ルーラードラッグ→ガイド作成
@@ -569,7 +572,7 @@ export function TiffCropEditor() {
       setCropBounds(nb);
     },
     hasSelectedGuide: selectedCropGuideIndex !== null,
-    hasRange: !!localBounds,
+    hasRange: cropEnabled && !!localBounds,
     onSpaceDown: () => setIsSpacePressed(true),
     onSpaceUp: () => {
       setIsSpacePressed(false);
@@ -588,7 +591,7 @@ export function TiffCropEditor() {
   // カーソルスタイル
   const cursorClass = isSpacePressed
     ? isPanning ? "cursor-grabbing" : "cursor-grab"
-    : "cursor-crosshair";
+    : cropEnabled ? "cursor-crosshair" : "cursor-default";
 
   // preview area dimensions for scrollable container
   const previewAreaW = imageLayout ? Math.max(imageLayout.displayW + 80, containerSize.width - (showRulers ? RULER_SIZE : 0)) : 0;
@@ -602,7 +605,7 @@ export function TiffCropEditor() {
           <svg className="w-3.5 h-3.5 text-accent-warm" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
           </svg>
-          クロップエディタ
+          {cropEnabled ? "クロップエディタ" : "プレビュー"}
         </h4>
 
         <div className="flex items-center gap-1.5 ml-auto">
@@ -685,13 +688,13 @@ export function TiffCropEditor() {
         {originalSize && (
           <span>キャンバス: {originalSize.width} x {originalSize.height}</span>
         )}
-        {localBounds && (
+        {cropEnabled && localBounds && (
           <span className="font-mono">
             ({localBounds.left},{localBounds.top}) → ({localBounds.right},{localBounds.bottom})
           </span>
         )}
         <div className="flex-1" />
-        <span className="text-text-muted/60">比率 {ASPECT_W}:{ASPECT_H}</span>
+        {cropEnabled && <span className="text-text-muted/60">比率 {ASPECT_W}:{ASPECT_H}</span>}
       </div>
     </div>
   );
@@ -723,8 +726,8 @@ export function TiffCropEditor() {
           />
         )}
 
-        {/* Guide Lines */}
-        {showRulers && imageLayout && originalSize && (
+        {/* Guide Lines (only when crop is enabled) */}
+        {cropEnabled && showRulers && imageLayout && originalSize && (
           <>
             {cropGuides.map((guide, i) => {
               const isSelected = selectedCropGuideIndex === i;
@@ -835,8 +838,8 @@ export function TiffCropEditor() {
           </>
         )}
 
-        {/* Crop Overlay */}
-        {cropScreenRect && imageLayout && (
+        {/* Crop Overlay (only when crop is enabled) */}
+        {cropEnabled && cropScreenRect && imageLayout && (
           <>
             {/* Dark overlay outside crop */}
             <div className="absolute inset-0 pointer-events-none z-10">
@@ -897,8 +900,8 @@ export function TiffCropEditor() {
           </>
         )}
 
-        {/* Empty state */}
-        {!localBounds && imageUrl && !isLoading && cropGuides.length === 0 && (
+        {/* Empty state (only when crop is enabled) */}
+        {cropEnabled && !localBounds && imageUrl && !isLoading && cropGuides.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="px-4 py-2 bg-black/50 text-white text-xs rounded-lg">
               クリックで範囲作成 / 定規からガイド追加

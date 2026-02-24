@@ -463,7 +463,7 @@ interface FolderEntry {
   isDir: boolean;
 }
 
-function CropJsonLoadDialog({ onLoad, onClose }: { onLoad: (preset: TiffCropPreset) => void; onClose: () => void }) {
+export function CropJsonLoadDialog({ onLoad, onClose }: { onLoad: (preset: TiffCropPreset) => void; onClose: () => void }) {
   const [currentPath, setCurrentPath] = useState(JSON_BASE_PATH);
   const [pathHistory, setPathHistory] = useState<string[]>([]);
   const [entries, setEntries] = useState<FolderEntry[]>([]);
@@ -755,7 +755,7 @@ function CropJsonLoadDialog({ onLoad, onClose }: { onLoad: (preset: TiffCropPres
   );
 }
 
-function CropJsonRegisterDialog({ onClose }: { onClose: () => void }) {
+export function CropJsonRegisterDialog({ onClose }: { onClose: () => void }) {
   const cropBounds = useTiffStore((s) => s.settings.crop.bounds);
   const referenceImageSize = useTiffStore((s) => s.referenceImageSize);
 
@@ -995,7 +995,7 @@ function CropJsonRegisterDialog({ onClose }: { onClose: () => void }) {
 // Unlock Dialog
 // ============================================================
 
-function UnlockDialog({ onClose, onUnlock }: { onClose: () => void; onUnlock: () => void }) {
+export function UnlockDialog({ onClose, onUnlock }: { onClose: () => void; onUnlock: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(false);
 

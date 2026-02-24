@@ -6,6 +6,10 @@ import type { TiffFileOverride } from "../../types/tiff";
 export function TiffBatchQueue() {
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
+  const selectFile = usePsdStore((state) => state.selectFile);
+  const selectRange = usePsdStore((state) => state.selectRange);
+  const selectAll = usePsdStore((state) => state.selectAll);
+  const clearSelection = usePsdStore((state) => state.clearSelection);
   const settings = useTiffStore((state) => state.settings);
   const fileOverrides = useTiffStore((state) => state.fileOverrides);
   const toggleFileSkip = useTiffStore((state) => state.toggleFileSkip);
@@ -16,6 +20,16 @@ export function TiffBatchQueue() {
   const currentFile = useTiffStore((state) => state.currentFile);
 
   const [expandedFileId, setExpandedFileId] = useState<string | null>(null);
+
+  const handleRowClick = (fileId: string, e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      selectRange(fileId);
+    } else if (e.ctrlKey || e.metaKey) {
+      selectFile(fileId, true);
+    } else {
+      selectFile(fileId);
+    }
+  };
 
   // ファイル毎の最終設定を計算
   const resolvedFiles = useMemo(() => {
@@ -119,6 +133,15 @@ export function TiffBatchQueue() {
       {/* Header */}
       <div className="px-4 py-2.5 border-b border-border flex items-center gap-3">
         <span className="text-xs font-medium text-text-primary">バッチキュー</span>
+        <div className="flex items-center gap-2">
+          <button onClick={selectAll} className="text-[10px] text-text-muted hover:text-accent transition-colors">全選択</button>
+          {selectedFileIds.length > 0 && (
+            <>
+              <button onClick={clearSelection} className="text-[10px] text-text-muted hover:text-accent transition-colors">解除</button>
+              <span className="text-[10px] text-accent font-medium">{selectedFileIds.length}件</span>
+            </>
+          )}
+        </div>
         <div className="flex-1" />
         <span className="text-[10px] text-text-muted">
           {stats.active} 対象 / {stats.skipped > 0 && `${stats.skipped} スキップ / `}{stats.total} 合計
@@ -145,6 +168,7 @@ export function TiffBatchQueue() {
                   isSelected={selectedFileIds.includes(item.file.id)}
                   isCurrentProcessing={isProcessing && currentFile === item.file.fileName}
                   isExpanded={expandedFileId === item.file.id}
+                  onRowClick={(e) => handleRowClick(item.file.id, e)}
                   onToggleSkip={() => toggleFileSkip(item.file.id)}
                   onToggleExpand={() => setExpandedFileId(
                     expandedFileId === item.file.id ? null : item.file.id
@@ -209,6 +233,7 @@ function QueueRow({
   isSelected,
   isCurrentProcessing,
   isExpanded,
+  onRowClick,
   onToggleSkip,
   onToggleExpand,
   onSetOverride,
@@ -218,6 +243,7 @@ function QueueRow({
   isSelected: boolean;
   isCurrentProcessing: boolean;
   isExpanded: boolean;
+  onRowClick: (e: React.MouseEvent) => void;
   onToggleSkip: () => void;
   onToggleExpand: () => void;
   onSetOverride: (partial: Partial<TiffFileOverride>) => void;
@@ -232,12 +258,13 @@ function QueueRow({
       `}
     >
       {/* Main Row */}
-      <div className="flex items-center gap-2 px-3 py-2 min-h-[44px]">
+      <div className="flex items-center gap-2 px-3 py-2 min-h-[44px] cursor-pointer" onClick={onRowClick}>
         {/* Skip Checkbox */}
         <input
           type="checkbox"
           checked={!item.skip}
           onChange={onToggleSkip}
+          onClick={(e) => e.stopPropagation()}
           className="rounded accent-accent-warm flex-shrink-0"
           title="処理対象に含める"
         />
@@ -309,7 +336,7 @@ function QueueRow({
 
         {/* Override Toggle */}
         <button
-          onClick={onToggleExpand}
+          onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
           className={`
             p-1 rounded-md transition-all flex-shrink-0
             ${item.hasOverride
