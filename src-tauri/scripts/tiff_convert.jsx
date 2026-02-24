@@ -131,7 +131,19 @@ function processFile(fileConfig, globalSettings) {
 
             // Background: Select all non-text layers -> convert to SO
             if (bgLayers.length > 0) {
+                // Save visibility state before selection (selectLayers may alter hidden layers)
+                var bgVisibility = [];
+                for (var vi = 0; vi < bgLayers.length; vi++) {
+                    bgVisibility.push(bgLayers[vi].visible);
+                }
+
                 selectLayers(bgLayers);
+
+                // Restore visibility after selection, before SO creation
+                for (var vi = 0; vi < bgLayers.length; vi++) {
+                    try { bgLayers[vi].visible = bgVisibility[vi]; } catch (e) {}
+                }
+
                 backgroundSO = convertToSmartObject();
                 if (backgroundSO) backgroundSO.name = "\u80CC\u666F";
             }
@@ -139,7 +151,14 @@ function processFile(fileConfig, globalSettings) {
             // Text: Select text group with all children -> convert to SO
             if (textGroup) {
                 try {
+                    // Save text group visibility
+                    var textGroupVisible = textGroup.visible;
+
                     selectLayerWithChildren(textGroup);
+
+                    // Restore text group visibility
+                    try { textGroup.visible = textGroupVisible; } catch (e) {}
+
                     textSO = convertToSmartObject();
                     if (textSO) textSO.name = "\u30C6\u30AD\u30B9\u30C8";
                 } catch (e) {
@@ -336,9 +355,6 @@ function unlockRecursive(container) {
         try {
             var originalVisibility = layer.visible;
             layer.allLocked = false;
-            layer.pixelsLocked = false;
-            layer.positionLocked = false;
-            layer.transparentPixelsLocked = false;
             layer.visible = originalVisibility;
         } catch (e) {}
         if (layer.typename === "LayerSet") {
