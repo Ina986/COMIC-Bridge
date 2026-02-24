@@ -1,12 +1,44 @@
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useScanPsdStore } from "../../../store/scanPsdStore";
 import { GENRE_LABELS } from "../../../types/scanPsd";
 
 export function WorkInfoTab() {
   const workInfo = useScanPsdStore((s) => s.workInfo);
   const setWorkInfo = useScanPsdStore((s) => s.setWorkInfo);
+  const textLogFolderPath = useScanPsdStore((s) => s.textLogFolderPath);
 
   const genres = Object.keys(GENRE_LABELS);
   const labels = workInfo.genre ? GENRE_LABELS[workInfo.genre] || [] : [];
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) return;
+
+      let fields = text.split("\t");
+      if (fields.length <= 1) {
+        fields = text.split("\n").map((f) => f.trim()).filter(Boolean);
+      }
+      if (fields.length === 0) return;
+
+      const title = fields[0]?.trim() || "";
+      if (fields.length === 2) {
+        setWorkInfo({ title, author: fields[1]?.trim() || "", authorType: "single" });
+      } else if (fields.length >= 3) {
+        setWorkInfo({
+          title,
+          original: fields[1]?.trim() || "",
+          artist: fields[2]?.trim() || "",
+          authorType: "dual",
+        });
+      } else {
+        setWorkInfo({ title });
+      }
+    } catch {
+      // silently ignore
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -47,7 +79,7 @@ export function WorkInfoTab() {
 
       {/* 著者 */}
       <Section title="著者情報" accent="#7c5cff">
-        <div className="flex gap-3 mb-2">
+        <div className="flex gap-3 mb-2 items-center">
           {(["single", "dual", "none"] as const).map((t) => (
             <label key={t} className="flex items-center gap-1.5 cursor-pointer group">
               <input
@@ -62,6 +94,13 @@ export function WorkInfoTab() {
               </span>
             </label>
           ))}
+          <button
+            onClick={handlePaste}
+            className="ml-auto px-2 py-0.5 text-[10px] text-text-secondary bg-bg-primary border border-border
+              rounded-lg hover:text-text-primary hover:border-accent/40 transition-all"
+          >
+            Notionからペースト
+          </button>
         </div>
         {workInfo.authorType === "single" && (
           <div>
@@ -121,7 +160,111 @@ export function WorkInfoTab() {
           </div>
         </div>
       </Section>
+
+      {/* 保存ファイル一覧 */}
+      <SavedFileListSection
+        label={workInfo.label}
+        title={workInfo.title}
+        textLogFolderPath={textLogFolderPath}
+      />
     </div>
+  );
+}
+
+function SavedFileListSection({
+  label,
+  title,
+  textLogFolderPath,
+}: {
+  label: string;
+  title: string;
+  textLogFolderPath: string;
+}) {
+  const [files, setFiles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  // phase変化をトリガーにしてスキャン/保存完了後にファイル一覧を再取得
+  const phase = useScanPsdStore((s) => s.phase);
+
+  useEffect(() => {
+    if (!label || !title || !textLogFolderPath) {
+      setFiles([]);
+      return;
+    }
+
+    const folderPath = `${textLogFolderPath}/${label}/${title}`.replace(/\\/g, "/");
+
+    let cancelled = false;
+    setLoading(true);
+    invoke<string[]>("list_all_files", { folderPath })
+      .then((result) => {
+        if (!cancelled) setFiles(result);
+      })
+      .catch(() => {
+        if (!cancelled) setFiles([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [label, title, textLogFolderPath, phase]);
+
+  const volumePattern = /(\d+)巻\.txt$/;
+  const folderPath = textLogFolderPath && label && title
+    ? `${textLogFolderPath}/${label}/${title}`.replace(/\\/g, "/")
+    : null;
+
+  const handleOpenFile = (fileName: string) => {
+    if (!folderPath) return;
+    invoke("open_with_default_app", { filePath: `${folderPath}/${fileName}` }).catch(console.error);
+  };
+
+  const handleOpenFolder = () => {
+    if (!folderPath) return;
+    invoke("open_with_default_app", { filePath: folderPath }).catch(console.error);
+  };
+
+  return (
+    <Section title="保存ファイル一覧" accent="#6b7280">
+      {!label || !title ? (
+        <p className="text-[11px] text-text-muted">作品情報を入力してください</p>
+      ) : loading ? (
+        <p className="text-[11px] text-text-muted">読み込み中...</p>
+      ) : files.length === 0 ? (
+        <p className="text-[11px] text-text-muted">ファイルなし</p>
+      ) : (
+        <>
+          <div className="space-y-0.5 max-h-40 overflow-y-auto">
+            {files.map((f, i) => {
+              const volumeMatch = f.match(volumePattern);
+              return (
+                <button
+                  key={i}
+                  onClick={() => handleOpenFile(f)}
+                  className="flex items-center gap-1.5 text-[11px] text-text-secondary hover:text-accent w-full text-left rounded px-1 py-0.5 hover:bg-accent/5 transition-colors"
+                >
+                  {volumeMatch && (
+                    <span className="text-[9px] px-1 py-0.5 bg-accent/10 text-accent rounded flex-shrink-0">
+                      {volumeMatch[1]}巻
+                    </span>
+                  )}
+                  <span className="truncate">{f}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={handleOpenFolder}
+            className="mt-1.5 flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+            </svg>
+            フォルダを開く
+          </button>
+        </>
+      )}
+    </Section>
   );
 }
 

@@ -4,8 +4,10 @@ import type {
   ScanPsdTab,
   ScanData,
   ScanWorkInfo,
+  ScanSizeStats,
   FontPreset,
   RubyEntry,
+  SelectionRange,
   PresetJsonData,
 } from "../types/scanPsd";
 import { DEFAULT_WORK_INFO } from "../types/scanPsd";
@@ -58,6 +60,11 @@ export interface ScanPsdState {
 
   // ルビリスト
   rubyList: RubyEntry[];
+  rubySortMode: "order" | "ruby" | "parent" | "volumePage";
+
+  // TIPPY範囲選択
+  selectionRanges: SelectionRange[];
+  lastUsedLabel: string | null;
 
   // 共有ドライブパス
   jsonFolderPath: string;
@@ -113,6 +120,14 @@ export interface ScanPsdState {
   addRuby: (entry: RubyEntry) => void;
   removeRuby: (id: string) => void;
   updateRuby: (id: string, partial: Partial<RubyEntry>) => void;
+  setRubySortMode: (mode: "order" | "ruby" | "parent" | "volumePage") => void;
+
+  // Actions - TIPPY範囲選択
+  setSelectionRanges: (ranges: SelectionRange[]) => void;
+  setLastUsedLabel: (label: string | null) => void;
+
+  // Actions - サイズ統計編集
+  updateSizeStats: (partial: Partial<ScanSizeStats>) => void;
 
   // Actions - パス
   setJsonFolderPath: (path: string) => void;
@@ -150,6 +165,9 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
   selectedGuideIndex: null,
   excludedGuideIndices: new Set(),
   rubyList: [],
+  rubySortMode: "volumePage",
+  selectionRanges: [],
+  lastUsedLabel: null,
   jsonFolderPath: loadPath("scanPsd_jsonFolderPath", DEFAULT_JSON_FOLDER_PATH),
   saveDataBasePath: loadPath("scanPsd_saveDataBasePath", DEFAULT_SAVE_DATA_BASE_PATH),
   textLogFolderPath: loadPath("scanPsd_textLogFolderPath", DEFAULT_TEXT_LOG_FOLDER_PATH),
@@ -252,6 +270,19 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
     set((s) => ({
       rubyList: s.rubyList.map((r) => (r.id === id ? { ...r, ...partial } : r)),
     })),
+  setRubySortMode: (rubySortMode) => set({ rubySortMode }),
+
+  // TIPPY範囲選択
+  setSelectionRanges: (selectionRanges) => set({ selectionRanges }),
+  setLastUsedLabel: (lastUsedLabel) => set({ lastUsedLabel }),
+
+  // サイズ統計編集
+  updateSizeStats: (partial) =>
+    set((s) => {
+      if (!s.scanData) return {};
+      const newStats = { ...s.scanData.sizeStats, ...partial };
+      return { scanData: { ...s.scanData, sizeStats: newStats } };
+    }),
 
   // パス
   setJsonFolderPath: (path) => {
@@ -290,6 +321,7 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
           ? new Set(pd.excludedGuideIndices)
           : s.excludedGuideIndices,
         rubyList: pd.rubyList ?? s.rubyList,
+        selectionRanges: pd.selectionRanges ?? s.selectionRanges,
       };
     }),
 
@@ -328,6 +360,9 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
       selectedGuideIndex: null,
       excludedGuideIndices: new Set(),
       rubyList: [],
+      rubySortMode: "volumePage",
+      selectionRanges: [],
+      lastUsedLabel: null,
       currentJsonFilePath: null,
       currentScandataFilePath: null,
       tempJsonFilePath: null,

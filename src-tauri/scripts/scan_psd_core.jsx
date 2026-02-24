@@ -291,6 +291,29 @@ function calculateFontSizeStats(allFontSizes) {
     };
 }
 
+// ========== Image layer cleanup ==========
+function deleteImageLayers(doc) {
+    function deleteFromParent(parent) {
+        for (var i = parent.layers.length - 1; i >= 0; i--) {
+            var layer = parent.layers[i];
+            try {
+                if (layer.typename === "LayerSet") {
+                    deleteFromParent(layer);
+                    if (layer.layers.length === 0) {
+                        try { layer.allLocked = false; layer.remove(); } catch(e) {}
+                    }
+                } else if (layer.typename === "ArtLayer") {
+                    if (layer.kind !== LayerKind.TEXT || !layer.visible) {
+                        try { layer.allLocked = false; } catch(e) {}
+                        try { layer.remove(); } catch(e) {}
+                    }
+                }
+            } catch(e) {}
+        }
+    }
+    deleteFromParent(doc);
+}
+
 // ========== Core scanner ==========
 function scanSingleDocument(doc, usedFonts, allFontSizes, strokeStats, textLayerList, guideSets) {
     var docName = doc.name;
@@ -686,6 +709,8 @@ function processFolders(settings) {
                 var doc = app.open(psdFile);
                 app.activeDocument = doc;
                 var docName = doc.name;
+
+                deleteImageLayers(doc);
 
                 var textLayerList = [];
                 scanSingleDocument(doc, folderUsedFonts, folderFontSizes, folderStrokeStats, textLayerList, folderGuideSets);

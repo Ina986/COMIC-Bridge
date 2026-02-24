@@ -11,6 +11,10 @@ import type {
   RubyEntry,
 } from "../types/scanPsd";
 
+export type ScanResult =
+  | { success: true; processedFiles: number; newFolders: string[]; rubyCount: number }
+  | { success: false; error: string };
+
 /**
  * タチキリガイドセットとして有効か判定（元スクリプト isValidTachikiriGuideSet 準拠）
  * - ドキュメント中心の上下左右にそれぞれ1本以上のガイドが必要
@@ -117,6 +121,7 @@ async function performPresetJsonSave(): Promise<boolean> {
     selectedGuideSetIndex: store.selectedGuideIndex ?? undefined,
     excludedGuideIndices: undefined,
     rubyList: store.rubyList.length > 0 ? store.rubyList : undefined,
+    selectionRanges: store.selectionRanges.length > 0 ? store.selectionRanges : undefined,
   };
 
   const outputData: PresetJsonData = {
@@ -228,23 +233,433 @@ async function saveScandataLinked(store: ReturnType<typeof useScanPsdStore.getSt
   store.setCurrentScandataFilePath(scandataPath);
 }
 
+/**
+ * textLogByFolderのリンクグループからルビを抽出して store.rubyList に追加
+ * （je-nsonman appendRubyFromNewFolders 準拠）
+ * @param newFolderNames 新しくスキャンしたフォルダ名の配列
+ */
+function appendRubiesFromFolders(newFolderNames: string[]): void {
+  const store = useScanPsdStore.getState();
+  if (!store.scanData?.textLogByFolder || newFolderNames.length === 0) return;
+
+  const { textLogByFolder, folderVolumeMapping } = store.scanData;
+  const existingRubyList = store.rubyList;
+
+  // 既存の最大orderを取得
+  let maxOrder = 0;
+  for (const r of existingRubyList) {
+    if (r.order > maxOrder) maxOrder = r.order;
+  }
+  let orderCounter = maxOrder + 1;
+
+  const newRubies: RubyEntry[] = [];
+
+  for (const srcFolderName of newFolderNames) {
+    const folderData = textLogByFolder[srcFolderName];
+    if (!folderData) continue;
+
+    const currentVolume = folderVolumeMapping?.[srcFolderName] ?? 1;
+
+    const docNames = Object.keys(folderData).sort((a, b) => {
+      const numA = parseInt(a.replace(/[^0-9]/g, ""), 10) || 0;
+      const numB = parseInt(b.replace(/[^0-9]/g, ""), 10) || 0;
+      return numA - numB;
+    });
+
+    let pageNum = 1;
+    for (const docName of docNames) {
+      const texts = folderData[docName];
+
+      // リンクグループを収集
+      const linkedGroups: Record<string, { content: string; fontSize: number; layerName: string }[]> = {};
+      for (const t of texts) {
+        if (t.isLinked && t.linkGroupId) {
+          if (!linkedGroups[t.linkGroupId]) linkedGroups[t.linkGroupId] = [];
+          linkedGroups[t.linkGroupId].push({
+            content: t.content,
+            fontSize: t.fontSize,
+            layerName: t.layerName,
+          });
+        }
+      }
+
+      // 各リンクグループからルビを抽出
+      for (const groupTexts of Object.values(linkedGroups)) {
+        const sorted = [...groupTexts].sort((a, b) => b.fontSize - a.fontSize);
+        if (sorted.length < 2) continue;
+
+        const parentText = sorted[0].content;
+        for (let t = 1; t < sorted.length; t++) {
+          const trimmedRuby = sorted[t].content.replace(/[\s\u3000]/g, "");
+          if (/^[・･゛]+$/.test(trimmedRuby)) continue;
+
+          // 括弧形式かチェック（je-nsonman準拠）
+          const bracketMatch = sorted[t].layerName.match(/^(.+?)[（(](.+?)[）)]$/);
+          if (bracketMatch) {
+            newRubies.push({
+              id: `ruby_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              parentText: bracketMatch[2],
+              rubyText: bracketMatch[1].replace(/[\s\u3000]/g, ""),
+              volume: currentVolume,
+              page: pageNum,
+              order: orderCounter++,
+            });
+          } else {
+            newRubies.push({
+              id: `ruby_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              parentText,
+              rubyText: trimmedRuby,
+              volume: currentVolume,
+              page: pageNum,
+              order: orderCounter++,
+            });
+          }
+        }
+      }
+      pageNum++;
+    }
+  }
+
+  if (newRubies.length > 0) {
+    store.setRubyList([...existingRubyList, ...newRubies]);
+  }
+}
+
+/**
+ * テキストログ出力の実処理（元スクリプト exportTextLog 準拠）
+ * 保存先: {textLogFolderPath}/{label}/{title}/{XX巻}.txt + ルビ一覧.txt
+ * startScan完了後の自動出力からも呼ばれる
+ */
+async function performExportTextLog(): Promise<void> {
+  const store = useScanPsdStore.getState();
+  if (!store.scanData?.textLogByFolder) return;
+  const { workInfo, scanData, rubyList, textLogFolderPath } = store;
+  if (!workInfo.label || !workInfo.title) return;
+
+  const safeLabel = workInfo.label.replace(/[\\/:*?"<>|]/g, "_");
+  const safeTitle = workInfo.title.replace(/[\\/:*?"<>|]/g, "_");
+  const titleFolderPath = `${textLogFolderPath}/${safeLabel}/${safeTitle}`.replace(/\\/g, "/");
+
+  const folderVolumeMapping = scanData.folderVolumeMapping || {};
+  const startVolume = scanData.startVolume || workInfo.volume || 1;
+
+  // フォルダ名を収集して自然順ソート
+  const folderNames = Object.keys(scanData.textLogByFolder).sort((a, b) =>
+    a.localeCompare(b, "ja", { numeric: true })
+  );
+
+  // リンクグループ収集用（ルビ一覧生成用）
+  const linkedGroups: Record<string, {
+    pageNum: number; volumeStr: string;
+    texts: { content: string; fontSize: number; layerName: string }[];
+  }> = {};
+
+  // 各フォルダごとにテキストファイルを出力
+  for (let folderIdx = 0; folderIdx < folderNames.length; folderIdx++) {
+    const srcFolderName = folderNames[folderIdx];
+
+    // 個別巻数マッピングがあればそれを使用、なければ連番
+    const currentVolume = folderVolumeMapping[srcFolderName] !== undefined
+      ? folderVolumeMapping[srcFolderName]
+      : startVolume + folderIdx;
+    const volumeStr = String(currentVolume);
+
+    const folderData = scanData.textLogByFolder[srcFolderName];
+
+    // ドキュメント名（ページ番号）でソート
+    const docNames = Object.keys(folderData).sort((a, b) => {
+      const numA = parseInt(a.replace(/[^0-9]/g, ""), 10) || 0;
+      const numB = parseInt(b.replace(/[^0-9]/g, ""), 10) || 0;
+      return numA - numB;
+    });
+    if (docNames.length === 0) continue;
+
+    // テキストログを生成
+    let logContent = `[${volumeStr}巻]\n\n`;
+    let pageNum = 1;
+
+    for (const docName of docNames) {
+      const texts = folderData[docName];
+      logContent += `<<${pageNum}Page>>\n`;
+
+      // Y座標順にソート
+      const sorted = [...texts].sort((a, b) => a.yPos - b.yPos);
+      for (const entry of sorted) {
+        logContent += entry.content + "\n\n";
+
+        // リンクされたテキストをグループごとに収集（ルビ一覧用）
+        if (entry.isLinked && entry.linkGroupId) {
+          if (!linkedGroups[entry.linkGroupId]) {
+            linkedGroups[entry.linkGroupId] = {
+              pageNum, volumeStr,
+              texts: [],
+            };
+          }
+          linkedGroups[entry.linkGroupId].texts.push({
+            content: entry.content,
+            fontSize: entry.fontSize,
+            layerName: entry.layerName,
+          });
+        }
+      }
+
+      logContent += "\n";
+      pageNum++;
+    }
+
+    // {XX巻}.txt として保存
+    const filePath = `${titleFolderPath}/${volumeStr}巻.txt`;
+    await invoke("write_text_file", { filePath, content: logContent });
+  }
+
+  // ルビ一覧を生成して保存
+  let rubyContent = "";
+  if (rubyList.length > 0) {
+    // 編集済みルビリストがあればそれを使用
+    const sorted = [...rubyList].sort((a, b) => {
+      if (a.volume !== b.volume) return a.volume - b.volume;
+      return a.page - b.page;
+    });
+    for (const r of sorted) {
+      const volStr = String(r.volume);
+      const cleanRuby = r.rubyText.replace(/[\s\u3000]/g, "");
+      rubyContent += `[${volStr}巻-${r.page}]${r.parentText}(${cleanRuby})\n\n`;
+    }
+  } else {
+    // リンクグループから抽出（従来の処理）
+    for (const [, group] of Object.entries(linkedGroups)) {
+      const groupTexts = [...group.texts].sort((a, b) => b.fontSize - a.fontSize);
+      if (groupTexts.length >= 2) {
+        const parentText = groupTexts[0].content;
+        for (let t = 1; t < groupTexts.length; t++) {
+          const cleanRuby = groupTexts[t].content.replace(/[\s\u3000]/g, "");
+          if (/^[・･゛]+$/.test(cleanRuby)) continue;
+          rubyContent += `[${group.volumeStr}巻-${group.pageNum}]${parentText}(${cleanRuby})\n\n`;
+        }
+      }
+    }
+  }
+
+  if (rubyContent) {
+    const rubyPath = `${titleFolderPath}/ルビ一覧.txt`;
+    await invoke("write_text_file", { filePath: rubyPath, content: rubyContent });
+  }
+}
+
+/**
+ * 指定巻数のスキャンデータを削除（再スキャン可能にする）
+ * - scannedFolders / textLogByFolder / folderVolumeMapping から該当フォルダを削除
+ * - textLayersByDoc から該当フォルダのドキュメントを削除
+ * - fonts / sizeStats / allFontSizes / guideSets / processedFiles を残データから再計算
+ * - rubyList / editedRubyList から該当巻のエントリを削除
+ */
+function performRemoveVolumeData(volume: number): void {
+  const store = useScanPsdStore.getState();
+  if (!store.scanData) return;
+
+  const scanData = { ...store.scanData };
+
+  // folderVolumeMappingから該当巻のフォルダ名を特定
+  const foldersToRemove: string[] = [];
+  if (scanData.folderVolumeMapping) {
+    for (const [folderName, vol] of Object.entries(scanData.folderVolumeMapping)) {
+      if (vol === volume) foldersToRemove.push(folderName);
+    }
+  }
+
+  // scannedFolders から削除しつつ、削除対象のファイル名を収集
+  const docsToRemove = new Set<string>();
+  if (scanData.scannedFolders) {
+    const newScannedFolders = { ...scanData.scannedFolders };
+    for (const fullPath of Object.keys(newScannedFolders)) {
+      const pathName = fullPath.split(/[\\/]/).pop() || fullPath;
+      if (foldersToRemove.includes(pathName)) {
+        for (const fileName of newScannedFolders[fullPath].files) {
+          docsToRemove.add(fileName);
+        }
+        delete newScannedFolders[fullPath];
+      }
+    }
+    scanData.scannedFolders = newScannedFolders;
+  }
+
+  // 残存するファイル名を収集（他の巻にも同名ファイルがある場合の保護用）
+  const remainingFiles = new Set<string>();
+  for (const info of Object.values(scanData.scannedFolders || {})) {
+    for (const fileName of info.files) {
+      remainingFiles.add(fileName);
+    }
+  }
+
+  // textLayersByDoc から削除対象ドキュメントを除去（残存巻に同名があれば保持）
+  if (scanData.textLayersByDoc) {
+    const newTextLayers = { ...scanData.textLayersByDoc };
+    for (const docName of docsToRemove) {
+      if (!remainingFiles.has(docName)) {
+        delete newTextLayers[docName];
+      }
+    }
+    scanData.textLayersByDoc = newTextLayers;
+  }
+
+  // textLogByFolder から削除
+  if (scanData.textLogByFolder) {
+    const newTextLog = { ...scanData.textLogByFolder };
+    for (const folderName of foldersToRemove) {
+      delete newTextLog[folderName];
+    }
+    scanData.textLogByFolder = newTextLog;
+  }
+
+  // folderVolumeMapping から削除
+  if (scanData.folderVolumeMapping) {
+    const newMapping = { ...scanData.folderVolumeMapping };
+    for (const folderName of foldersToRemove) {
+      delete newMapping[folderName];
+    }
+    scanData.folderVolumeMapping = newMapping;
+  }
+
+  // editedRubyList から削除
+  if (scanData.editedRubyList) {
+    scanData.editedRubyList = scanData.editedRubyList.filter((r) => r.volume !== volume);
+  }
+
+  // --- 集計データを残存データから再計算 ---
+
+  // fonts + allFontSizes を再計算
+  const fontMap = new Map<string, { displayName: string; count: number; sizeMap: Map<number, number> }>();
+  const allFontSizes: Record<string, number> = {};
+  for (const layers of Object.values(scanData.textLayersByDoc || {})) {
+    for (const layer of layers) {
+      const key = layer.fontName;
+      if (!fontMap.has(key)) {
+        fontMap.set(key, { displayName: layer.displayFontName, count: 0, sizeMap: new Map() });
+      }
+      const entry = fontMap.get(key)!;
+      entry.count++;
+      entry.sizeMap.set(layer.fontSize, (entry.sizeMap.get(layer.fontSize) || 0) + 1);
+      const sizeKey = String(layer.fontSize);
+      allFontSizes[sizeKey] = (allFontSizes[sizeKey] || 0) + 1;
+    }
+  }
+  scanData.fonts = Array.from(fontMap.entries()).map(([name, data]) => ({
+    name,
+    displayName: data.displayName,
+    count: data.count,
+    sizes: Array.from(data.sizeMap.entries())
+      .map(([size, count]) => ({ size, count }))
+      .sort((a, b) => b.count - a.count),
+  })).sort((a, b) => b.count - a.count);
+  scanData.allFontSizes = allFontSizes;
+
+  // sizeStats を再計算
+  const sizeCountMap = new Map<number, number>();
+  for (const [sizeStr, count] of Object.entries(allFontSizes)) {
+    sizeCountMap.set(parseFloat(sizeStr), count);
+  }
+  let mostFrequent: { size: number; count: number } | null = null;
+  for (const [size, count] of sizeCountMap) {
+    if (!mostFrequent || count > mostFrequent.count) {
+      mostFrequent = { size, count };
+    }
+  }
+  const prevExclude = scanData.sizeStats?.excludeRange;
+  const prevBaseSize = scanData.sizeStats?.mostFrequent?.size;
+  // 基本サイズが変わっていなければ既存のexcludeRangeを維持（ユーザー編集を尊重）
+  let excludeRange: { min: number; max: number } | null = null;
+  if (mostFrequent && prevBaseSize === mostFrequent.size && prevExclude) {
+    excludeRange = prevExclude;
+  } else if (mostFrequent) {
+    const halfSize = mostFrequent.size / 2;
+    excludeRange = { min: halfSize - 1, max: halfSize + 1 };
+  }
+  scanData.sizeStats = {
+    mostFrequent,
+    sizes: Array.from(sizeCountMap.entries())
+      .map(([size, count]) => ({ size, count }))
+      .sort((a, b) => b.count - a.count),
+    excludeRange,
+    allSizes: allFontSizes,
+  };
+
+  // guideSets のドキュメント参照を更新（残存ファイルのみ保持）
+  if (scanData.guideSets) {
+    scanData.guideSets = scanData.guideSets
+      .map((gs) => {
+        const filteredDocNames = gs.docNames.filter((d) => remainingFiles.has(d));
+        return { ...gs, docNames: filteredDocNames, count: filteredDocNames.length };
+      })
+      .filter((gs) => gs.count > 0);
+  }
+
+  // processedFiles を更新
+  scanData.processedFiles = Object.keys(scanData.textLayersByDoc || {}).length;
+
+  // rubyList から削除
+  const newRubyList = store.rubyList.filter((r) => r.volume !== volume);
+
+  store.setScanData(scanData);
+  store.setRubyList(newRubyList);
+}
+
 export function useScanPsdProcessor() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // --- スキャン実行 ---
-  const startScan = useCallback(async () => {
+  const startScan = useCallback(async (): Promise<ScanResult | undefined> => {
     const store = useScanPsdStore.getState();
-    if (store.folders.length === 0) return;
+    let scanResult: ScanResult | undefined;
 
-    store.setPhase("scanning");
-    store.setProgress(0, 0, "Photoshopを起動中...");
+    // フォルダが未設定の場合はダイアログで選択
+    if (store.folders.length === 0) {
+      const selected = await open({ directory: true, multiple: false });
+      if (!selected || typeof selected !== "string") return;
+
+      try {
+        const result = await invoke<{ mode: string; folders: { path: string; name: string }[] }>(
+          "detect_psd_folders",
+          { folderPath: selected }
+        );
+        if (result.folders.length > 0) {
+          for (let i = 0; i < result.folders.length; i++) {
+            store.addFolder(result.folders[i].path, result.folders[i].name, i + 1);
+          }
+        } else {
+          const name = selected.split(/[\\/]/).pop() || selected;
+          store.addFolder(selected, name, 1);
+        }
+      } catch {
+        const name = selected.split(/[\\/]/).pop() || selected;
+        store.addFolder(selected, name, 1);
+      }
+
+      if (useScanPsdStore.getState().folders.length === 0) return;
+    }
+
+    // フォルダ追加後の最新stateを取得（stale reference回避）
+    const freshState = useScanPsdStore.getState();
+    // スキャン前のtextLogByFolderキーを記録（ルビ抽出で新規フォルダを特定するため）
+    const oldTextLogKeys = new Set(Object.keys(freshState.scanData?.textLogByFolder || {}));
+    freshState.setPhase("scanning");
+    freshState.setProgress(0, 0, "Photoshopを起動中...");
+
+    // je-nsonman準拠: textLayersByDocはJSXに渡さない
+    // JSXはファイル単位のスキップ検出をせず、指定フォルダの全ファイルをスキャンする
+    // textLayersByDocのマージはTS側で行う（JSXのJSON肥大化防止も兼ねる）
+    const existingForJsx = freshState.scanData
+      ? {
+          ...freshState.scanData,
+          textLayersByDoc: undefined, // JSXには渡さない
+        }
+      : null;
 
     const settingsJson = JSON.stringify({
-      folders: store.folders.map((f) => ({
+      folders: freshState.folders.map((f) => ({
         path: f.path.replace(/\\/g, "/"),
         volume: f.volume,
       })),
-      existingScanData: store.scanData,
+      existingScanData: existingForJsx,
       outputPath: null, // Rust側でtemp_dirを使用
     });
 
@@ -267,7 +682,7 @@ export function useScanPsdProcessor() {
 
     try {
       // スキャン前のworkInfoを保持（ユーザーが事前入力した情報を消さない）
-      const preExistingWorkInfo = { ...store.workInfo };
+      const preExistingWorkInfo = { ...freshState.workInfo };
 
       const resultJson = await invoke<string>("run_photoshop_scan_psd", {
         settingsJson,
@@ -291,12 +706,78 @@ export function useScanPsdProcessor() {
       }
       scanData.workInfo = mergedWorkInfo;
 
+      // folderVolumeMappingを既存データとマージ（追加スキャン時に前回分を失わない）
+      if (freshState.scanData?.folderVolumeMapping) {
+        scanData.folderVolumeMapping = {
+          ...freshState.scanData.folderVolumeMapping,
+          ...(scanData.folderVolumeMapping || {}),
+        };
+      }
+
+      // textLayersByDocをTS側でマージ（je-nsonman準拠: JSXには渡さずTS側で管理）
+      // 新スキャン結果で上書き、既存データは保持
+      if (freshState.scanData?.textLayersByDoc) {
+        scanData.textLayersByDoc = {
+          ...freshState.scanData.textLayersByDoc,
+          ...(scanData.textLayersByDoc || {}),
+        };
+      }
+
+      // strokeStatsをマージ（JSX側ではマージされないため、TS側で行う）
+      if (freshState.scanData?.strokeStats?.sizes?.length) {
+        const oldSizes = freshState.scanData.strokeStats.sizes;
+        const newSizes = scanData.strokeStats?.sizes || [];
+        const mergedMap = new Map<number, { count: number; fontSizes: Set<number>; maxFontSize: number | null }>();
+        for (const s of oldSizes) {
+          mergedMap.set(s.size, { count: s.count, fontSizes: new Set(s.fontSizes), maxFontSize: s.maxFontSize });
+        }
+        for (const s of newSizes) {
+          const existing = mergedMap.get(s.size);
+          if (existing) {
+            existing.count += s.count;
+            for (const fs of s.fontSizes) existing.fontSizes.add(fs);
+            if (s.maxFontSize != null && (existing.maxFontSize == null || s.maxFontSize > existing.maxFontSize)) {
+              existing.maxFontSize = s.maxFontSize;
+            }
+          } else {
+            mergedMap.set(s.size, { count: s.count, fontSizes: new Set(s.fontSizes), maxFontSize: s.maxFontSize });
+          }
+        }
+        scanData.strokeStats = {
+          sizes: [...mergedMap.entries()]
+            .map(([size, data]) => ({
+              size,
+              count: data.count,
+              fontSizes: [...data.fontSizes].sort((a, b) => b - a),
+              maxFontSize: data.maxFontSize,
+            }))
+            .sort((a, b) => b.count - a.count),
+        };
+      }
+
+      // allFontSizesをマージ（JSX側では新スキャン分のみのため）
+      if (freshState.scanData?.allFontSizes) {
+        const merged: Record<string, number> = { ...freshState.scanData.allFontSizes };
+        for (const [size, count] of Object.entries(scanData.allFontSizes || {})) {
+          merged[size] = (merged[size] || 0) + count;
+        }
+        scanData.allFontSizes = merged;
+      }
+
       store.setScanData(scanData);
       store.setWorkInfo(mergedWorkInfo);
 
       if (scanData.editedRubyList) {
         store.setRubyList(scanData.editedRubyList);
       }
+
+      // 新しくスキャンしたフォルダからルビを抽出して追加（je-nsonman appendRubyFromNewFolders 準拠）
+      // JSXの determineTargetFolders がサブフォルダに分解するため、
+      // store.foldersの名前ではなく textLogByFolder のキー差分で新規フォルダを特定する
+      const newTextLogKeys = Object.keys(scanData.textLogByFolder || {}).filter(
+        (k) => !oldTextLogKeys.has(k)
+      );
+      appendRubiesFromFolders(newTextLogKeys);
 
       // ガイドセットの自動選択（元スクリプト準拠: 有効タチキリ優先 → 使用回数順）
       if (scanData.guideSets && scanData.guideSets.length > 0) {
@@ -312,15 +793,42 @@ export function useScanPsdProcessor() {
       } catch (e) {
         console.error("Auto save after scan failed:", e);
       }
+
+      // テキストログを自動出力（元スクリプト準拠: スキャン完了後に自動実行）
+      const latestState = useScanPsdStore.getState();
+      if (
+        latestState.scanData?.textLogByFolder &&
+        latestState.workInfo.label &&
+        latestState.workInfo.title
+      ) {
+        try {
+          await performExportTextLog();
+        } catch (e) {
+          console.error("Auto text log export failed:", e);
+        }
+      }
+
+      // 完了サマリーを返す
+      const finalState = useScanPsdStore.getState();
+      scanResult = {
+        success: true,
+        processedFiles: scanData.processedFiles || 0,
+        newFolders: newTextLogKeys,
+        rubyCount: finalState.rubyList.length,
+      };
     } catch (e) {
       console.error("Scan PSD failed:", e);
+      scanResult = { success: false, error: String(e) };
     } finally {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
+      // スキャン完了後にフォルダリストをクリア（次回の追加スキャン時に重複しないように）
+      useScanPsdStore.getState().clearFolders();
       useScanPsdStore.getState().setPhase("idle");
     }
+    return scanResult;
   }, []);
 
   // --- プリセットJSON保存（パス自動計算 + 仮保存対応） ---
@@ -483,55 +991,11 @@ export function useScanPsdProcessor() {
     }
   }, []);
 
-  // --- テキストログ出力 ---
+  // --- テキストログ出力（元スクリプト exportTextLog 準拠） ---
   const exportTextLog = useCallback(async () => {
-    const store = useScanPsdStore.getState();
-    if (!store.scanData?.textLogByFolder) return;
-
-    const basePath = store.textLogFolderPath;
-    const workInfo = store.workInfo;
-    store.setPhase("exporting");
-
+    useScanPsdStore.getState().setPhase("exporting");
     try {
-      // テキストログをフォルダごとに出力
-      for (const [folderKey, pages] of Object.entries(
-        store.scanData.textLogByFolder
-      )) {
-        const folderName = folderKey.split(/[\\/]/).pop() || folderKey;
-        const lines: string[] = [];
-
-        // ヘッダー
-        lines.push(`# テキストログ: ${workInfo.title || folderName}`);
-        lines.push(
-          `# 出力日時: ${new Date().toLocaleString("ja-JP")}`
-        );
-        lines.push("");
-
-        // ページごと
-        const sortedPages = Object.entries(pages).sort(([a], [b]) =>
-          a.localeCompare(b, "ja", { numeric: true })
-        );
-        for (const [pageName, entries] of sortedPages) {
-          lines.push(`## ${pageName}`);
-          const sorted = [...entries].sort((a, b) => a.yPos - b.yPos);
-          for (const entry of sorted) {
-            const prefix = entry.isLinked ? `[ルビ:${entry.linkGroupId}] ` : "";
-            lines.push(`${prefix}${entry.content}`);
-          }
-          lines.push("");
-        }
-
-        const titlePrefix = workInfo.title
-          ? `${workInfo.title}_`
-          : "";
-        const logFileName = `${titlePrefix}${folderName}_テキストログ.txt`;
-        const logPath = `${basePath}/${logFileName}`.replace(/\\/g, "/");
-
-        await invoke("write_text_file", {
-          filePath: logPath,
-          content: lines.join("\n"),
-        });
-      }
+      await performExportTextLog();
     } catch (e) {
       console.error("Export text log failed:", e);
       throw e;
@@ -570,6 +1034,17 @@ export function useScanPsdProcessor() {
     }
   }, []);
 
+  // --- 指定巻数のスキャンデータ削除 ---
+  const removeVolumeData = useCallback(async (volume: number) => {
+    performRemoveVolumeData(volume);
+    // 削除後に自動保存
+    try {
+      await performPresetJsonSave();
+    } catch (e) {
+      console.error("Auto save after volume removal failed:", e);
+    }
+  }, []);
+
   // --- scandataファイル選択（OSダイアログ：scandata用のみ残す） ---
   const selectScandataFile = useCallback(async (): Promise<string | null> => {
     const result = await open({
@@ -589,6 +1064,7 @@ export function useScanPsdProcessor() {
     loadScandata,
     exportTextLog,
     saveRubyList,
+    removeVolumeData,
     selectScandataFile,
   };
 }

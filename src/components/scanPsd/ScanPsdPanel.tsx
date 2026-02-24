@@ -1,3 +1,5 @@
+import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { useScanPsdStore } from "../../store/scanPsdStore";
 import { TAB_LABELS } from "../../types/scanPsd";
 import type { ScanPsdTab } from "../../types/scanPsd";
@@ -28,6 +30,55 @@ export function ScanPsdPanel() {
         // 仮保存 → 作品情報タブに切替えて入力を促す
         useScanPsdStore.getState().setActiveTab(0);
       }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleTabExport = async () => {
+    const state = useScanPsdStore.getState();
+    let data: Record<string, unknown> = {};
+
+    switch (activeTab) {
+      case 0:
+        data = { workInfo: state.workInfo };
+        break;
+      case 1:
+        data = { fonts: state.scanData?.fonts ?? [] };
+        break;
+      case 2:
+        data = {
+          sizeStats: state.scanData?.sizeStats ?? null,
+          strokeStats: state.scanData?.strokeStats ?? null,
+        };
+        break;
+      case 3:
+        data = {
+          guideSets: state.scanData?.guideSets ?? [],
+          selectedGuideSetIndex: state.selectedGuideIndex,
+          excludedGuideIndices: [...state.excludedGuideIndices],
+        };
+        break;
+      case 4:
+        data = {
+          rubyList: state.rubyList,
+          textLogByFolder: state.scanData?.textLogByFolder ?? {},
+        };
+        break;
+    }
+
+    const defaultName = `${TAB_LABELS[activeTab]}_export.json`;
+
+    try {
+      const filePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!filePath) return;
+      await invoke("write_text_file", {
+        filePath,
+        content: JSON.stringify(data, null, 2),
+      });
     } catch (e) {
       console.error(e);
     }
@@ -108,31 +159,40 @@ export function ScanPsdPanel() {
 
       {/* Bottom Action Bar */}
       <div className="p-3 border-t border-border flex-shrink-0 space-y-2">
-        <button
-          onClick={handleSave}
-          disabled={phase !== "idle"}
-          className={`w-full px-3 py-2 text-xs font-medium text-white rounded-xl
-            disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-0.5 transition-all shadow-sm
-            ${pendingTitleLabel && workInfo.title && workInfo.label
-              ? "bg-gradient-to-r from-success to-emerald-500 animate-pulse"
-              : "bg-gradient-to-r from-accent to-accent-secondary"
-            }`}
-        >
-          {pendingTitleLabel && workInfo.title && workInfo.label
-            ? "正式保存する"
-            : "保存"
-          }
-        </button>
-        {mode === "new" && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={startScan}
+            onClick={handleSave}
             disabled={phase !== "idle"}
-            className="w-full px-3 py-2 text-xs font-medium text-accent bg-accent/10
-              rounded-xl hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className={`flex-1 px-3 py-2 text-xs font-medium text-white rounded-xl
+              disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-0.5 transition-all shadow-sm
+              ${pendingTitleLabel && workInfo.title && workInfo.label
+                ? "bg-gradient-to-r from-success to-emerald-500 animate-pulse"
+                : "bg-gradient-to-r from-accent to-accent-secondary"
+              }`}
           >
-            追加スキャン
+            {pendingTitleLabel && workInfo.title && workInfo.label
+              ? "正式保存する"
+              : "保存"
+            }
           </button>
-        )}
+          <button
+            onClick={handleTabExport}
+            disabled={phase !== "idle"}
+            className="px-2.5 py-2 text-[10px] font-medium text-text-secondary bg-bg-tertiary
+              rounded-xl hover:bg-bg-tertiary/80 hover:text-text-primary
+              disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            タブ保存
+          </button>
+        </div>
+        <button
+          onClick={startScan}
+          disabled={phase !== "idle"}
+          className="w-full px-3 py-2 text-xs font-medium text-accent bg-accent/10
+            rounded-xl hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          追加スキャン
+        </button>
       </div>
     </>
   );

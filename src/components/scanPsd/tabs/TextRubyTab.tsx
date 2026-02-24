@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useScanPsdStore } from "../../../store/scanPsdStore";
 import { useScanPsdProcessor } from "../../../hooks/useScanPsdProcessor";
 import type { RubyEntry } from "../../../types/scanPsd";
@@ -8,12 +9,33 @@ export function TextRubyTab() {
   const addRuby = useScanPsdStore((s) => s.addRuby);
   const removeRuby = useScanPsdStore((s) => s.removeRuby);
   const updateRuby = useScanPsdStore((s) => s.updateRuby);
+  const setRubyList = useScanPsdStore((s) => s.setRubyList);
   const scanData = useScanPsdStore((s) => s.scanData);
+  const rubySortMode = useScanPsdStore((s) => s.rubySortMode);
+  const setRubySortMode = useScanPsdStore((s) => s.setRubySortMode);
+  const textLogFolderPath = useScanPsdStore((s) => s.textLogFolderPath);
+  const workInfo = useScanPsdStore((s) => s.workInfo);
   const { exportTextLog, saveRubyList } = useScanPsdProcessor();
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ parentText: "", rubyText: "", volume: 1, page: 1, order: 1 });
+
+  const sortedRubyList = useMemo(() => {
+    const list = [...rubyList];
+    switch (rubySortMode) {
+      case "volumePage":
+        return list.sort((a, b) => a.volume - b.volume || a.page - b.page || a.order - b.order);
+      case "order":
+        return list.sort((a, b) => a.order - b.order);
+      case "ruby":
+        return list.sort((a, b) => a.rubyText.localeCompare(b.rubyText, "ja"));
+      case "parent":
+        return list.sort((a, b) => a.parentText.localeCompare(b.parentText, "ja"));
+      default:
+        return list;
+    }
+  }, [rubyList, rubySortMode]);
 
   const handleAdd = () => {
     if (!form.parentText.trim() || !form.rubyText.trim()) return;
@@ -42,6 +64,128 @@ export function TextRubyTab() {
       order: entry.order,
     });
     setShowAdd(false);
+  };
+
+  const handleUnify = () => {
+    if (rubyList.length < 2) return;
+    const normalized = rubyList.map((r) => ({
+      ...r,
+      _rubyNorm: r.rubyText.replace(/\s/g, ""),
+      _parentNorm: r.parentText.replace(/\s/g, ""),
+    }));
+
+    const toRemoveIds = new Set<string>();
+    for (let i = 0; i < normalized.length; i++) {
+      if (toRemoveIds.has(normalized[i].id)) continue;
+      for (let j = i + 1; j < normalized.length; j++) {
+        if (toRemoveIds.has(normalized[j].id)) continue;
+        if (normalized[i]._rubyNorm !== normalized[j]._rubyNorm) continue;
+        const pi = normalized[i]._parentNorm;
+        const pj = normalized[j]._parentNorm;
+        if (pi.includes(pj)) {
+          toRemoveIds.add(normalized[i].id);
+        } else if (pj.includes(pi)) {
+          toRemoveIds.add(normalized[j].id);
+        }
+      }
+    }
+
+    if (toRemoveIds.size === 0) return;
+    if (!window.confirm(`${toRemoveIds.size}件の重複を削除します。よろしいですか？`)) return;
+    setRubyList(rubyList.filter((r) => !toRemoveIds.has(r.id)));
+  };
+
+  const getRubyFilePath = () => {
+    if (!workInfo.label || !workInfo.title) return null;
+    return `${textLogFolderPath}/${workInfo.label}/${workInfo.title}/ルビ一覧.txt`.replace(/\\/g, "/");
+  };
+
+  const handleSaveRubyTxt = async () => {
+    const filePath = getRubyFilePath();
+    if (!filePath) {
+      await saveRubyList();
+      return;
+    }
+    try {
+      const lines = rubyList.map((r) => {
+        const vol = String(r.volume);
+        const pg = String(r.page);
+        return `[${vol}巻-${pg}]${r.parentText}(${r.rubyText})`;
+      });
+      await invoke("write_text_file", { filePath, content: lines.join("\n") });
+    } catch (e) {
+      console.error("Save ruby txt failed:", e);
+    }
+  };
+
+  const handleLoadRubyTxt = async () => {
+    const filePath = getRubyFilePath();
+    if (!filePath) return;
+    try {
+      const content = await invoke<string>("read_text_file", { filePath });
+      const lines = content.split(/\r?\n/);
+      const parsed: RubyEntry[] = [];
+      const pattern = /^\[(\d+)巻-(\d+)\](.+?)\((.+?)\)$/;
+      let orderCounter = 1;
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const m = line.match(pattern);
+        if (m) {
+          parsed.push({
+            id: `ruby_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            volume: Number(m[1]),
+            page: Number(m[2]),
+            parentText: m[3],
+            rubyText: m[4],
+            order: orderCounter++,
+          });
+        } else if (parsed.length > 0) {
+          parsed[parsed.length - 1].parentText += "\n" + line;
+        }
+      }
+      if (parsed.length > 0) setRubyList(parsed);
+    } catch (e) {
+      console.error("Load ruby txt failed:", e);
+    }
+  };
+
+  const handleOpenTextLogFolder = async () => {
+    if (!workInfo.label || !workInfo.title) return;
+    const folderPath = `${textLogFolderPath}/${workInfo.label}/${workInfo.title}`.replace(/\//g, "\\");
+    try {
+      await invoke("open_folder_in_explorer", { folderPath });
+    } catch (e) {
+      console.error("Open folder failed:", e);
+    }
+  };
+
+  const handleCopyTextLog = async () => {
+    if (!scanData?.textLogByFolder) return;
+    const allLines: string[] = [];
+    for (const [folderKey, pages] of Object.entries(scanData.textLogByFolder)) {
+      const folderName = folderKey.split(/[\\/]/).pop() || folderKey;
+      allLines.push(`# テキストログ: ${workInfo.title || folderName}`);
+      allLines.push(`# 出力日時: ${new Date().toLocaleString("ja-JP")}`);
+      allLines.push("");
+      const sortedPages = Object.entries(pages).sort(([a], [b]) =>
+        a.localeCompare(b, "ja", { numeric: true })
+      );
+      for (const [pageName, entries] of sortedPages) {
+        allLines.push(`## ${pageName}`);
+        const sorted = [...entries].sort((a, b) => a.yPos - b.yPos);
+        for (const entry of sorted) {
+          const prefix = entry.isLinked ? `[ルビ:${entry.linkGroupId}] ` : "";
+          allLines.push(`${prefix}${entry.content}`);
+        }
+        allLines.push("");
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(allLines.join("\n"));
+    } catch (e) {
+      console.error("Clipboard copy failed:", e);
+    }
   };
 
   const textLayerCount = scanData?.textLayersByDoc
@@ -89,6 +233,17 @@ export function TextRubyTab() {
             <span className="text-[9px] font-bold text-accent bg-accent/10 px-2 py-0.5 rounded-full">
               {rubyList.length}
             </span>
+            <select
+              value={rubySortMode}
+              onChange={(e) => setRubySortMode(e.target.value as typeof rubySortMode)}
+              className="text-[9px] bg-bg-tertiary/60 border border-border/40 rounded-lg px-1.5 py-0.5 text-text-secondary
+                focus:border-accent focus:outline-none"
+            >
+              <option value="volumePage">巻数-ページ順</option>
+              <option value="order">出現順</option>
+              <option value="ruby">ルビ名順</option>
+              <option value="parent">親文字順</option>
+            </select>
           </div>
           <button
             onClick={() => { setShowAdd(true); setEditingId(null); setForm({ parentText: "", rubyText: "", volume: 1, page: 1, order: 1 }); }}
@@ -186,7 +341,7 @@ export function TextRubyTab() {
           </p>
         ) : (
           <div className="space-y-1">
-            {rubyList.map((r) => (
+            {sortedRubyList.map((r) => (
               <div
                 key={r.id}
                 className="flex items-center gap-2 bg-bg-tertiary/40 hover:bg-bg-tertiary rounded-lg px-2.5 py-1.5 group
@@ -223,23 +378,68 @@ export function TextRubyTab() {
         )}
       </div>
 
-      {/* テキストログ出力 */}
+      {/* アクションボタン */}
       <div className="space-y-1.5">
+        {/* 統一ボタン */}
         <button
-          onClick={exportTextLog}
-          disabled={!scanData}
+          onClick={handleUnify}
+          disabled={rubyList.length < 2}
           className="w-full py-2 text-xs font-medium text-text-primary bg-bg-tertiary/60 rounded-xl border border-border/40
             hover:bg-bg-tertiary hover:border-border disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          テキストログを出力
+          ルビ統一（重複削除）
         </button>
+
+        {/* テキストログ出力 + フォルダ開く + コピー */}
+        <div className="flex gap-1.5">
+          <button
+            onClick={exportTextLog}
+            disabled={!scanData}
+            className="flex-1 py-2 text-xs font-medium text-text-primary bg-bg-tertiary/60 rounded-xl border border-border/40
+              hover:bg-bg-tertiary hover:border-border disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            テキストログを出力
+          </button>
+          <button
+            onClick={handleOpenTextLogFolder}
+            disabled={!workInfo.label || !workInfo.title}
+            title="フォルダを開く"
+            className="w-8 py-2 flex items-center justify-center text-text-muted bg-bg-tertiary/60 rounded-xl border border-border/40
+              hover:bg-bg-tertiary hover:border-border hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+          </button>
+          <button
+            onClick={handleCopyTextLog}
+            disabled={!scanData}
+            title="テキストログをコピー"
+            className="w-8 py-2 flex items-center justify-center text-text-muted bg-bg-tertiary/60 rounded-xl border border-border/40
+              hover:bg-bg-tertiary hover:border-border hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+        </div>
+
+        {/* ルビ保存・読込 */}
         <button
-          onClick={saveRubyList}
+          onClick={handleSaveRubyTxt}
           disabled={rubyList.length === 0}
           className="w-full py-2 text-xs font-medium text-text-primary bg-bg-tertiary/60 rounded-xl border border-border/40
             hover:bg-bg-tertiary hover:border-border disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
           ルビ一覧を外部ファイルに保存
+        </button>
+        <button
+          onClick={handleLoadRubyTxt}
+          disabled={!workInfo.label || !workInfo.title}
+          className="w-full py-2 text-xs font-medium text-text-primary bg-bg-tertiary/60 rounded-xl border border-border/40
+            hover:bg-bg-tertiary hover:border-border disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        >
+          ルビ一覧を読込
         </button>
       </div>
     </div>

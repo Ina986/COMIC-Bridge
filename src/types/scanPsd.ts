@@ -83,6 +83,12 @@ export interface TextLogEntry {
   linkGroupId: string | null;
 }
 
+// --- TIPPY範囲選択 ---
+export interface SelectionRange {
+  label: string;
+  bounds: { left: number; top: number; right: number; bottom: number };
+}
+
 // --- ルビ ---
 export interface RubyEntry {
   id: string;
@@ -122,7 +128,7 @@ export interface PresetJsonData {
     selectedGuideSetIndex?: number;
     excludedGuideIndices?: number[];
     rubyList?: RubyEntry[];
-    selectionRanges?: unknown;
+    selectionRanges?: SelectionRange[];
     createdAt?: string;
   };
 }

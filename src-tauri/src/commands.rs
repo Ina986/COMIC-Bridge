@@ -2530,6 +2530,34 @@ pub async fn list_folder_contents(
     Ok(FolderContents { folders, json_files })
 }
 
+/// List all file names in a directory (no extension filter)
+#[tauri::command]
+pub async fn list_all_files(
+    folder_path: String,
+) -> Result<Vec<String>, String> {
+    let folder = Path::new(&folder_path);
+    if !folder.exists() || !folder.is_dir() {
+        return Err(format!("Folder not found: {}", folder_path));
+    }
+
+    let entries = fs::read_dir(folder)
+        .map_err(|e| format!("Failed to read dir: {}", e))?;
+
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Entry error: {}", e))?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                files.push(name.to_string());
+            }
+        }
+    }
+
+    files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+    Ok(files)
+}
+
 /// Search JSON files across subfolders (depth=2: basePath/label/title.json)
 #[derive(Debug, Serialize)]
 pub struct JsonSearchResult {
@@ -2869,6 +2897,20 @@ pub async fn run_photoshop_replace(
         }
         Err("Photoshop did not produce output file. Script may have failed.".to_string())
     }
+}
+
+/// ファイルをデフォルトアプリで開く
+#[tauri::command]
+pub async fn open_with_default_app(file_path: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+    std::process::Command::new("cmd")
+        .args(["/c", "start", "", &file_path])
+        .spawn()
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+    Ok(())
 }
 
 /// ファイルをエクスプローラーで選択状態で開く（単一ファイル、後方互換）

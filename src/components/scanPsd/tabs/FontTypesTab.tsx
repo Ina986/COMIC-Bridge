@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useScanPsdStore } from "../../../store/scanPsdStore";
 import { getAutoSubName } from "../../../types/scanPsd";
 import type { FontPreset } from "../../../types/scanPsd";
+import { MISSING_FONT_COLOR } from "../../../hooks/useFontResolver";
+import type { FontResolveInfo } from "../../../hooks/useFontResolver";
 
 export function FontTypesTab() {
   const scanData = useScanPsdStore((s) => s.scanData);
@@ -29,6 +32,42 @@ export function FontTypesTab() {
   const unregisteredFonts = scanData?.fonts
     ? scanData.fonts.filter((f) => !registeredFonts.has(f.name))
     : [];
+
+  // --- フォントインストール状態チェック ---
+  const allPresetFontNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const presets of Object.values(presetSets)) {
+      for (const p of presets) {
+        if (p.font) names.add(p.font);
+      }
+    }
+    return [...names];
+  }, [presetSets]);
+
+  const [fontResolveMap, setFontResolveMap] = useState<Record<string, FontResolveInfo>>({});
+  const [fontChecked, setFontChecked] = useState(false);
+
+  useEffect(() => {
+    if (allPresetFontNames.length === 0) {
+      setFontChecked(false);
+      return;
+    }
+    setFontChecked(false);
+    invoke<Record<string, FontResolveInfo>>("resolve_font_names", {
+      postscriptNames: allPresetFontNames,
+    })
+      .then((result) => {
+        setFontResolveMap(result);
+        setFontChecked(true);
+      })
+      .catch(console.error);
+  }, [allPresetFontNames]);
+
+  const isFontMissing = (psName: string) => fontChecked && !(psName in fontResolveMap);
+  const missingFontNames = useMemo(
+    () => fontChecked ? allPresetFontNames.filter((n) => !(n in fontResolveMap)) : [],
+    [fontChecked, allPresetFontNames, fontResolveMap]
+  );
 
   const handleAddSet = () => {
     if (inputValue.trim()) {
@@ -152,53 +191,153 @@ export function FontTypesTab() {
           <span className="text-[9px] font-bold text-accent-secondary bg-accent-secondary/10 px-2 py-0.5 rounded-full">
             {currentPresets.length}
           </span>
+          {fontChecked && missingFontNames.length === 0 && currentPresets.length > 0 && (
+            <span className="text-[9px] font-bold text-success bg-success/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              全フォントOK
+            </span>
+          )}
         </div>
+
+        {/* 未インストールフォント警告 */}
+        {fontChecked && missingFontNames.length > 0 && (
+          <div
+            className="flex items-start gap-2 px-3 py-2 rounded-xl mb-2 border"
+            style={{ backgroundColor: `${MISSING_FONT_COLOR}08`, borderColor: `${MISSING_FONT_COLOR}25` }}
+          >
+            <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke={MISSING_FONT_COLOR} strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p className="text-[10px] font-bold" style={{ color: MISSING_FONT_COLOR }}>
+                未インストール: {missingFontNames.length}件
+              </p>
+              <p className="text-[9px] mt-0.5" style={{ color: `${MISSING_FONT_COLOR}cc` }}>
+                {missingFontNames.map((n) => fontResolveMap[n]?.display_name || n).join(", ")}
+              </p>
+            </div>
+          </div>
+        )}
+
         {currentPresets.length === 0 ? (
           <p className="text-[10px] text-text-muted py-4 text-center bg-bg-tertiary/30 rounded-xl border border-dashed border-border">
             プリセットがありません
           </p>
         ) : (
-          <div className="space-y-1">
-            {sortedPresets(currentPresets).map(({ preset: p, originalIndex }) => (
+          <div className="border border-border/50 rounded-xl overflow-hidden">
+            {/* テーブルヘッダー */}
+            <div
+              className="grid items-center gap-x-2.5 px-2.5 py-1.5 bg-bg-tertiary/60 border-b border-border/40 text-[9px] font-bold text-text-muted"
+              style={{ gridTemplateColumns: "20px 76px 1fr 44px" }}
+            >
+              <span />
+              <span>カテゴリ</span>
+              <span>フォント名</span>
+              <span />
+            </div>
+            {/* テーブルボディ */}
+            <div>
+            {sortedPresets(currentPresets).map(({ preset: p, originalIndex }, idx) => {
+              const missing = isFontMissing(p.font);
+              return (
               <div key={originalIndex}>
                 <div
-                  className="flex items-center gap-2 bg-bg-tertiary/40 hover:bg-bg-tertiary rounded-lg px-2.5 py-1.5 group
-                    border border-transparent hover:border-border/50 transition-all"
+                  className={`grid items-start gap-x-2.5 px-2.5 py-1.5 group
+                    border-b last:border-b-0 transition-all ${
+                      missing
+                        ? "bg-red-50/60 hover:bg-red-50 border-red-200/30"
+                        : idx % 2 === 0
+                          ? "bg-white hover:bg-bg-secondary/60 border-border/20"
+                          : "bg-bg-secondary/30 hover:bg-bg-secondary/60 border-border/20"
+                    }`}
+                  style={{ gridTemplateColumns: "20px 76px 1fr 44px" }}
                 >
-                  {p.subName && (
+                  {/* インストール状態 */}
+                  <span className="flex items-center justify-center pt-0.5">
+                    {fontChecked && (
+                      missing ? (
+                        <span
+                          className="w-4 h-4 rounded flex items-center justify-center"
+                          style={{ backgroundColor: `${MISSING_FONT_COLOR}15` }}
+                          title="未インストール"
+                        >
+                          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke={MISSING_FONT_COLOR} strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </span>
+                      ) : (
+                        <span
+                          className="w-4 h-4 rounded flex items-center justify-center"
+                          style={{ backgroundColor: "#10b98115" }}
+                          title="インストール済み"
+                        >
+                          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="#10b981" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </span>
+                      )
+                    )}
+                  </span>
+                  {/* カテゴリ */}
+                  <span>
+                    {p.subName ? (
+                      <span
+                        className="text-[9px] font-semibold px-1.5 py-0.5 rounded border inline-block truncate max-w-full"
+                        style={getSubNameStyle(p.subName)}
+                      >
+                        {p.subName}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] text-text-muted/40">—</span>
+                    )}
+                  </span>
+                  {/* フォント名 + PostScript名 */}
+                  <span className="min-w-0">
                     <span
-                      className="text-[9px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 border"
-                      style={getSubNameStyle(p.subName)}
+                      className={`text-[11px] block ${missing ? "" : "text-text-primary"}`}
+                      style={missing
+                        ? { color: MISSING_FONT_COLOR, textDecoration: "line-through", textDecorationColor: `${MISSING_FONT_COLOR}50` }
+                        : undefined
+                      }
                     >
-                      {p.subName}
+                      {p.name}
                     </span>
-                  )}
-                  <span className="text-xs text-text-primary flex-1 truncate">{p.name}</span>
-                  <span className="text-[9px] text-text-muted truncate max-w-[80px] font-mono">{p.font}</span>
-                  <button
-                    onClick={() => {
-                      setEditingPresetIndex(originalIndex);
-                      setEditForm({ name: p.name, subName: p.subName || "" });
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent transition-all"
-                    title="編集"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => removeFontFromPreset(currentSetName, originalIndex)}
-                    className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                    <span
+                      className={`text-[9px] font-mono block ${missing ? "" : "text-text-muted"}`}
+                      style={missing ? { color: `${MISSING_FONT_COLOR}90` } : undefined}
+                    >
+                      {p.font}
+                    </span>
+                  </span>
+                  {/* アクション */}
+                  <span className="flex items-center gap-1 justify-end">
+                    <button
+                      onClick={() => {
+                        setEditingPresetIndex(originalIndex);
+                        setEditForm({ name: p.name, subName: p.subName || "" });
+                      }}
+                      className="text-text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
+                      title="編集"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => removeFontFromPreset(currentSetName, originalIndex)}
+                      className="text-text-muted hover:text-error transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </span>
                 </div>
                 {/* インライン編集フォーム */}
                 {editingPresetIndex === originalIndex && (
-                  <div className="ml-1 mt-1 bg-bg-tertiary/60 rounded-lg px-2.5 py-2 border border-accent/20 space-y-1.5">
+                  <div className="mx-2 my-1 bg-bg-tertiary/60 rounded-lg px-2.5 py-2 border border-accent/20 space-y-1.5">
                     <div className="flex items-center gap-2">
                       <span className="text-[9px] text-text-muted w-12 flex-shrink-0">カテゴリ</span>
                       <select
@@ -247,7 +386,9 @@ export function FontTypesTab() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
+            </div>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useLayerStore, PRESET_CONDITIONS } from "../../store/layerStore";
+import type { LayerActionMode } from "../../store/layerStore";
 import { useOpenFolder } from "../../hooks/useOpenFolder";
 import { useHighResPreview, prefetchPreview } from "../../hooks/useHighResPreview";
 import { classifyLayerRisk, isTextFolder, type MatchRisk } from "../../lib/layerMatcher";
@@ -69,6 +70,178 @@ function countStats(tree: AnnotatedLayer[]): FileStats {
   return { matched, warnings, willChange };
 }
 
+// --- Organize mode annotation ---
+
+/** Check if a group contains any visible text layer (recursive) */
+function groupHasVisibleText(group: LayerNode): boolean {
+  if (!group.children) return false;
+  for (const child of group.children) {
+    if (child.type === "text" && child.visible) return true;
+    if (child.type === "group" && groupHasVisibleText(child)) return true;
+  }
+  return false;
+}
+
+/** Check if a root-level layer is a candidate for organize (will be moved into target folder) */
+function isOrganizeCandidate(
+  layer: LayerNode,
+  targetName: string,
+  includeSpecial: boolean
+): boolean {
+  // Skip the target group itself
+  if (layer.type === "group" && layer.name === targetName) return false;
+  // Skip visible text layers (hidden text layers DO get moved)
+  if (layer.type === "text" && layer.visible) return false;
+  // Skip visible groups that contain visible text
+  if (layer.type === "group" && layer.visible && groupHasVisibleText(layer)) return false;
+  // Skip "白消し"/"棒消し" unless includeSpecial
+  if (!includeSpecial) {
+    if (layer.name.includes("白消し") || layer.name.includes("棒消し")) return false;
+  }
+  return true;
+}
+
+/** Annotate children of organize mode as non-matched (just visual context) */
+function annotateChildrenPlain(layers: LayerNode[]): AnnotatedLayer[] {
+  return [...layers].reverse().map((layer) => ({
+    node: layer,
+    matched: false,
+    risk: "none" as MatchRisk,
+    willChange: false,
+    children: layer.children ? annotateChildrenPlain(layer.children) : [],
+  }));
+}
+
+/** Annotate tree for "organize" mode — only root layers are candidates */
+function annotateTreeOrganize(
+  layers: LayerNode[],
+  targetName: string,
+  includeSpecial: boolean
+): AnnotatedLayer[] {
+  return [...layers].reverse().map((layer) => {
+    const willMove = isOrganizeCandidate(layer, targetName, includeSpecial);
+    return {
+      node: layer,
+      matched: willMove,
+      risk: "safe" as MatchRisk,
+      willChange: willMove,
+      children: layer.children ? annotateChildrenPlain(layer.children) : [],
+    };
+  });
+}
+
+// --- LayerMove mode annotation ---
+
+interface LayerMoveConditions {
+  textLayer: boolean;
+  subgroupTop: boolean;
+  subgroupBottom: boolean;
+  nameEnabled: boolean;
+  namePattern: string;
+  namePartial: boolean;
+  searchScope: "all" | "group";
+  searchGroupName: string;
+  targetGroupName: string;
+}
+
+/** Check if a layer matches ALL enabled layerMove conditions */
+function matchesLayerMoveConditions(
+  layer: LayerNode,
+  cond: LayerMoveConditions,
+  parentNode: LayerNode | null,
+  siblings: LayerNode[],
+  originalIndex: number,
+  isSearchRoot: boolean
+): boolean {
+  // Text layer condition
+  if (cond.textLayer && layer.type !== "text") return false;
+  // Subgroup top: parent must be a group (not search root), layer must be last in ag-psd array (= top in PS)
+  if (cond.subgroupTop) {
+    if (!parentNode || parentNode.type !== "group" || isSearchRoot) return false;
+    if (originalIndex !== siblings.length - 1) return false;
+  }
+  // Subgroup bottom: parent must be a group (not search root), layer must be first in ag-psd array (= bottom in PS)
+  if (cond.subgroupBottom) {
+    if (!parentNode || parentNode.type !== "group" || isSearchRoot) return false;
+    if (originalIndex !== 0) return false;
+  }
+  // Name pattern match
+  if (cond.nameEnabled) {
+    if (!cond.namePattern) return false;
+    if (cond.namePartial) {
+      if (!layer.name.includes(cond.namePattern)) return false;
+    } else {
+      if (layer.name !== cond.namePattern) return false;
+    }
+  }
+  return true;
+}
+
+/** Recursive annotation for layerMove mode */
+function annotateLayerMoveRecursive(
+  layers: LayerNode[],
+  cond: LayerMoveConditions,
+  parentNode: LayerNode | null,
+  inSearchScope: boolean,
+  isSearchRoot: boolean
+): AnnotatedLayer[] {
+  return [...layers].reverse().map((layer, reversedIndex) => {
+    const originalIndex = layers.length - 1 - reversedIndex;
+
+    // Skip the target group and its contents
+    if (layer.type === "group" && layer.name === cond.targetGroupName) {
+      return {
+        node: layer,
+        matched: false,
+        risk: "none" as MatchRisk,
+        willChange: false,
+        children: layer.children ? annotateChildrenPlain(layer.children) : [],
+      };
+    }
+
+    // Determine if this group enters the search scope
+    const isThisSearchGroup =
+      cond.searchScope === "group" &&
+      layer.type === "group" &&
+      layer.name === cond.searchGroupName;
+
+    // Can this layer be matched?
+    const canMatch = inSearchScope;
+
+    const matched = canMatch && matchesLayerMoveConditions(
+      layer, cond, parentNode, layers, originalIndex, isSearchRoot
+    );
+
+    // Children scope
+    const childInScope = inSearchScope || isThisSearchGroup;
+
+    return {
+      node: layer,
+      matched,
+      risk: "safe" as MatchRisk,
+      willChange: matched,
+      children: layer.children
+        ? annotateLayerMoveRecursive(
+            layer.children,
+            cond,
+            layer,
+            childInScope,
+            isThisSearchGroup // children of search group: this is their search root
+          )
+        : [],
+    };
+  });
+}
+
+/** Annotate tree for "layerMove" mode */
+function annotateTreeLayerMove(
+  layers: LayerNode[],
+  cond: LayerMoveConditions
+): AnnotatedLayer[] {
+  const inScope = cond.searchScope === "all";
+  return annotateLayerMoveRecursive(layers, cond, null, inScope, false);
+}
+
 // --- Main component ---
 
 interface LayerPreviewPanelProps {
@@ -81,6 +254,19 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
   const selectedConditions = useLayerStore((s) => s.selectedConditions);
   const customConditions = useLayerStore((s) => s.customConditions);
   const actionMode = useLayerStore((s) => s.actionMode);
+  // Organize mode settings
+  const organizeTargetName = useLayerStore((s) => s.organizeTargetName);
+  const organizeIncludeSpecial = useLayerStore((s) => s.organizeIncludeSpecial);
+  // LayerMove mode settings
+  const layerMoveTargetName = useLayerStore((s) => s.layerMoveTargetName);
+  const layerMoveSearchScope = useLayerStore((s) => s.layerMoveSearchScope);
+  const layerMoveSearchGroupName = useLayerStore((s) => s.layerMoveSearchGroupName);
+  const layerMoveCondTextLayer = useLayerStore((s) => s.layerMoveCondTextLayer);
+  const layerMoveCondSubgroupTop = useLayerStore((s) => s.layerMoveCondSubgroupTop);
+  const layerMoveCondSubgroupBottom = useLayerStore((s) => s.layerMoveCondSubgroupBottom);
+  const layerMoveCondNameEnabled = useLayerStore((s) => s.layerMoveCondNameEnabled);
+  const layerMoveCondName = useLayerStore((s) => s.layerMoveCondName);
+  const layerMoveCondNamePartial = useLayerStore((s) => s.layerMoveCondNamePartial);
   const { openFolderForFile, revealFiles } = useOpenFolder();
 
   // Tab mode: layers or viewer
@@ -128,15 +314,52 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
 
   const hasConditions = conditions.length > 0;
   const isHideMode = actionMode === "hide";
+  const isOrganizeMode = actionMode === "organize";
+  const isLayerMoveMode = actionMode === "layerMove";
+  const hasAnyLayerMoveCondition = layerMoveCondTextLayer || layerMoveCondSubgroupTop || layerMoveCondSubgroupBottom || layerMoveCondNameEnabled;
+
+  // Whether any mode has enough settings to show annotated preview
+  const hasAnnotations = useMemo(() => {
+    if (isOrganizeMode) return organizeTargetName.trim() !== "";
+    if (isLayerMoveMode) return hasAnyLayerMoveCondition && layerMoveTargetName.trim() !== "";
+    return hasConditions; // hide/show
+  }, [isOrganizeMode, isLayerMoveMode, organizeTargetName, layerMoveTargetName, hasAnyLayerMoveCondition, hasConditions]);
 
   const fileAnnotations = useMemo((): FileAnnotation[] => {
     return targetFiles.map((file) => {
       const layerTree = file.metadata?.layerTree ?? [];
-      const annotatedTree = hasConditions ? annotateTree(layerTree, conditions, isHideMode) : [];
-      const stats = hasConditions ? countStats(annotatedTree) : { matched: 0, warnings: 0, willChange: 0 };
+      let annotatedTree: AnnotatedLayer[] = [];
+
+      if (isOrganizeMode && organizeTargetName.trim()) {
+        annotatedTree = annotateTreeOrganize(layerTree, organizeTargetName, organizeIncludeSpecial);
+      } else if (isLayerMoveMode && hasAnyLayerMoveCondition && layerMoveTargetName.trim()) {
+        annotatedTree = annotateTreeLayerMove(layerTree, {
+          textLayer: layerMoveCondTextLayer,
+          subgroupTop: layerMoveCondSubgroupTop,
+          subgroupBottom: layerMoveCondSubgroupBottom,
+          nameEnabled: layerMoveCondNameEnabled,
+          namePattern: layerMoveCondName,
+          namePartial: layerMoveCondNamePartial,
+          searchScope: layerMoveSearchScope,
+          searchGroupName: layerMoveSearchGroupName,
+          targetGroupName: layerMoveTargetName,
+        });
+      } else if (hasConditions) {
+        annotatedTree = annotateTree(layerTree, conditions, isHideMode);
+      }
+
+      const stats = annotatedTree.length > 0 ? countStats(annotatedTree) : { matched: 0, warnings: 0, willChange: 0 };
       return { file, layerTree, annotatedTree, stats };
     });
-  }, [targetFiles, conditions, hasConditions, isHideMode]);
+  }, [
+    targetFiles, conditions, hasConditions, isHideMode,
+    isOrganizeMode, organizeTargetName, organizeIncludeSpecial,
+    isLayerMoveMode, hasAnyLayerMoveCondition, layerMoveTargetName,
+    layerMoveSearchScope, layerMoveSearchGroupName,
+    layerMoveCondTextLayer, layerMoveCondSubgroupTop,
+    layerMoveCondSubgroupBottom, layerMoveCondNameEnabled,
+    layerMoveCondName, layerMoveCondNamePartial,
+  ]);
 
   const totalStats = useMemo(() => {
     return fileAnnotations.reduce(
@@ -419,18 +642,28 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
             <PsButton onClick={() => onOpenInPhotoshop(viewerFile.filePath)} />
           )}
         </div>
-        {viewMode === "layers" && hasConditions && (
+        {viewMode === "layers" && hasAnnotations && (
           <div className="flex items-center gap-2.5 mt-0.5">
             {totalStats.willChange > 0 ? (
-              <span className={`text-[11px] font-medium ${isHideMode ? "text-accent" : "text-accent-tertiary"}`}>
-                {totalStats.willChange} 件{isHideMode ? "非表示" : "表示"}予定
+              <span className={`text-[11px] font-medium ${
+                isOrganizeMode ? "text-warning"
+                : isLayerMoveMode ? "text-violet-500"
+                : isHideMode ? "text-accent"
+                : "text-accent-tertiary"
+              }`}>
+                {totalStats.willChange} 件
+                {isOrganizeMode ? "格納予定" : isLayerMoveMode ? "移動予定" : isHideMode ? "非表示予定" : "表示予定"}
+              </span>
+            ) : (isOrganizeMode || isLayerMoveMode) ? (
+              <span className="text-[11px] text-text-muted">
+                {isOrganizeMode ? "格納対象なし" : "移動対象なし"}
               </span>
             ) : totalStats.matched > 0 ? (
               <span className="text-[11px] text-text-muted">
                 変更なし（{isHideMode ? "非表示" : "表示"}済）
               </span>
             ) : null}
-            {noChangeCount > 0 && totalStats.willChange > 0 && (
+            {!isOrganizeMode && !isLayerMoveMode && noChangeCount > 0 && totalStats.willChange > 0 && (
               <span className="text-[11px] text-text-muted">
                 {noChangeCount} 件済
               </span>
@@ -465,8 +698,8 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
             <div className="p-1.5">
               <SingleFileTree
                 annotation={fileAnnotations[0]}
-                hasConditions={hasConditions}
-                isHideMode={isHideMode}
+                hasAnnotations={hasAnnotations}
+                actionMode={actionMode}
               />
             </div>
           ) : (
@@ -480,8 +713,8 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                 <FileColumn
                   key={fa.file.id}
                   annotation={fa}
-                  hasConditions={hasConditions}
-                  isHideMode={isHideMode}
+                  hasAnnotations={hasAnnotations}
+                  actionMode={actionMode}
                   isChecked={checkedFileIds.has(fa.file.id)}
                   onToggleCheck={(shiftKey) => handleCheck(fa.file.id, shiftKey)}
                   onOpenInPhotoshop={onOpenInPhotoshop ? () => onOpenInPhotoshop(fa.file.filePath) : undefined}
@@ -566,19 +799,30 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
       )}
 
       {/* Legend */}
-      {viewMode === "layers" && hasConditions && (
+      {viewMode === "layers" && hasAnnotations && (
         <div className="px-3 py-1.5 border-t border-border flex-shrink-0 flex items-center gap-3">
           <div className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-sm ${isHideMode ? "bg-accent/30" : "bg-accent-tertiary/30"}`} />
-            <span className="text-[9px] text-text-muted">{isHideMode ? "→非表示" : "→表示"}</span>
+            <span className={`w-2 h-2 rounded-sm ${
+              isOrganizeMode ? "bg-warning/30"
+              : isLayerMoveMode ? "bg-violet-500/30"
+              : isHideMode ? "bg-accent/30"
+              : "bg-accent-tertiary/30"
+            }`} />
+            <span className="text-[9px] text-text-muted">
+              {isOrganizeMode ? "→格納" : isLayerMoveMode ? "→移動" : isHideMode ? "→非表示" : "→表示"}
+            </span>
           </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-amber-500/30" />
-            <span className="text-[9px] text-text-muted">要確認</span>
-          </div>
+          {(actionMode === "hide" || actionMode === "show") && (
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-sm bg-amber-500/30" />
+              <span className="text-[9px] text-text-muted">要確認</span>
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-sm bg-text-muted/20" />
-            <span className="text-[9px] text-text-muted">済</span>
+            <span className="text-[9px] text-text-muted">
+              {(isOrganizeMode || isLayerMoveMode) ? "対象外" : "済"}
+            </span>
           </div>
         </div>
       )}
@@ -588,10 +832,10 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
 
 // --- Single file tree ---
 
-function SingleFileTree({ annotation, hasConditions, isHideMode }: {
+function SingleFileTree({ annotation, hasAnnotations, actionMode }: {
   annotation: FileAnnotation;
-  hasConditions: boolean;
-  isHideMode: boolean;
+  hasAnnotations: boolean;
+  actionMode: LayerActionMode;
 }) {
   if (annotation.layerTree.length === 0) {
     return (
@@ -601,8 +845,8 @@ function SingleFileTree({ annotation, hasConditions, isHideMode }: {
     );
   }
 
-  return hasConditions ? (
-    <AnnotatedTree items={annotation.annotatedTree} depth={0} isHideMode={isHideMode} parentVisible />
+  return hasAnnotations ? (
+    <AnnotatedTree items={annotation.annotatedTree} depth={0} actionMode={actionMode} parentVisible />
   ) : (
     <PlainTree layers={annotation.layerTree} depth={0} parentVisible />
   );
@@ -610,10 +854,10 @@ function SingleFileTree({ annotation, hasConditions, isHideMode }: {
 
 // --- File column (multi-file) ---
 
-function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggleCheck, onOpenInPhotoshop, onOpenFolder }: {
+function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggleCheck, onOpenInPhotoshop, onOpenFolder }: {
   annotation: FileAnnotation;
-  hasConditions: boolean;
-  isHideMode: boolean;
+  hasAnnotations: boolean;
+  actionMode: LayerActionMode;
   isChecked: boolean;
   onToggleCheck: (shiftKey: boolean) => void;
   onOpenInPhotoshop?: () => void;
@@ -654,9 +898,12 @@ function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggle
         <span className={`text-[11px] font-medium truncate flex-1 ${isChecked ? "text-[#31A8FF]" : "text-text-primary"}`}>
           {file.fileName.replace(/\.(psd|psb)$/i, "")}
         </span>
-        {hasConditions && stats.willChange > 0 && (
+        {hasAnnotations && stats.willChange > 0 && (
           <span className={`text-[9px] px-1 py-px rounded flex-shrink-0 ${
-            isHideMode ? "bg-accent/10 text-accent" : "bg-accent-tertiary/10 text-accent-tertiary"
+            actionMode === "organize" ? "bg-warning/10 text-warning"
+            : actionMode === "layerMove" ? "bg-violet-500/10 text-violet-500"
+            : actionMode === "hide" ? "bg-accent/10 text-accent"
+            : "bg-accent-tertiary/10 text-accent-tertiary"
           }`}>
             {stats.willChange}
           </span>
@@ -692,8 +939,8 @@ function FileColumn({ annotation, hasConditions, isHideMode, isChecked, onToggle
           <div className="flex items-center justify-center py-4 text-[10px] text-text-muted">
             レイヤー情報なし
           </div>
-        ) : hasConditions ? (
-          <AnnotatedTree items={annotatedTree} depth={0} isHideMode={isHideMode} parentVisible />
+        ) : hasAnnotations ? (
+          <AnnotatedTree items={annotatedTree} depth={0} actionMode={actionMode} parentVisible />
         ) : (
           <PlainTree layers={layerTree} depth={0} parentVisible />
         )}
@@ -749,17 +996,17 @@ function PlainItem({ layer, depth, parentVisible }: { layer: LayerNode; depth: n
 
 // --- Annotated tree ---
 
-function AnnotatedTree({ items, depth, isHideMode, parentVisible = true }: { items: AnnotatedLayer[]; depth: number; isHideMode: boolean; parentVisible?: boolean }) {
+function AnnotatedTree({ items, depth, actionMode, parentVisible = true }: { items: AnnotatedLayer[]; depth: number; actionMode: LayerActionMode; parentVisible?: boolean }) {
   return (
     <div className="text-[11px]">
       {items.map((item) => (
-        <AnnotatedItem key={item.node.id} item={item} depth={depth} isHideMode={isHideMode} parentVisible={parentVisible} />
+        <AnnotatedItem key={item.node.id} item={item} depth={depth} actionMode={actionMode} parentVisible={parentVisible} />
       ))}
     </div>
   );
 }
 
-function AnnotatedItem({ item, depth, isHideMode, parentVisible = true }: { item: AnnotatedLayer; depth: number; isHideMode: boolean; parentVisible?: boolean }) {
+function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item: AnnotatedLayer; depth: number; actionMode: LayerActionMode; parentVisible?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const { node, matched, risk, willChange, children } = item;
   const hasChildren = children.length > 0;
@@ -773,8 +1020,19 @@ function AnnotatedItem({ item, depth, isHideMode, parentVisible = true }: { item
     rowBg = "bg-amber-500/8";
     borderLeft = "border-l-[2px] border-amber-500";
   } else if (willChange) {
-    rowBg = isHideMode ? "bg-accent/8" : "bg-accent-tertiary/8";
-    borderLeft = isHideMode ? "border-l-[2px] border-accent/50" : "border-l-[2px] border-accent-tertiary/50";
+    if (actionMode === "organize") {
+      rowBg = "bg-warning/8";
+      borderLeft = "border-l-[2px] border-warning/50";
+    } else if (actionMode === "layerMove") {
+      rowBg = "bg-violet-500/8";
+      borderLeft = "border-l-[2px] border-violet-500/50";
+    } else if (actionMode === "hide") {
+      rowBg = "bg-accent/8";
+      borderLeft = "border-l-[2px] border-accent/50";
+    } else {
+      rowBg = "bg-accent-tertiary/8";
+      borderLeft = "border-l-[2px] border-accent-tertiary/50";
+    }
   } else if (matched) {
     rowBg = "bg-bg-tertiary/30";
     borderLeft = "border-l-[2px] border-text-muted/15";
@@ -782,6 +1040,26 @@ function AnnotatedItem({ item, depth, isHideMode, parentVisible = true }: { item
   } else {
     rowOpacity = "opacity-35";
   }
+
+  // Mode-specific badge styling
+  const badgeClass = willChange
+    ? actionMode === "organize"
+      ? "bg-warning/12 text-warning font-medium"
+      : actionMode === "layerMove"
+        ? "bg-violet-500/12 text-violet-500 font-medium"
+        : actionMode === "hide"
+          ? "bg-accent/12 text-accent font-medium"
+          : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
+    : "bg-text-muted/8 text-text-muted/70";
+
+  const badgeText = willChange
+    ? actionMode === "organize" ? "→格納"
+      : actionMode === "layerMove" ? "→移動"
+      : actionMode === "hide" ? "→非表示"
+      : "→表示"
+    : actionMode === "organize" || actionMode === "layerMove"
+      ? "対象外"
+      : actionMode === "hide" ? "非表示済" : "表示済";
 
   return (
     <div>
@@ -803,7 +1081,7 @@ function AnnotatedItem({ item, depth, isHideMode, parentVisible = true }: { item
           {node.name || <span className="italic text-text-muted/50">名称なし</span>}
         </span>
 
-        {/* Warning badge */}
+        {/* Warning badge (hide/show only) */}
         {risk === "warning" && willChange && (
           <span
             className="flex items-center gap-px px-1 py-px rounded bg-amber-500/15 text-amber-600 text-[9px] font-medium flex-shrink-0"
@@ -819,21 +1097,10 @@ function AnnotatedItem({ item, depth, isHideMode, parentVisible = true }: { item
           </span>
         )}
 
-        {/* Status */}
+        {/* Status badge */}
         {matched && (
-          <span
-            className={`text-[9px] px-1 py-px rounded flex-shrink-0 leading-none ${
-              willChange
-                ? isHideMode
-                  ? "bg-accent/12 text-accent font-medium"
-                  : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
-                : "bg-text-muted/8 text-text-muted/70"
-            }`}
-          >
-            {willChange
-              ? isHideMode ? "→非表示" : "→表示"
-              : isHideMode ? "非表示済" : "表示済"
-            }
+          <span className={`text-[9px] px-1 py-px rounded flex-shrink-0 leading-none ${badgeClass}`}>
+            {badgeText}
           </span>
         )}
 
@@ -842,7 +1109,7 @@ function AnnotatedItem({ item, depth, isHideMode, parentVisible = true }: { item
       {hasChildren && isExpanded && (
         <div className="relative">
           <div className="absolute left-0 top-0 bottom-1 w-px bg-border/40" style={{ marginLeft: `${depth * 12 + 9}px` }} />
-          <AnnotatedTree items={children} depth={depth + 1} isHideMode={isHideMode} parentVisible={effectiveVisible} />
+          <AnnotatedTree items={children} depth={depth + 1} actionMode={actionMode} parentVisible={effectiveVisible} />
         </div>
       )}
     </div>
