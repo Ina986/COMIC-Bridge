@@ -13,9 +13,12 @@ export function FontTypesTab() {
   const renamePresetSet = useScanPsdStore((s) => s.renamePresetSet);
   const addFontToPreset = useScanPsdStore((s) => s.addFontToPreset);
   const removeFontFromPreset = useScanPsdStore((s) => s.removeFontFromPreset);
+  const updateFontInPreset = useScanPsdStore((s) => s.updateFontInPreset);
 
   const [editMode, setEditMode] = useState<"none" | "add" | "rename">("none");
   const [inputValue, setInputValue] = useState("");
+  const [editingPresetIndex, setEditingPresetIndex] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", subName: "" });
 
   const currentPresets = presetSets[currentSetName] || [];
   const setNames = Object.keys(presetSets);
@@ -157,29 +160,92 @@ export function FontTypesTab() {
         ) : (
           <div className="space-y-1">
             {sortedPresets(currentPresets).map(({ preset: p, originalIndex }) => (
-              <div
-                key={originalIndex}
-                className="flex items-center gap-2 bg-bg-tertiary/40 hover:bg-bg-tertiary rounded-lg px-2.5 py-1.5 group
-                  border border-transparent hover:border-border/50 transition-all"
-              >
-                {p.subName && (
-                  <span
-                    className="text-[9px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 border"
-                    style={getSubNameStyle(p.subName)}
-                  >
-                    {p.subName}
-                  </span>
-                )}
-                <span className="text-xs text-text-primary flex-1 truncate">{p.name}</span>
-                <span className="text-[9px] text-text-muted truncate max-w-[80px] font-mono">{p.font}</span>
-                <button
-                  onClick={() => removeFontFromPreset(currentSetName, originalIndex)}
-                  className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
+              <div key={originalIndex}>
+                <div
+                  className="flex items-center gap-2 bg-bg-tertiary/40 hover:bg-bg-tertiary rounded-lg px-2.5 py-1.5 group
+                    border border-transparent hover:border-border/50 transition-all"
                 >
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                  {p.subName && (
+                    <span
+                      className="text-[9px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 border"
+                      style={getSubNameStyle(p.subName)}
+                    >
+                      {p.subName}
+                    </span>
+                  )}
+                  <span className="text-xs text-text-primary flex-1 truncate">{p.name}</span>
+                  <span className="text-[9px] text-text-muted truncate max-w-[80px] font-mono">{p.font}</span>
+                  <button
+                    onClick={() => {
+                      setEditingPresetIndex(originalIndex);
+                      setEditForm({ name: p.name, subName: p.subName || "" });
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent transition-all"
+                    title="編集"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => removeFontFromPreset(currentSetName, originalIndex)}
+                    className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-error transition-all"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                {/* インライン編集フォーム */}
+                {editingPresetIndex === originalIndex && (
+                  <div className="ml-1 mt-1 bg-bg-tertiary/60 rounded-lg px-2.5 py-2 border border-accent/20 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-text-muted w-12 flex-shrink-0">カテゴリ</span>
+                      <select
+                        value={editForm.subName}
+                        onChange={(e) => setEditForm({ ...editForm, subName: e.target.value })}
+                        className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary
+                          focus:border-accent focus:outline-none"
+                      >
+                        <option value="">なし</option>
+                        {UNIQUE_SUB_NAMES.map((sn) => (
+                          <option key={sn} value={sn}>{sn}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-text-muted w-12 flex-shrink-0">表示名</span>
+                      <input
+                        type="text"
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary
+                          focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-1.5 justify-end">
+                      <button
+                        onClick={() => {
+                          updateFontInPreset(currentSetName, originalIndex, {
+                            name: editForm.name,
+                            subName: editForm.subName,
+                          });
+                          setEditingPresetIndex(null);
+                        }}
+                        className="text-[9px] font-bold text-white px-3 py-1 rounded-lg transition-all"
+                        style={{ background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }}
+                      >
+                        保存
+                      </button>
+                      <button
+                        onClick={() => setEditingPresetIndex(null)}
+                        className="text-[9px] text-text-muted px-2 py-1 hover:text-text-primary transition-colors"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -249,9 +315,11 @@ export function FontTypesTab() {
 import { FONT_SUB_NAME_MAP } from "../../../types/scanPsd";
 
 const SUB_NAME_ORDER: Record<string, number> = {};
+const UNIQUE_SUB_NAMES: string[] = [];
 FONT_SUB_NAME_MAP.forEach((entry, i) => {
   if (!(entry.subName in SUB_NAME_ORDER)) {
     SUB_NAME_ORDER[entry.subName] = i;
+    UNIQUE_SUB_NAMES.push(entry.subName);
   }
 });
 
