@@ -16,6 +16,7 @@ interface TiffConvertResult {
 interface TiffConvertResponse {
   results: TiffConvertResult[];
   outputDir: string;
+  jpgOutputDir: string | null;
 }
 
 export function useTiffProcessor() {
@@ -27,7 +28,10 @@ export function useTiffProcessor() {
       return settings.output.outputDirectory;
     }
     const desktop = await desktopDir();
-    return await join(desktop, "Script_Output", "TIF_Output");
+    // JPGのみ（TIFF OFF）の場合は JPG_Output
+    const folderName = !settings.output.proceedAsTiff && settings.output.outputJpg
+      ? "JPG_Output" : "TIF_Output";
+    return await join(desktop, "Script_Output", folderName);
   }, []);
 
   // ファイル毎の最終設定をマージして設定JSONを構築
@@ -79,18 +83,21 @@ export function useTiffProcessor() {
       const partialBlurEntry = settings.partialBlurEntries.find((e) => e.pageNumber === pageNum);
 
       // リネーム解決
+      // 拡張子: TIFF ON → .tif、JPGのみ → .jpg、PSD → .psd
+      const ext = settings.output.proceedAsTiff ? ".tif"
+        : settings.output.outputJpg ? ".jpg" : ".psd";
       let outputName: string;
       if (settings.rename.keepOriginalName) {
         const baseName = file.fileName.replace(/\.[^.]+$/, "");
-        outputName = baseName + (settings.output.proceedAsTiff ? ".tif" : ".psd");
+        outputName = baseName + ext;
       } else if (settings.rename.extractPageNumber) {
         const match = file.fileName.match(/(\d+)\s*\.[^.]+$/);
         const extractedNum = match ? parseInt(match[1]) : fileIndex + 1;
         const num = extractedNum + (settings.rename.startNumber - 1);
-        outputName = String(num).padStart(settings.rename.padding, "0") + (settings.output.proceedAsTiff ? ".tif" : ".psd");
+        outputName = String(num).padStart(settings.rename.padding, "0") + ext;
       } else {
         const num = fileIndex + settings.rename.startNumber;
-        outputName = String(num).padStart(settings.rename.padding, "0") + (settings.output.proceedAsTiff ? ".tif" : ".psd");
+        outputName = String(num).padStart(settings.rename.padding, "0") + ext;
       }
 
       // サブフォルダ出力パス解決
@@ -99,6 +106,17 @@ export function useTiffProcessor() {
       let fileOutputDir = outputDir;
       if (!flatten && file.subfolderName) {
         fileOutputDir = outputDir + "/" + file.subfolderName;
+      }
+
+      // TIFF+JPG同時出力時: JPG出力先を計算（TIF_Outputの兄弟にJPG_Output）
+      let jpgOutputPath: string | null = null;
+      if (settings.output.proceedAsTiff && settings.output.outputJpg) {
+        const jpgBaseDir = outputDir.replace(/TIF_Output/g, "JPG_Output");
+        let jpgFileDir = jpgBaseDir;
+        if (!flatten && file.subfolderName) {
+          jpgFileDir = jpgBaseDir + "/" + file.subfolderName;
+        }
+        jpgOutputPath = jpgFileDir.replace(/\\/g, "/");
       }
 
       return {
@@ -118,6 +136,7 @@ export function useTiffProcessor() {
         cropBounds: settings.crop.bounds,
         psbConvert: settings.psbConvertToTiff,
         subfolderName: file.subfolderName || "",
+        jpgOutputPath,
       };
     });
 
@@ -135,12 +154,18 @@ export function useTiffProcessor() {
         aspectRatio: [settings.crop.aspectRatio.w, settings.crop.aspectRatio.h],
         reorganizeText: settings.text.reorganize,
         proceedAsTiff: settings.output.proceedAsTiff,
+        outputJpg: settings.output.outputJpg,
         saveIntermediatePsd: settings.output.saveIntermediatePsd,
         mergeAfterColor: settings.output.mergeAfterColorConvert,
       },
     }, null, 2);
 
-    return { settingsJson, outputDir, activeCount: activeFiles.length };
+    // TIFF+JPG同時出力時のJPG出力先ベースディレクトリ
+    const jpgOutputDir = settings.output.proceedAsTiff && settings.output.outputJpg
+      ? outputDir.replace(/TIF_Output/g, "JPG_Output")
+      : null;
+
+    return { settingsJson, outputDir, jpgOutputDir, activeCount: activeFiles.length };
   }, [getOutputDir]);
 
   // 共通処理実行
@@ -163,7 +188,7 @@ export function useTiffProcessor() {
     const startTime = Date.now();
 
     try {
-      const { settingsJson, outputDir, activeCount } = await buildSettingsJson(targetFiles);
+      const { settingsJson, outputDir, jpgOutputDir, activeCount } = await buildSettingsJson(targetFiles);
 
       if (activeCount === 0) {
         store.setIsProcessing(false);
@@ -175,6 +200,7 @@ export function useTiffProcessor() {
       const response = await invoke<TiffConvertResponse>("run_photoshop_tiff_convert", {
         settingsJson,
         outputDir,
+        jpgOutputDir: jpgOutputDir ?? "",
       });
 
       // 結果を処理
@@ -189,6 +215,7 @@ export function useTiffProcessor() {
       }
 
       store.setLastOutputDir(response.outputDir);
+      store.setLastJpgOutputDir(response.jpgOutputDir ?? null);
       store.setProcessingDuration(Date.now() - startTime);
       store.setProgress(response.results.length, response.results.length);
       store.setShowResultDialog(true);

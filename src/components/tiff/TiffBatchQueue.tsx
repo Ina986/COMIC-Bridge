@@ -58,18 +58,20 @@ export function TiffBatchQueue() {
       const blurRadius = override?.blurRadius ?? settings.blur.radius;
 
       // リネーム解決
+      const ext = settings.output.proceedAsTiff ? ".tif"
+        : settings.output.outputJpg ? ".jpg" : ".psd";
       let outputName: string;
       if (settings.rename.keepOriginalName) {
         const baseName = file.fileName.replace(/\.[^.]+$/, "");
-        outputName = baseName + (settings.output.proceedAsTiff ? ".tif" : ".psd");
+        outputName = baseName + ext;
       } else if (settings.rename.extractPageNumber) {
         const match = file.fileName.match(/(\d+)\s*\.[^.]+$/);
         const extractedNum = match ? parseInt(match[1]) : fileIndex + 1;
         const pageNum = extractedNum + (settings.rename.startNumber - 1);
-        outputName = String(pageNum).padStart(settings.rename.padding, "0") + (settings.output.proceedAsTiff ? ".tif" : ".psd");
+        outputName = String(pageNum).padStart(settings.rename.padding, "0") + ext;
       } else {
         const pageNum = fileIndex + settings.rename.startNumber;
-        outputName = String(pageNum).padStart(settings.rename.padding, "0") + (settings.output.proceedAsTiff ? ".tif" : ".psd");
+        outputName = String(pageNum).padStart(settings.rename.padding, "0") + ext;
       }
 
       // 処理結果

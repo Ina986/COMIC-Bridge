@@ -292,6 +292,7 @@ function processFile(fileConfig, globalSettings) {
         var outputDir = new Folder(fileConfig.outputPath);
         if (!outputDir.exists) outputDir.create();
         var outputFile = new File(fileConfig.outputPath + "/" + fileConfig.outputName);
+        var baseName = fileConfig.outputName.replace(/\.[^.]+$/, "");
 
         if (globalSettings.proceedAsTiff) {
             // TIFF with LZW compression
@@ -301,12 +302,33 @@ function processFile(fileConfig, globalSettings) {
             tiffOpts.alphaChannels = false;
             tiffOpts.byteOrder = ByteOrder.IBM;
             doc.saveAs(outputFile, tiffOpts, true, Extension.LOWERCASE);
+        } else if (globalSettings.outputJpg) {
+            // JPG only (TIFF OFF + JPG ON)
+            var jpgOpts = new JPEGSaveOptions();
+            jpgOpts.quality = 12;
+            jpgOpts.embedColorProfile = true;
+            jpgOpts.formatOptions = FormatOptions.STANDARDBASELINE;
+            var jpgFile = new File(fileConfig.outputPath + "/" + baseName + ".jpg");
+            doc.saveAs(jpgFile, jpgOpts, true, Extension.LOWERCASE);
+            outputFile = jpgFile;
         } else {
             // PSD
             var psdOpts = new PhotoshopSaveOptions();
             psdOpts.layers = false;
             psdOpts.alphaChannels = false;
             doc.saveAs(outputFile, psdOpts, true, Extension.LOWERCASE);
+        }
+
+        // 16b. TIFF+JPG: save JPG copy to separate folder
+        if (globalSettings.proceedAsTiff && globalSettings.outputJpg && fileConfig.jpgOutputPath) {
+            var jpgDir2 = new Folder(fileConfig.jpgOutputPath);
+            if (!jpgDir2.exists) jpgDir2.create();
+            var jpgFile2 = new File(fileConfig.jpgOutputPath + "/" + baseName + ".jpg");
+            var jpgOpts2 = new JPEGSaveOptions();
+            jpgOpts2.quality = 12;
+            jpgOpts2.embedColorProfile = true;
+            jpgOpts2.formatOptions = FormatOptions.STANDARDBASELINE;
+            doc.saveAs(jpgFile2, jpgOpts2, true, Extension.LOWERCASE);
         }
 
         // 17. Close

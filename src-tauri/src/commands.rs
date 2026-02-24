@@ -3338,6 +3338,8 @@ pub struct TiffConvertResponse {
     pub results: Vec<TiffConvertResult>,
     #[serde(rename = "outputDir")]
     pub output_dir: String,
+    #[serde(rename = "jpgOutputDir")]
+    pub jpg_output_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -3351,6 +3353,7 @@ pub async fn run_photoshop_tiff_convert(
     app_handle: tauri::AppHandle,
     settings_json: String,
     output_dir: String,
+    jpg_output_dir: Option<String>,
 ) -> Result<TiffConvertResponse, String> {
     use std::process::Command;
     use std::io::Write;
@@ -3405,14 +3408,50 @@ pub async fn run_photoshop_tiff_convert(
 
     eprintln!("TIFF Convert - Output dir: {}", final_output_dir);
 
+    // JPG output directory: create unique if exists (only when jpg_output_dir is provided and non-empty)
+    let final_jpg_output_dir = if let Some(ref jdir) = jpg_output_dir {
+        if !jdir.is_empty() {
+            let base_path = Path::new(jdir);
+            let resolved = if base_path.exists() {
+                let base = jdir.clone();
+                let mut counter = 1;
+                loop {
+                    let candidate = format!("{} ({})", base, counter);
+                    if !Path::new(&candidate).exists() {
+                        break candidate;
+                    }
+                    counter += 1;
+                }
+            } else {
+                jdir.clone()
+            };
+            eprintln!("TIFF Convert - JPG Output dir: {}", resolved);
+            let _ = fs::create_dir_all(&resolved);
+            Some(resolved)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Rewrite outputPath in settings JSON: replace base output_dir with final_output_dir
-    let rewritten_json = if final_output_dir != output_dir {
+    let mut rewritten_json = if final_output_dir != output_dir {
         let output_dir_fwd = output_dir.replace('\\', "/");
         let final_dir_fwd = final_output_dir.replace('\\', "/");
         settings_json.replace(&output_dir_fwd, &final_dir_fwd)
     } else {
         settings_json.clone()
     };
+
+    // Rewrite jpgOutputPath in settings JSON
+    if let (Some(ref orig), Some(ref final_j)) = (&jpg_output_dir, &final_jpg_output_dir) {
+        if !orig.is_empty() && final_j != orig {
+            let orig_fwd = orig.replace('\\', "/");
+            let final_fwd = final_j.replace('\\', "/");
+            rewritten_json = rewritten_json.replace(&orig_fwd, &final_fwd);
+        }
+    }
 
     // Create the output directory so explorer can open it even if JSX produces no files
     let _ = fs::create_dir_all(&final_output_dir);
@@ -3531,6 +3570,7 @@ pub async fn run_photoshop_tiff_convert(
         Ok(TiffConvertResponse {
             results: wrapper.results,
             output_dir: final_output_dir,
+            jpg_output_dir: final_jpg_output_dir,
         })
     } else {
         let _ = fs::remove_file(&temp_script);

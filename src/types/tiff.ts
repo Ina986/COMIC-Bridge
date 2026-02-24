@@ -118,6 +118,7 @@ export interface TiffRenameSettings {
 export interface TiffOutputSettings {
   outputDirectory: string | null; // null = Desktop/Script_Output
   proceedAsTiff: boolean;         // true=TIFF出力, false=PSD出力
+  outputJpg: boolean;             // true=JPG出力（最高画質）
   saveIntermediatePsd: boolean;   // 中間PSD保存
   mergeAfterColorConvert: boolean; // 画像レイヤーを統合する
 }
@@ -179,6 +180,7 @@ export const DEFAULT_TIFF_SETTINGS: TiffSettings = {
   output: {
     outputDirectory: null,
     proceedAsTiff: true,
+    outputJpg: false,
     saveIntermediatePsd: false,
     mergeAfterColorConvert: false,
   },

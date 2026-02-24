@@ -77,6 +77,26 @@ export function TiffSettingsPanel() {
               </p>
             </div>
           </label>
+          <label className="flex items-center gap-2.5 cursor-pointer mt-2">
+            <input
+              type="checkbox"
+              checked={settings.output.outputJpg}
+              onChange={(e) => setSettings({
+                output: { ...settings.output, outputJpg: e.target.checked },
+              })}
+              className="rounded accent-accent-warm"
+            />
+            <div>
+              <span className="text-sm text-text-primary">JPGも出力する</span>
+              <p className="text-[10px] text-text-muted">
+                {settings.output.outputJpg
+                  ? settings.output.proceedAsTiff
+                    ? "TIFF + JPG（最高画質）を別フォルダに出力"
+                    : "JPG（最高画質）で出力"
+                  : "JPG出力なし"}
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* 1b. サブフォルダ */}
@@ -561,7 +581,7 @@ export function TiffSettingsPanel() {
         )}
 
         <div className="flex items-center justify-center text-[10px] text-text-muted">
-          {settings.output.proceedAsTiff ? "TIFF (LZW)" : "PSD"} · {settings.colorMode === "mono" ? "モノクロ" : settings.colorMode === "color" ? "カラー" : settings.colorMode === "perPage" ? "個別" : "変更なし"}
+          {settings.output.proceedAsTiff && settings.output.outputJpg ? "TIFF + JPG" : settings.output.proceedAsTiff ? "TIFF (LZW)" : settings.output.outputJpg ? "JPG" : "PSD"} · {settings.colorMode === "mono" ? "モノクロ" : settings.colorMode === "color" ? "カラー" : settings.colorMode === "perPage" ? "個別" : "変更なし"}
         </div>
       </div>
 

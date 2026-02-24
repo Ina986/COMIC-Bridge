@@ -9,6 +9,7 @@ export function TiffResultDialog() {
   const setShowResultDialog = useTiffStore((state) => state.setShowResultDialog);
   const results = useTiffStore((state) => state.results);
   const lastOutputDir = useTiffStore((state) => state.lastOutputDir);
+  const lastJpgOutputDir = useTiffStore((state) => state.lastJpgOutputDir);
   const processingDurationMs = useTiffStore((state) => state.processingDurationMs);
   const cropBounds = useTiffStore((state) => state.settings.crop.bounds);
   const psdFolderPath = usePsdStore((state) => state.currentFolderPath);
@@ -199,7 +200,19 @@ export function TiffResultDialog() {
               }}
               className="px-4 py-2 text-sm font-medium text-accent-warm bg-accent-warm/10 border border-accent-warm/30 rounded-xl hover:bg-accent-warm/20 transition-colors"
             >
-              出力フォルダを開く
+              {lastJpgOutputDir ? "TIFフォルダを開く" : "出力フォルダを開く"}
+            </button>
+          )}
+          {lastJpgOutputDir && (
+            <button
+              onClick={async () => {
+                try {
+                  await invoke("open_folder_in_explorer", { folderPath: lastJpgOutputDir });
+                } catch { /* ignore */ }
+              }}
+              className="px-4 py-2 text-sm font-medium text-accent-warm bg-accent-warm/10 border border-accent-warm/30 rounded-xl hover:bg-accent-warm/20 transition-colors"
+            >
+              JPGフォルダを開く
             </button>
           )}
           <button

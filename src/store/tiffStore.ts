@@ -65,6 +65,7 @@ interface TiffState {
   currentFile: string | null;
   results: TiffResult[];
   lastOutputDir: string | null;
+  lastJpgOutputDir: string | null;
   processingDurationMs: number | null;
   showResultDialog: boolean;
 
@@ -132,6 +133,7 @@ interface TiffState {
   addResult: (result: TiffResult) => void;
   clearResults: () => void;
   setLastOutputDir: (dir: string | null) => void;
+  setLastJpgOutputDir: (dir: string | null) => void;
   setProcessingDuration: (ms: number | null) => void;
   setShowResultDialog: (show: boolean) => void;
   setReferenceFileIndex: (index: number) => void;
@@ -155,6 +157,7 @@ export const useTiffStore = create<TiffState>((set) => ({
   currentFile: null,
   results: [],
   lastOutputDir: null,
+  lastJpgOutputDir: null,
   processingDurationMs: null,
   showResultDialog: false,
   referenceFileIndex: 1,
@@ -429,6 +432,7 @@ export const useTiffStore = create<TiffState>((set) => ({
 
   clearResults: () => set({ results: [] }),
   setLastOutputDir: (dir) => set({ lastOutputDir: dir }),
+  setLastJpgOutputDir: (dir) => set({ lastJpgOutputDir: dir }),
   setProcessingDuration: (ms) => set({ processingDurationMs: ms }),
   setShowResultDialog: (show) => set({ showResultDialog: show }),
   setReferenceFileIndex: (index) => set({ referenceFileIndex: index }),
