@@ -29,6 +29,7 @@ pub fn run() {
             commands::list_folder_files,
             commands::list_subfolders,
             commands::list_folder_contents,
+            commands::search_json_folders,
             commands::read_text_file,
             commands::write_text_file,
             commands::delete_file,

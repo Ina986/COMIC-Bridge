@@ -1,6 +1,6 @@
 [package]
 name = "comic-bridge"
-version = "1.0.20"
+version = "1.0.21"
 description = "漫画原稿の入稿チェック・差替え・分割を行うデスクトップアプリ"
 authors = ["Ina986"]
 edition = "2021"
@@ -32,6 +32,9 @@ pdfium-render = "0.8"
 # Font name resolution (PostScript → display name)
 fontdb = "0.22"
 ttf-parser = "0.24"
+
+# File system traversal
+walkdir = "2"
 
 # Async runtime
 tokio = { version = "1", features = ["rt", "sync"] }

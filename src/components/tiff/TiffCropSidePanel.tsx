@@ -472,6 +472,11 @@ function CropJsonLoadDialog({ onLoad, onClose }: { onLoad: (preset: TiffCropPres
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 検索
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ label: string; title: string; path: string }[]>([]);
+  const [isSearchMode, setIsSearchMode] = useState(false);
+
   // 現在のフォルダの内容を読み込む（Rustコマンド経由）
   const loadContents = useCallback(async (path: string) => {
     setLoading(true);
@@ -505,7 +510,7 @@ function CropJsonLoadDialog({ onLoad, onClose }: { onLoad: (preset: TiffCropPres
     loadContents(currentPath);
   }, []);
 
-  // フォルダに入る
+  // フォルダに入る（ワンクリック）
   const enterFolder = useCallback((folderName: string) => {
     const newPath = `${currentPath}/${folderName}`;
     setPathHistory((prev) => [...prev, currentPath]);
@@ -541,6 +546,37 @@ function CropJsonLoadDialog({ onLoad, onClose }: { onLoad: (preset: TiffCropPres
     }
   }, []);
 
+  // 検索（デバウンス300ms）
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setIsSearchMode(false);
+      setSearchResults([]);
+      return;
+    }
+    setIsSearchMode(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await invoke<{ label: string; title: string; path: string }[]>(
+          "search_json_folders",
+          { basePath: JSON_BASE_PATH, query: searchQuery.trim() }
+        );
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // 検索結果クリック → JSONファイル読み込み
+  const handleSearchSelect = useCallback((result: { path: string }) => {
+    const dirPath = result.path.replace(/[\\/][^\\/]+$/, "");
+    const fileName = result.path.split(/[\\/]/).pop() || "";
+    handleSelectFile(dirPath, fileName);
+    setSearchQuery("");
+    setIsSearchMode(false);
+  }, [handleSelectFile]);
+
   // パス表示（ベースパスからの相対）
   const displayPath = useMemo(() => {
     const rel = currentPath.replace(JSON_BASE_PATH, "").replace(/^[/\\]/, "");
@@ -565,23 +601,73 @@ function CropJsonLoadDialog({ onLoad, onClose }: { onLoad: (preset: TiffCropPres
           </button>
         </div>
 
-        {/* Path breadcrumb */}
-        <div className="px-5 py-2 border-b border-border/50 flex items-center gap-2">
-          <button
-            onClick={goBack}
-            disabled={isAtRoot}
-            className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        {/* Search input */}
+        <div className="px-5 py-2 border-b border-border/50">
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-          </button>
-          <span className="text-[10px] text-text-muted font-mono truncate flex-1">{displayPath}</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="タイトルで検索..."
+              className="w-full pl-8 pr-8 py-1.5 text-xs bg-bg-elevated border border-border/50 rounded-lg text-text-primary placeholder:text-text-muted/40 focus:outline-none focus:border-accent-warm/50"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(""); setIsSearchMode(false); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* File browser */}
+        {/* Path breadcrumb (hidden during search) */}
+        {!isSearchMode && (
+          <div className="px-5 py-2 border-b border-border/50 flex items-center gap-2">
+            <button
+              onClick={goBack}
+              disabled={isAtRoot}
+              className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <span className="text-[10px] text-text-muted font-mono truncate flex-1">{displayPath}</span>
+          </div>
+        )}
+
+        {/* File browser / Search results */}
         <div className="flex-1 overflow-auto min-h-0">
-          {loading ? (
+          {isSearchMode ? (
+            searchResults.length === 0 ? (
+              <div className="px-4 py-8 text-center text-xs text-text-muted">
+                {searchQuery.trim() ? "見つかりませんでした" : "検索中..."}
+              </div>
+            ) : (
+              searchResults.map((result, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleSearchSelect(result)}
+                  className="w-full text-left px-4 py-2.5 text-xs transition-colors border-b border-border/30 last:border-b-0 flex items-center gap-2.5 text-text-secondary hover:bg-bg-tertiary"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <div className="truncate">
+                    <span className="text-[9px] text-accent-warm/70 mr-1.5">{result.label}</span>
+                    <span>{result.title}</span>
+                  </div>
+                </button>
+              ))
+            )
+          ) : loading ? (
             <div className="px-4 py-8 text-center text-xs text-text-muted">読み込み中...</div>
           ) : entries.length === 0 && !error ? (
             <div className="px-4 py-8 text-center text-xs text-text-muted">

@@ -2530,6 +2530,71 @@ pub async fn list_folder_contents(
     Ok(FolderContents { folders, json_files })
 }
 
+/// Search JSON files across subfolders (depth=2: basePath/label/title.json)
+#[derive(Debug, Serialize)]
+pub struct JsonSearchResult {
+    pub label: String,
+    pub title: String,
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn search_json_folders(
+    base_path: String,
+    query: String,
+) -> Result<Vec<JsonSearchResult>, String> {
+    let path = std::path::PathBuf::from(&base_path);
+    if !path.exists() {
+        return Err(format!("フォルダが存在しません: {}", base_path));
+    }
+
+    let query_lower = query.to_lowercase();
+    let mut results: Vec<JsonSearchResult> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(&path)
+        .min_depth(2)
+        .max_depth(2)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let entry_path = entry.path();
+        if !entry_path.is_file() {
+            continue;
+        }
+        let ext = entry_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if ext.to_lowercase() != "json" {
+            continue;
+        }
+
+        let title = entry_path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        if title.to_lowercase().contains(&query_lower) {
+            let label = entry_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            results.push(JsonSearchResult {
+                label,
+                title,
+                path: entry_path.to_string_lossy().to_string(),
+            });
+        }
+    }
+
+    results.sort_by(|a, b| a.title.cmp(&b.title));
+    Ok(results)
+}
+
 // --- Replace Job Settings for JSX ---
 
 #[derive(Debug, Serialize, Deserialize)]
