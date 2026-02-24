@@ -83,6 +83,15 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
       </svg>
     ),
   },
+  {
+    id: "scanPsd",
+    label: "スキャナー",
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    ),
+  },
 ];
 
 export function TopNav() {
@@ -155,26 +164,6 @@ export function TopNav() {
           )}
         </div>
       )}
-
-      {/* Scan PSD */}
-      <div className="w-px h-6 bg-border flex-shrink-0" />
-      <button
-        onClick={() => setActiveView("scanPsd")}
-        title="Scan PSD（フォントプリセット管理）"
-        className={`
-          flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-lg flex-shrink-0
-          transition-all duration-200
-          ${activeView === "scanPsd"
-            ? "text-white bg-gradient-to-r from-accent to-accent-secondary shadow-sm"
-            : "text-text-muted hover:text-text-primary hover:bg-bg-tertiary"
-          }
-        `}
-      >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <span className="hidden lg:inline">Scan PSD</span>
-      </button>
 
       {/* Version + Update */}
       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">

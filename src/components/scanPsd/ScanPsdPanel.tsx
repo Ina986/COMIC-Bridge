@@ -51,7 +51,7 @@ export function ScanPsdPanel() {
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xs font-bold text-text-primary">Scan PSD</h2>
+            <h2 className="text-xs font-bold text-text-primary">PSDスキャナー</h2>
             <p className="text-[10px] text-text-muted truncate">
               {mode === "new" ? "新規作成" : "JSON編集"}
               {displayFileName && ` - ${displayFileName}`}

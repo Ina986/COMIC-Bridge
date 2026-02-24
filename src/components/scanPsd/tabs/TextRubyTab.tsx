@@ -44,111 +44,134 @@ export function TextRubyTab() {
     setShowAdd(false);
   };
 
-  // テキストレイヤー統計
   const textLayerCount = scanData?.textLayersByDoc
     ? Object.values(scanData.textLayersByDoc).reduce((sum, layers) => sum + layers.length, 0)
     : 0;
   const docCount = scanData?.textLayersByDoc ? Object.keys(scanData.textLayersByDoc).length : 0;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* テキストレイヤー統計 */}
       {scanData && (
-        <div className="bg-bg-tertiary rounded-xl p-3">
-          <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">テキストレイヤー</h4>
-          <div className="flex gap-4">
-            <div>
-              <span className="text-lg font-bold text-text-primary">{textLayerCount}</span>
-              <span className="text-[10px] text-text-muted ml-1">レイヤー</span>
-            </div>
-            <div>
-              <span className="text-lg font-bold text-text-primary">{docCount}</span>
-              <span className="text-[10px] text-text-muted ml-1">ドキュメント</span>
-            </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div
+            className="rounded-xl p-3 text-center"
+            style={{ background: "linear-gradient(135deg, rgba(77,184,255,0.08), rgba(124,92,255,0.06))" }}
+          >
+            <span
+              className="text-xl font-black font-display"
+              style={{ background: "linear-gradient(135deg, #4db8ff, #7c5cff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
+            >
+              {textLayerCount}
+            </span>
+            <span className="text-[10px] text-text-muted block mt-0.5">レイヤー</span>
+          </div>
+          <div
+            className="rounded-xl p-3 text-center"
+            style={{ background: "linear-gradient(135deg, rgba(0,201,167,0.08), rgba(77,184,255,0.06))" }}
+          >
+            <span
+              className="text-xl font-black font-display"
+              style={{ background: "linear-gradient(135deg, #00c9a7, #4db8ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
+            >
+              {docCount}
+            </span>
+            <span className="text-[10px] text-text-muted block mt-0.5">ドキュメント</span>
           </div>
         </div>
       )}
 
       {/* ルビ一覧 */}
-      <div className="bg-bg-tertiary rounded-xl p-3">
+      <div>
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
-            ルビ一覧 ({rubyList.length})
-          </h4>
+          <div className="flex items-center gap-2">
+            <h4 className="text-[10px] font-bold text-text-secondary">ルビ一覧</h4>
+            <span className="text-[9px] font-bold text-accent bg-accent/10 px-2 py-0.5 rounded-full">
+              {rubyList.length}
+            </span>
+          </div>
           <button
             onClick={() => { setShowAdd(true); setEditingId(null); setForm({ parentText: "", rubyText: "", volume: 1, page: 1, order: 1 }); }}
-            className="text-[10px] text-accent hover:text-accent-secondary px-1.5 py-0.5 rounded hover:bg-accent/10"
+            className="w-6 h-6 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 flex items-center justify-center transition-colors"
           >
-            + 追加
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
           </button>
         </div>
 
         {/* 追加/編集フォーム */}
         {(showAdd || editingId) && (
-          <div className="bg-bg-elevated rounded-lg p-2.5 mb-2 space-y-2">
+          <div className="bg-bg-tertiary/50 rounded-xl p-3 mb-2 space-y-2 border border-accent/20">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <span className="text-[9px] text-text-muted">親文字</span>
+                <span className="text-[9px] text-text-muted font-medium">親文字</span>
                 <input
                   type="text"
                   value={form.parentText}
                   onChange={(e) => setForm({ ...form, parentText: e.target.value })}
-                  className="w-full bg-bg-tertiary border border-white/10 rounded px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none"
+                  className="w-full bg-white border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary
+                    focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10"
                   autoFocus
                 />
               </div>
               <div>
-                <span className="text-[9px] text-text-muted">ルビ</span>
+                <span className="text-[9px] text-text-muted font-medium">ルビ</span>
                 <input
                   type="text"
                   value={form.rubyText}
                   onChange={(e) => setForm({ ...form, rubyText: e.target.value })}
-                  className="w-full bg-bg-tertiary border border-white/10 rounded px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none"
+                  className="w-full bg-white border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary
+                    focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10"
                 />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <span className="text-[9px] text-text-muted">巻</span>
+                <span className="text-[9px] text-text-muted font-medium">巻</span>
                 <input
                   type="number"
                   value={form.volume}
                   onChange={(e) => setForm({ ...form, volume: Number(e.target.value) })}
                   min={1}
-                  className="w-full bg-bg-tertiary border border-white/10 rounded px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none"
+                  className="w-full bg-white border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary
+                    focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10"
                 />
               </div>
               <div>
-                <span className="text-[9px] text-text-muted">ページ</span>
+                <span className="text-[9px] text-text-muted font-medium">ページ</span>
                 <input
                   type="number"
                   value={form.page}
                   onChange={(e) => setForm({ ...form, page: Number(e.target.value) })}
                   min={1}
-                  className="w-full bg-bg-tertiary border border-white/10 rounded px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none"
+                  className="w-full bg-white border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary
+                    focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10"
                 />
               </div>
               <div>
-                <span className="text-[9px] text-text-muted">順番</span>
+                <span className="text-[9px] text-text-muted font-medium">順番</span>
                 <input
                   type="number"
                   value={form.order}
                   onChange={(e) => setForm({ ...form, order: Number(e.target.value) })}
                   min={1}
-                  className="w-full bg-bg-tertiary border border-white/10 rounded px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none"
+                  className="w-full bg-white border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary
+                    focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10"
                 />
               </div>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={editingId ? handleUpdate : handleAdd}
-                className="flex-1 py-1 text-[10px] font-medium text-white bg-accent rounded-lg hover:bg-accent-secondary transition-colors"
+                className="flex-1 py-1.5 text-[10px] font-bold text-white rounded-lg transition-all"
+                style={{ background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }}
               >
                 {editingId ? "更新" : "追加"}
               </button>
               <button
                 onClick={() => { setShowAdd(false); setEditingId(null); }}
-                className="py-1 px-3 text-[10px] text-text-muted hover:text-text-primary"
+                className="py-1.5 px-3 text-[10px] text-text-muted hover:text-text-primary rounded-lg hover:bg-bg-tertiary transition-colors"
               >
                 取消
               </button>
@@ -158,19 +181,24 @@ export function TextRubyTab() {
 
         {/* ルビリスト */}
         {rubyList.length === 0 ? (
-          <p className="text-[10px] text-text-muted py-4 text-center">ルビがありません</p>
+          <p className="text-[10px] text-text-muted py-4 text-center bg-bg-tertiary/30 rounded-xl border border-dashed border-border">
+            ルビがありません
+          </p>
         ) : (
-          <div className="space-y-1 max-h-64 overflow-auto">
+          <div className="space-y-1">
             {rubyList.map((r) => (
               <div
                 key={r.id}
-                className="flex items-center gap-2 bg-bg-elevated rounded-lg px-2.5 py-1.5 group"
+                className="flex items-center gap-2 bg-bg-tertiary/40 hover:bg-bg-tertiary rounded-lg px-2.5 py-1.5 group
+                  border border-transparent hover:border-border/50 transition-all"
               >
                 <div className="flex-1 min-w-0">
-                  <span className="text-xs text-text-primary">{r.parentText}</span>
-                  <span className="text-[10px] text-accent mx-1">({r.rubyText})</span>
+                  <span className="text-xs font-medium text-text-primary">{r.parentText}</span>
+                  <span className="text-[10px] mx-1" style={{ color: "#ff5a8a" }}>
+                    ({r.rubyText})
+                  </span>
                 </div>
-                <span className="text-[9px] text-text-muted flex-shrink-0">
+                <span className="text-[9px] text-text-muted flex-shrink-0 bg-bg-primary px-1.5 py-0.5 rounded font-mono">
                   {r.volume}巻 P{r.page}
                 </span>
                 <button
@@ -196,21 +224,20 @@ export function TextRubyTab() {
       </div>
 
       {/* テキストログ出力 */}
-      <div className="bg-bg-tertiary rounded-xl p-3">
-        <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">テキストログ出力</h4>
+      <div className="space-y-1.5">
         <button
           onClick={exportTextLog}
           disabled={!scanData}
-          className="w-full py-2 text-xs font-medium text-text-primary bg-bg-elevated rounded-lg
-            hover:bg-bg-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="w-full py-2 text-xs font-medium text-text-primary bg-bg-tertiary/60 rounded-xl border border-border/40
+            hover:bg-bg-tertiary hover:border-border disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
           テキストログを出力
         </button>
         <button
           onClick={saveRubyList}
           disabled={rubyList.length === 0}
-          className="w-full py-2 mt-1.5 text-xs font-medium text-text-primary bg-bg-elevated rounded-lg
-            hover:bg-bg-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="w-full py-2 text-xs font-medium text-text-primary bg-bg-tertiary/60 rounded-xl border border-border/40
+            hover:bg-bg-tertiary hover:border-border disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
           ルビ一覧を外部ファイルに保存
         </button>

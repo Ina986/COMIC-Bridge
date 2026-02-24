@@ -147,7 +147,7 @@ export function ScanPsdContent() {
             <StatCard label="ガイドセット" value={scanData.guideSets?.length ?? 0} />
             <StatCard
               label="ベースサイズ"
-              value={scanData.sizeStats?.mostFrequent ? `${scanData.sizeStats.mostFrequent.size}Q` : "-"}
+              value={scanData.sizeStats?.mostFrequent ? `${scanData.sizeStats.mostFrequent.size}pt` : "-"}
             />
             <StatCard
               label="ストロークサイズ"

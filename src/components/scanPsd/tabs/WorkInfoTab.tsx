@@ -9,16 +9,17 @@ export function WorkInfoTab() {
   const labels = workInfo.genre ? GENRE_LABELS[workInfo.genre] || [] : [];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* ジャンル・レーベル */}
-      <Section title="レーベル">
+      <Section title="レーベル" accent="#ff5a8a">
         <div className="flex gap-2">
           <div className="flex-1">
             <Label>ジャンル</Label>
             <select
               value={workInfo.genre}
               onChange={(e) => setWorkInfo({ genre: e.target.value, label: "" })}
-              className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
+              className="w-full bg-bg-primary border border-border rounded-xl px-3 py-1.5 text-xs text-text-primary
+                focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10 transition-all"
             >
               <option value="">選択...</option>
               {genres.map((g) => (
@@ -31,7 +32,8 @@ export function WorkInfoTab() {
             <select
               value={workInfo.label}
               onChange={(e) => setWorkInfo({ label: e.target.value })}
-              className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
+              className="w-full bg-bg-primary border border-border rounded-xl px-3 py-1.5 text-xs text-text-primary
+                focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10 transition-all"
               disabled={!workInfo.genre}
             >
               <option value="">選択...</option>
@@ -44,18 +46,18 @@ export function WorkInfoTab() {
       </Section>
 
       {/* 著者 */}
-      <Section title="著者情報">
+      <Section title="著者情報" accent="#7c5cff">
         <div className="flex gap-3 mb-2">
           {(["single", "dual", "none"] as const).map((t) => (
-            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+            <label key={t} className="flex items-center gap-1.5 cursor-pointer group">
               <input
                 type="radio"
                 name="authorType"
                 checked={workInfo.authorType === t}
                 onChange={() => setWorkInfo({ authorType: t })}
-                className="accent-accent w-3 h-3"
+                className="accent-accent w-3.5 h-3.5"
               />
-              <span className="text-[10px] text-text-secondary">
+              <span className="text-[11px] text-text-secondary group-hover:text-text-primary transition-colors">
                 {t === "single" ? "著者" : t === "dual" ? "原作/作画" : "なし"}
               </span>
             </label>
@@ -82,7 +84,7 @@ export function WorkInfoTab() {
       </Section>
 
       {/* タイトル */}
-      <Section title="作品情報">
+      <Section title="作品情報" accent="#00c9a7">
         <div className="space-y-2">
           <div>
             <Label>タイトル</Label>
@@ -100,7 +102,7 @@ export function WorkInfoTab() {
       </Section>
 
       {/* 保存パス・備考 */}
-      <Section title="その他">
+      <Section title="その他" accent="#9090a0">
         <div className="space-y-2">
           <div>
             <Label>保存パス</Label>
@@ -113,8 +115,8 @@ export function WorkInfoTab() {
               onChange={(e) => setWorkInfo({ notes: e.target.value })}
               placeholder="メモ（任意）"
               rows={3}
-              className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary
-                focus:border-accent focus:outline-none resize-none"
+              className="w-full bg-bg-primary border border-border rounded-xl px-3 py-1.5 text-xs text-text-primary
+                focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10 resize-none transition-all"
             />
           </div>
         </div>
@@ -123,11 +125,16 @@ export function WorkInfoTab() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, accent, children }: { title: string; accent: string; children: React.ReactNode }) {
   return (
-    <div className="bg-bg-tertiary rounded-xl p-3">
-      <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">{title}</h4>
-      {children}
+    <div className="relative rounded-xl bg-bg-tertiary/60 border border-border/40 overflow-hidden">
+      <div className="absolute top-0 left-0 w-1 h-full rounded-l-xl" style={{ background: accent }} />
+      <div className="pl-4 pr-3 py-3">
+        <h4 className="text-[10px] font-bold uppercase tracking-wider mb-2.5" style={{ color: accent }}>
+          {title}
+        </h4>
+        {children}
+      </div>
     </div>
   );
 }
@@ -147,8 +154,8 @@ function Input({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary
-        focus:border-accent focus:outline-none"
+      className="w-full bg-bg-primary border border-border rounded-xl px-3 py-1.5 text-xs text-text-primary
+        focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10 transition-all"
     />
   );
 }

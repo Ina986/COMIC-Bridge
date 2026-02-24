@@ -2,12 +2,19 @@ import { useScanPsdStore } from "../../store/scanPsdStore";
 import { ScanPsdModeSelector } from "../scanPsd/ScanPsdModeSelector";
 import { ScanPsdPanel } from "../scanPsd/ScanPsdPanel";
 import { ScanPsdContent } from "../scanPsd/ScanPsdContent";
+import { ScanPsdEditView } from "../scanPsd/ScanPsdEditView";
 
 export function ScanPsdView() {
   const mode = useScanPsdStore((s) => s.mode);
+  const currentJsonFilePath = useScanPsdStore((s) => s.currentJsonFilePath);
 
   if (!mode) {
     return <ScanPsdModeSelector />;
+  }
+
+  // Edit mode with JSON loaded → single-page scrollable view
+  if (mode === "edit" && currentJsonFilePath) {
+    return <ScanPsdEditView />;
   }
 
   return (
