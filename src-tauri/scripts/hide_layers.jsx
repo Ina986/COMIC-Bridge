@@ -38,10 +38,11 @@ function main() {
 
     var results = [];
     var saveFolder = settings.saveFolder || null;
+    var deleteHiddenText = settings.deleteHiddenText || false;
 
     for (var i = 0; i < settings.files.length; i++) {
         var filePath = settings.files[i];
-        var result = processFile(filePath, settings.conditions, settings.mode, saveFolder);
+        var result = processFile(filePath, settings.conditions, settings.mode, saveFolder, deleteHiddenText);
         results.push(result);
     }
 
@@ -55,7 +56,7 @@ function main() {
 /* -----------------------------------------------------
   File Processing
  ----------------------------------------------------- */
-function processFile(filePath, conditions, mode, saveFolder) {
+function processFile(filePath, conditions, mode, saveFolder, deleteHiddenText) {
     var result = {
         filePath: filePath,
         success: false,
@@ -87,9 +88,18 @@ function processFile(filePath, conditions, mode, saveFolder) {
         var changedCount = 0;
 
         // Process layers recursively
-        changedCount = processLayers(doc.layers, conditions, isHideMode, changedPaths, false, [], changedNames);
+        if (conditions.length > 0) {
+            changedCount = processLayers(doc.layers, conditions, isHideMode, changedPaths, false, [], changedNames);
+        }
 
-        if (changedCount > 0) {
+        // Delete hidden text layers (second pass)
+        var deletedCount = 0;
+        var deletedNames = [];
+        if (deleteHiddenText && isHideMode) {
+            deletedCount = deleteHiddenTextLayers(doc.layers, deletedNames, []);
+        }
+
+        if (changedCount > 0 || deletedCount > 0) {
             // Save metadata for later restoration (hide mode only)
             if (isHideMode) {
                 saveHiddenLayerData(doc, changedPaths, conditions);
@@ -115,7 +125,16 @@ function processFile(filePath, conditions, mode, saveFolder) {
             for (var ci = 0; ci < changedNames.length; ci++) {
                 result.changes.push("  \u2192 " + changedNames[ci]);
             }
-            result.changes.push((isHideMode ? "Hidden" : "Shown") + " " + changedCount + " layer(s)");
+            if (changedCount > 0) {
+                result.changes.push((isHideMode ? "Hidden" : "Shown") + " " + changedCount + " layer(s)");
+            }
+            // Push deleted layer details
+            for (var di = 0; di < deletedNames.length; di++) {
+                result.changes.push(deletedNames[di]);
+            }
+            if (deletedCount > 0) {
+                result.changes.push("Deleted " + deletedCount + " hidden text layer(s)");
+            }
         } else {
             result.changes.push("No matching layers found");
         }
@@ -270,6 +289,28 @@ function ensureParentsVisible(layer) {
         }
         current = current.parent;
     }
+}
+
+/* -----------------------------------------------------
+  Delete Hidden Text Layers
+ ----------------------------------------------------- */
+function deleteHiddenTextLayers(layers, deletedNames, currentPath) {
+    var count = 0;
+    for (var i = layers.length - 1; i >= 0; i--) {
+        var layer = layers[i];
+        var trimmedName = layer.name.replace(/^\s+|\s+$/g, '');
+        var layerPath = currentPath.concat([trimmedName]);
+
+        if (layer.typename === "LayerSet") {
+            count += deleteHiddenTextLayers(layer.layers, deletedNames, layerPath);
+        } else if (layer.kind === LayerKind.TEXT && !layer.visible) {
+            var parentName = currentPath.length > 0 ? currentPath[currentPath.length - 1] : "";
+            deletedNames.push("  \u2192 \u524A\u9664\u300C" + trimmedName + "\u300D" + (parentName ? "\u2208\u300C" + parentName + "\u300D" : ""));
+            layer.remove();
+            count++;
+        }
+    }
+    return count;
 }
 
 /* -----------------------------------------------------

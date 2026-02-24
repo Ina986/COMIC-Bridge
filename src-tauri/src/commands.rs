@@ -1020,6 +1020,8 @@ pub struct LayerVisibilitySettings {
     pub output_path: String,
     #[serde(rename = "saveFolder", skip_serializing_if = "Option::is_none")]
     pub save_folder: Option<String>,
+    #[serde(rename = "deleteHiddenText", skip_serializing_if = "Option::is_none")]
+    pub delete_hidden_text: Option<bool>,
 }
 
 /// Run Photoshop to change layer visibility in PSD files
@@ -1030,6 +1032,7 @@ pub async fn run_photoshop_layer_visibility(
     conditions: Vec<LayerCondition>,
     mode: String,
     save_mode: Option<String>,
+    delete_hidden_text: Option<bool>,
 ) -> Result<Vec<PhotoshopResult>, String> {
     use std::process::Command;
     use std::io::Write;
@@ -1095,6 +1098,7 @@ pub async fn run_photoshop_layer_visibility(
         mode,
         output_path: output_path.to_string_lossy().to_string().replace("\\", "/"),
         save_folder,
+        delete_hidden_text,
     };
 
     let settings_json = serde_json::to_string_pretty(&settings)

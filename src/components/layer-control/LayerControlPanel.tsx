@@ -23,6 +23,8 @@ export function LayerControlPanel() {
   const setOrganizeTargetName = useLayerStore((state) => state.setOrganizeTargetName);
   const organizeIncludeSpecial = useLayerStore((state) => state.organizeIncludeSpecial);
   const setOrganizeIncludeSpecial = useLayerStore((state) => state.setOrganizeIncludeSpecial);
+  const deleteHiddenText = useLayerStore((state) => state.deleteHiddenText);
+  const setDeleteHiddenText = useLayerStore((state) => state.setDeleteHiddenText);
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
 
@@ -87,7 +89,7 @@ export function LayerControlPanel() {
     ? !isProcessing && files.length > 0 && organizeTargetName.trim() !== ""
     : isLayerMoveMode
       ? !isProcessing && files.length > 0 && layerMoveTargetName.trim() !== "" && hasAnyLayerMoveCondition
-      : !isProcessing && selectedConditions.length > 0 && files.length > 0;
+      : !isProcessing && files.length > 0 && (selectedConditions.length > 0 || (isHideMode && deleteHiddenText));
 
   return (
     <div className="flex flex-col h-full">
@@ -440,6 +442,44 @@ export function LayerControlPanel() {
             </button>
           </div>
         </div>
+          {/* 非表示テキストレイヤー削除オプション */}
+          {isHideMode && (
+            <div className="bg-bg-tertiary rounded-xl p-3">
+              <div
+                className={`
+                  flex items-center gap-2 p-2.5 rounded-xl cursor-pointer transition-all duration-200
+                  ${deleteHiddenText
+                    ? "bg-error/15 border border-error/50"
+                    : "bg-bg-secondary border border-white/5 hover:border-white/10"
+                  }
+                `}
+                onClick={() => setDeleteHiddenText(!deleteHiddenText)}
+              >
+                <div
+                  className={`
+                    w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all duration-200
+                    ${deleteHiddenText
+                      ? "bg-error border-error"
+                      : "border-text-muted/50"
+                    }
+                  `}
+                >
+                  {deleteHiddenText && (
+                    <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-sm text-text-primary flex-1">非表示テキストレイヤーを削除</span>
+                <svg className="w-4 h-4 text-error/60 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+              </div>
+              <p className="text-[10px] text-text-muted mt-1.5 px-1 leading-tight">
+                非表示のテキストレイヤーをすべて削除します（元に戻せません）
+              </p>
+            </div>
+          )}
           </>
         )}
 

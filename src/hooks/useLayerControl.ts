@@ -45,7 +45,9 @@ export function useLayerControl() {
   // Photoshop JSX スクリプト経由でレイヤー可視性を変更
   const applyLayerVisibility = useCallback(async () => {
     const conditions = getSelectedConditions();
-    if (conditions.length === 0) return;
+    const { deleteHiddenText } = useLayerStore.getState();
+    const isHideMode = actionMode === "hide";
+    if (conditions.length === 0 && !(isHideMode && deleteHiddenText)) return;
 
     const targetFiles = selectedFileIds.length > 0
       ? files.filter((f) => selectedFileIds.includes(f.id))
@@ -75,10 +77,9 @@ export function useLayerControl() {
           conditions: layerConditions,
           mode: actionMode,
           saveMode,
+          deleteHiddenText: isHideMode && deleteHiddenText ? true : undefined,
         }
       );
-
-      const isHideMode = actionMode === "hide";
       const results: LayerControlResult[] = [];
 
       // 結果を処理してUIのレイヤーツリーを更新
@@ -104,19 +105,30 @@ export function useLayerControl() {
         });
 
         // 成功した場合、メタデータのレイヤーツリーを更新（UI反映）
-        if (psResult.success && file.metadata && changedCount > 0) {
-          // レイヤーツリーを条件に基づいて更新
-          const updatedLayerTree = updateLayerTreeByConditions(
-            file.metadata.layerTree,
-            conditions,
-            !isHideMode // showの場合はvisible=true
-          );
-          updateFile(file.id, {
-            metadata: {
-              ...file.metadata,
-              layerTree: updatedLayerTree,
-            },
-          });
+        if (psResult.success && file.metadata) {
+          let updatedLayerTree = file.metadata.layerTree;
+
+          if (changedCount > 0 && conditions.length > 0) {
+            updatedLayerTree = updateLayerTreeByConditions(
+              updatedLayerTree,
+              conditions,
+              !isHideMode // showの場合はvisible=true
+            );
+          }
+
+          // 削除オプション有効時: 非表示テキストレイヤーをツリーから除去
+          if (isHideMode && deleteHiddenText) {
+            updatedLayerTree = removeHiddenTextLayers(updatedLayerTree);
+          }
+
+          if (updatedLayerTree !== file.metadata.layerTree) {
+            updateFile(file.id, {
+              metadata: {
+                ...file.metadata,
+                layerTree: updatedLayerTree,
+              },
+            });
+          }
         }
       }
 
@@ -307,6 +319,16 @@ export function useLayerControl() {
     organizeLayersIntoFolder,
     moveLayersByConditions,
   };
+}
+
+// 非表示テキストレイヤーをツリーから除去するヘルパー
+function removeHiddenTextLayers(layers: LayerNode[]): LayerNode[] {
+  return layers
+    .filter((layer) => !(layer.type === "text" && !layer.visible))
+    .map((layer) => ({
+      ...layer,
+      children: layer.children ? removeHiddenTextLayers(layer.children) : undefined,
+    }));
 }
 
 // 条件に基づいてレイヤーツリーの可視性を更新するヘルパー

@@ -86,6 +86,9 @@ interface LayerVisibilityState {
   layerMoveCondName: string;
   layerMoveCondNamePartial: boolean;
 
+  // 非表示テキストレイヤー削除オプション（hideモード専用）
+  deleteHiddenText: boolean;
+
   // 処理中フラグ
   isProcessing: boolean;
 
@@ -117,6 +120,7 @@ interface LayerVisibilityState {
   setLayerMoveCondNameEnabled: (value: boolean) => void;
   setLayerMoveCondName: (name: string) => void;
   setLayerMoveCondNamePartial: (value: boolean) => void;
+  setDeleteHiddenText: (value: boolean) => void;
 }
 
 export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
@@ -137,6 +141,7 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   layerMoveCondNameEnabled: false,
   layerMoveCondName: "",
   layerMoveCondNamePartial: false,
+  deleteHiddenText: false,
   isProcessing: false,
   lastResults: [],
   lastActionMode: null,
@@ -244,5 +249,8 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   },
   setLayerMoveCondNamePartial: (value) => {
     set({ layerMoveCondNamePartial: value });
+  },
+  setDeleteHiddenText: (value) => {
+    set({ deleteHiddenText: value });
   },
 }));

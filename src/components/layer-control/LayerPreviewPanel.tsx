@@ -16,6 +16,7 @@ interface AnnotatedLayer {
   matched: boolean;
   risk: MatchRisk;
   willChange: boolean;
+  willDelete?: boolean;
   children: AnnotatedLayer[];
 }
 
@@ -23,6 +24,7 @@ interface FileStats {
   matched: number;
   warnings: number;
   willChange: number;
+  willDelete: number;
 }
 
 interface FileAnnotation {
@@ -58,16 +60,19 @@ function countStats(tree: AnnotatedLayer[]): FileStats {
   let matched = 0;
   let warnings = 0;
   let willChange = 0;
+  let willDelete = 0;
   for (const item of tree) {
     if (item.matched) matched++;
     if (item.risk === "warning" && item.willChange) warnings++;
     if (item.willChange) willChange++;
+    if (item.willDelete) willDelete++;
     const child = countStats(item.children);
     matched += child.matched;
     warnings += child.warnings;
     willChange += child.willChange;
+    willDelete += child.willDelete;
   }
-  return { matched, warnings, willChange };
+  return { matched, warnings, willChange, willDelete };
 }
 
 // --- Organize mode annotation ---
@@ -242,6 +247,24 @@ function annotateTreeLayerMove(
   return annotateLayerMoveRecursive(layers, cond, null, inScope, false);
 }
 
+// --- Delete hidden text annotation (post-processing) ---
+
+/** Mark hidden text layers as willDelete in an already-annotated tree */
+function markDeleteTargets(tree: AnnotatedLayer[], isHideMode: boolean): AnnotatedLayer[] {
+  return tree.map((item) => {
+    const isText = item.node.type === "text";
+    const isOrWillBeHidden = !item.node.visible || (isHideMode && item.willChange);
+    const willDelete = isText && isOrWillBeHidden;
+
+    return {
+      ...item,
+      matched: item.matched || willDelete,
+      willDelete,
+      children: markDeleteTargets(item.children, isHideMode),
+    };
+  });
+}
+
 // --- Main component ---
 
 interface LayerPreviewPanelProps {
@@ -267,6 +290,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
   const layerMoveCondNameEnabled = useLayerStore((s) => s.layerMoveCondNameEnabled);
   const layerMoveCondName = useLayerStore((s) => s.layerMoveCondName);
   const layerMoveCondNamePartial = useLayerStore((s) => s.layerMoveCondNamePartial);
+  const deleteHiddenText = useLayerStore((s) => s.deleteHiddenText);
   const { openFolderForFile, revealFiles } = useOpenFolder();
 
   // Tab mode: layers or viewer
@@ -322,8 +346,9 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
   const hasAnnotations = useMemo(() => {
     if (isOrganizeMode) return organizeTargetName.trim() !== "";
     if (isLayerMoveMode) return hasAnyLayerMoveCondition && layerMoveTargetName.trim() !== "";
+    if (isHideMode && deleteHiddenText) return true;
     return hasConditions; // hide/show
-  }, [isOrganizeMode, isLayerMoveMode, organizeTargetName, layerMoveTargetName, hasAnyLayerMoveCondition, hasConditions]);
+  }, [isOrganizeMode, isLayerMoveMode, isHideMode, organizeTargetName, layerMoveTargetName, hasAnyLayerMoveCondition, hasConditions, deleteHiddenText]);
 
   const fileAnnotations = useMemo((): FileAnnotation[] => {
     return targetFiles.map((file) => {
@@ -348,7 +373,16 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
         annotatedTree = annotateTree(layerTree, conditions, isHideMode);
       }
 
-      const stats = annotatedTree.length > 0 ? countStats(annotatedTree) : { matched: 0, warnings: 0, willChange: 0 };
+      // deleteHiddenText: mark hidden text layers for deletion
+      if (isHideMode && deleteHiddenText) {
+        if (annotatedTree.length === 0) {
+          // No conditions selected — create plain annotation first
+          annotatedTree = annotateChildrenPlain(layerTree);
+        }
+        annotatedTree = markDeleteTargets(annotatedTree, true);
+      }
+
+      const stats = annotatedTree.length > 0 ? countStats(annotatedTree) : { matched: 0, warnings: 0, willChange: 0, willDelete: 0 };
       return { file, layerTree, annotatedTree, stats };
     });
   }, [
@@ -359,6 +393,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
     layerMoveCondTextLayer, layerMoveCondSubgroupTop,
     layerMoveCondSubgroupBottom, layerMoveCondNameEnabled,
     layerMoveCondName, layerMoveCondNamePartial,
+    deleteHiddenText,
   ]);
 
   const totalStats = useMemo(() => {
@@ -367,8 +402,9 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
         matched: acc.matched + fa.stats.matched,
         warnings: acc.warnings + fa.stats.warnings,
         willChange: acc.willChange + fa.stats.willChange,
+        willDelete: acc.willDelete + fa.stats.willDelete,
       }),
-      { matched: 0, warnings: 0, willChange: 0 }
+      { matched: 0, warnings: 0, willChange: 0, willDelete: 0 }
     );
   }, [fileAnnotations]);
 
@@ -658,11 +694,16 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
               <span className="text-[11px] text-text-muted">
                 {isOrganizeMode ? "格納対象なし" : "移動対象なし"}
               </span>
-            ) : totalStats.matched > 0 ? (
+            ) : totalStats.matched > 0 && totalStats.willDelete === 0 ? (
               <span className="text-[11px] text-text-muted">
                 変更なし（{isHideMode ? "非表示" : "表示"}済）
               </span>
             ) : null}
+            {totalStats.willDelete > 0 && (
+              <span className="text-[11px] font-medium text-error">
+                {totalStats.willDelete} 件削除予定
+              </span>
+            )}
             {!isOrganizeMode && !isLayerMoveMode && noChangeCount > 0 && totalStats.willChange > 0 && (
               <span className="text-[11px] text-text-muted">
                 {noChangeCount} 件済
@@ -801,17 +842,25 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
       {/* Legend */}
       {viewMode === "layers" && hasAnnotations && (
         <div className="px-3 py-1.5 border-t border-border flex-shrink-0 flex items-center gap-3">
-          <div className="flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-sm ${
-              isOrganizeMode ? "bg-warning/30"
-              : isLayerMoveMode ? "bg-violet-500/30"
-              : isHideMode ? "bg-accent/30"
-              : "bg-accent-tertiary/30"
-            }`} />
-            <span className="text-[9px] text-text-muted">
-              {isOrganizeMode ? "→格納" : isLayerMoveMode ? "→移動" : isHideMode ? "→非表示" : "→表示"}
-            </span>
-          </div>
+          {(hasConditions || isOrganizeMode || isLayerMoveMode) && (
+            <div className="flex items-center gap-1">
+              <span className={`w-2 h-2 rounded-sm ${
+                isOrganizeMode ? "bg-warning/30"
+                : isLayerMoveMode ? "bg-violet-500/30"
+                : isHideMode ? "bg-accent/30"
+                : "bg-accent-tertiary/30"
+              }`} />
+              <span className="text-[9px] text-text-muted">
+                {isOrganizeMode ? "→格納" : isLayerMoveMode ? "→移動" : isHideMode ? "→非表示" : "→表示"}
+              </span>
+            </div>
+          )}
+          {isHideMode && deleteHiddenText && (
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-sm bg-error/30" />
+              <span className="text-[9px] text-text-muted">→削除</span>
+            </div>
+          )}
           {(actionMode === "hide" || actionMode === "show") && (
             <div className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-sm bg-amber-500/30" />
@@ -906,6 +955,11 @@ function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggl
             : "bg-accent-tertiary/10 text-accent-tertiary"
           }`}>
             {stats.willChange}
+          </span>
+        )}
+        {hasAnnotations && stats.willDelete > 0 && (
+          <span className="text-[9px] px-1 py-px rounded flex-shrink-0 bg-error/10 text-error">
+            {stats.willDelete}削除
           </span>
         )}
         {stats.warnings > 0 && (
@@ -1012,11 +1066,15 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item
   const hasChildren = children.length > 0;
   const effectiveVisible = node.visible && parentVisible;
 
+  const isDeleteTarget = !!item.willDelete;
   let rowBg = "";
   let borderLeft = "";
   let rowOpacity = "";
 
-  if (willChange && risk === "warning") {
+  if (isDeleteTarget) {
+    rowBg = "bg-error/8";
+    borderLeft = "border-l-[2px] border-error/50";
+  } else if (willChange && risk === "warning") {
     rowBg = "bg-amber-500/8";
     borderLeft = "border-l-[2px] border-amber-500";
   } else if (willChange) {
@@ -1042,24 +1100,28 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item
   }
 
   // Mode-specific badge styling
-  const badgeClass = willChange
-    ? actionMode === "organize"
-      ? "bg-warning/12 text-warning font-medium"
-      : actionMode === "layerMove"
-        ? "bg-violet-500/12 text-violet-500 font-medium"
-        : actionMode === "hide"
-          ? "bg-accent/12 text-accent font-medium"
-          : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
-    : "bg-text-muted/8 text-text-muted/70";
+  const badgeClass = isDeleteTarget
+    ? "bg-error/12 text-error font-medium"
+    : willChange
+      ? actionMode === "organize"
+        ? "bg-warning/12 text-warning font-medium"
+        : actionMode === "layerMove"
+          ? "bg-violet-500/12 text-violet-500 font-medium"
+          : actionMode === "hide"
+            ? "bg-accent/12 text-accent font-medium"
+            : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
+      : "bg-text-muted/8 text-text-muted/70";
 
-  const badgeText = willChange
-    ? actionMode === "organize" ? "→格納"
-      : actionMode === "layerMove" ? "→移動"
-      : actionMode === "hide" ? "→非表示"
-      : "→表示"
-    : actionMode === "organize" || actionMode === "layerMove"
-      ? "対象外"
-      : actionMode === "hide" ? "非表示済" : "表示済";
+  const badgeText = isDeleteTarget
+    ? "→削除"
+    : willChange
+      ? actionMode === "organize" ? "→格納"
+        : actionMode === "layerMove" ? "→移動"
+        : actionMode === "hide" ? "→非表示"
+        : "→表示"
+      : actionMode === "organize" || actionMode === "layerMove"
+        ? "対象外"
+        : actionMode === "hide" ? "非表示済" : "表示済";
 
   return (
     <div>
