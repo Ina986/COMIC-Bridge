@@ -615,10 +615,10 @@ export function SpecCheckView() {
               )}
               {/* PDF化ボタン（Tachimi連携） - 常時表示、全OK時に強調 */}
               <button
-                className={`h-16 min-w-[220px] px-8 text-lg font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center justify-center gap-3 active:scale-[0.97] ${
+                className={`h-16 min-w-[220px] px-8 text-lg font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center justify-center gap-3 bg-bg-secondary/95 backdrop-blur-md active:scale-[0.97] ${
                   allPassed
-                    ? "text-white bg-gradient-to-r from-accent to-accent-secondary shadow-[0_6px_25px_rgba(255,90,138,0.4)] hover:shadow-[0_8px_35px_rgba(255,90,138,0.55)] hover:brightness-110"
-                    : "bg-bg-secondary/95 backdrop-blur-md border-2 border-accent/30 text-accent hover:bg-accent/10 hover:border-accent/50 hover:shadow-[0_8px_30px_rgba(255,90,138,0.15)]"
+                    ? "border-2 border-success/50 text-success hover:bg-success/15 hover:border-success/70 hover:shadow-[0_8px_30px_rgba(34,197,94,0.25)]"
+                    : "border-2 border-text-muted/30 text-text-muted hover:bg-bg-tertiary hover:border-text-muted/50 hover:text-text-secondary"
                 }`}
                 onClick={handleLaunchTachimi}
                 title="Tachimiを起動してPDF作成"
@@ -628,7 +628,7 @@ export function SpecCheckView() {
                 </svg>
                 PDF化
                 <span className={`px-2 py-1 rounded-lg text-sm font-bold ${
-                  allPassed ? "bg-white/25" : "bg-accent/15 text-accent"
+                  allPassed ? "bg-success/15 text-success" : "bg-text-muted/10"
                 }`}>
                   {files.length}
                 </span>
