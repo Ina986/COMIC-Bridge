@@ -1,16 +1,23 @@
 import { useCallback } from "react";
-import { readDir, readFile, stat } from "@tauri-apps/plugin-fs";
+import { readDir, stat } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
 import { useViewStore } from "../store/viewStore";
-import { parsePsdBufferFast, parsePsdBuffer } from "../lib/psd/parser";
 import { naturalCompare } from "../lib/naturalSort";
 import { isSupportedFile, isPsdFile, isPdfFile } from "../types";
-import type { PsdFile } from "../types";
+import type { PsdFile, PsdMetadata } from "../types";
 
 interface PdfInfoResult {
   page_count: number;
   pages: { width: number; height: number }[];
+}
+
+interface PsdParseResult {
+  filePath: string;
+  metadata: PsdMetadata | null;
+  thumbnailData: string | null;
+  fileSize: number;
+  error: string | null;
 }
 
 export function usePsdLoader() {
@@ -165,38 +172,60 @@ export function usePsdLoader() {
 
       // Load metadata and thumbnails in parallel (with limit)
       const PARALLEL_LIMIT = 6;
-      const filesNeedingThumbnail: string[] = []; // PSDでサムネイルがなかったファイル
 
       for (let i = 0; i < initialFiles.length; i += PARALLEL_LIMIT) {
         const chunk = initialFiles.slice(i, i + PARALLEL_LIMIT);
-        // チャンク内の更新をバッチ化（個別updateFileを避けて再レンダリングを最小化）
         const chunkUpdates = new Map<string, Partial<PsdFile>>();
 
-        await Promise.all(
-          chunk.map(async (file) => {
-            try {
-              if (isPsdFile(file.fileName)) {
-                // PSD/PSB: ag-psdでパース
-                const buffer = await readFile(file.filePath);
-                const arrayBuffer = buffer.buffer.slice(
-                  buffer.byteOffset,
-                  buffer.byteOffset + buffer.byteLength
-                );
+        // PSD/PSBファイルをRust側でバッチ処理
+        const psdFiles = chunk.filter((f) => isPsdFile(f.fileName));
+        const otherFiles = chunk.filter((f) => !isPsdFile(f.fileName));
 
-                const result = await parsePsdBufferFast(arrayBuffer);
+        // PSD: Rust invoke でメタデータ＋サムネイル抽出（IPCでバイナリ転送なし）
+        if (psdFiles.length > 0) {
+          try {
+            const results = await invoke<PsdParseResult[]>("parse_psd_metadata_batch", {
+              filePaths: psdFiles.map((f) => f.filePath),
+            });
 
+            for (const result of results) {
+              const file = psdFiles.find((f) => f.filePath === result.filePath);
+              if (!file) continue;
+
+              if (result.metadata) {
+                const thumbnailUrl = result.thumbnailData
+                  ? `data:image/jpeg;base64,${result.thumbnailData}`
+                  : undefined;
                 chunkUpdates.set(file.id, {
                   metadata: result.metadata,
-                  thumbnailUrl: result.thumbnailData,
-                  thumbnailStatus: result.thumbnailData ? "ready" : "pending",
-                  fileSize: buffer.byteLength,
+                  thumbnailUrl,
+                  thumbnailStatus: "ready",
+                  fileSize: result.fileSize,
                 });
+              } else {
+                chunkUpdates.set(file.id, {
+                  thumbnailStatus: "error",
+                  fileSize: result.fileSize,
+                  error: result.error || "メタデータ読み取りエラー",
+                });
+              }
+            }
+          } catch (error) {
+            console.error("PSD batch parse failed:", error);
+            for (const file of psdFiles) {
+              chunkUpdates.set(file.id, {
+                thumbnailStatus: "error",
+                error: error instanceof Error ? error.message : "PSD読み込みエラー",
+              });
+            }
+          }
+        }
 
-                if (!result.thumbnailData) {
-                  filesNeedingThumbnail.push(file.id);
-                }
-              } else if (isPdfFile(file.fileName)) {
-                // PDF: ページ情報取得 → ページ数分のエントリーに展開
+        // PDF・その他ファイルは従来通り個別処理
+        await Promise.all(
+          otherFiles.map(async (file) => {
+            try {
+              if (isPdfFile(file.fileName)) {
                 try {
                   const fileStat = await stat(file.filePath);
 
@@ -212,7 +241,6 @@ export function usePsdLoader() {
                     return;
                   }
 
-                  // Create page entries
                   const pageFiles: PsdFile[] = pdfInfo.pages.map((page, pageIdx) => ({
                     id: `${file.id}-p${pageIdx}`,
                     filePath: file.filePath,
@@ -242,7 +270,6 @@ export function usePsdLoader() {
 
                   replaceFile(file.id, pageFiles);
 
-                  // Generate thumbnails for each page (batch per PDF)
                   const pdfThumbUpdates = new Map<string, Partial<PsdFile>>();
                   for (const pageFile of pageFiles) {
                     try {
@@ -292,38 +319,8 @@ export function usePsdLoader() {
           })
         );
 
-        // チャンク完了後に1回のset()でまとめて反映
         if (chunkUpdates.size > 0) {
           batchUpdateFiles(chunkUpdates);
-        }
-      }
-
-      // PSDでサムネイルがなかったファイルはフル読み込みでフォールバック
-      if (filesNeedingThumbnail.length > 0) {
-        const files = usePsdStore.getState().files;
-        const thumbUpdates = new Map<string, Partial<PsdFile>>();
-        for (const fileId of filesNeedingThumbnail) {
-          const file = files.find((f) => f.id === fileId);
-          if (!file) continue;
-
-          try {
-            const buffer = await readFile(file.filePath);
-            const arrayBuffer = buffer.buffer.slice(
-              buffer.byteOffset,
-              buffer.byteOffset + buffer.byteLength
-            );
-
-            const result = await parsePsdBuffer(arrayBuffer);
-            thumbUpdates.set(file.id, {
-              thumbnailUrl: result.thumbnailData,
-              thumbnailStatus: result.thumbnailData ? "ready" : "error",
-            });
-          } catch (error) {
-            console.error(`Failed to generate thumbnail for ${file.fileName}:`, error);
-          }
-        }
-        if (thumbUpdates.size > 0) {
-          batchUpdateFiles(thumbUpdates);
         }
       }
 

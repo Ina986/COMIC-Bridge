@@ -1,12 +1,10 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { readFile } from "@tauri-apps/plugin-fs";
 import { usePsdStore } from "../store/psdStore";
 import { useSpecStore, type ConversionResult } from "../store/specStore";
 import { useGuideStore } from "../store/guideStore";
-import { parsePsdBufferFast } from "../lib/psd/parser";
 import { useSpecChecker } from "./useSpecChecker";
-import type { Guide } from "../types";
+import type { Guide, PsdMetadata } from "../types";
 
 interface PhotoshopResult {
   filePath: string;
@@ -163,26 +161,31 @@ export function usePreparePsd() {
           }
         }
 
-        // Reload converted files from disk
+        // Reload converted files from disk (Rust-native)
         if (successfulFiles.length > 0) {
           console.log(`Reloading ${successfulFiles.length} processed files...`);
 
-          for (const { id, filePath } of successfulFiles) {
-            try {
-              const buffer = await readFile(filePath);
-              const arrayBuffer = buffer.buffer.slice(
-                buffer.byteOffset,
-                buffer.byteOffset + buffer.byteLength
-              );
-              const parseResult = await parsePsdBufferFast(arrayBuffer);
-              updateFile(id, {
-                metadata: parseResult.metadata,
-                thumbnailUrl: parseResult.thumbnailData,
-                thumbnailStatus: parseResult.thumbnailData ? "ready" : "pending",
+          try {
+            const parseResults = await invoke<{ filePath: string; metadata: PsdMetadata | null; thumbnailData: string | null; fileSize: number; error: string | null }[]>(
+              "parse_psd_metadata_batch",
+              { filePaths: successfulFiles.map((f) => f.filePath) }
+            );
+
+            for (const result of parseResults) {
+              const file = successfulFiles.find((f) => f.filePath === result.filePath);
+              if (!file || !result.metadata) continue;
+
+              const thumbnailUrl = result.thumbnailData
+                ? `data:image/jpeg;base64,${result.thumbnailData}`
+                : undefined;
+              updateFile(file.id, {
+                metadata: result.metadata,
+                thumbnailUrl,
+                thumbnailStatus: "ready",
               });
-            } catch (reloadError) {
-              console.error(`Failed to reload ${filePath}:`, reloadError);
             }
+          } catch (reloadError) {
+            console.error("Failed to reload processed files:", reloadError);
           }
 
           // Re-run spec check

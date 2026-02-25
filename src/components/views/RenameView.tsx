@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { readDir, readFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
+import { readDir } from "@tauri-apps/plugin-fs";
 import { useRenameStore, internalDragState } from "../../store/renameStore";
 import { usePsdStore } from "../../store/psdStore";
 import { usePsdLoader } from "../../hooks/usePsdLoader";
 import { isSupportedFile, isPsdFile } from "../../types";
-import { parsePsdBufferFast } from "../../lib/psd/parser";
 import { LayerRenamePanel } from "../rename/LayerRenamePanel";
 import { FileRenamePanel } from "../rename/FileRenamePanel";
 import { RenamePreview } from "../rename/RenamePreview";
@@ -56,23 +56,26 @@ export function RenameView() {
       usePsdStore.getState().addFiles(skeletons);
       const { updateFile } = usePsdStore.getState();
 
-      for (const file of skeletons) {
-        try {
-          const buffer = await readFile(file.filePath);
-          const ab = buffer.buffer.slice(
-            buffer.byteOffset,
-            buffer.byteOffset + buffer.byteLength
-          );
-          const result = await parsePsdBufferFast(ab);
+      try {
+        const results = await invoke<{ filePath: string; metadata: any; thumbnailData: string | null; fileSize: number; error: string | null }[]>(
+          "parse_psd_metadata_batch",
+          { filePaths: skeletons.map((f) => f.filePath) }
+        );
+        for (const result of results) {
+          const file = skeletons.find((f) => f.filePath === result.filePath);
+          if (!file || !result.metadata) continue;
+          const thumbnailUrl = result.thumbnailData
+            ? `data:image/jpeg;base64,${result.thumbnailData}`
+            : undefined;
           updateFile(file.id, {
             metadata: result.metadata,
-            thumbnailUrl: result.thumbnailData,
-            thumbnailStatus: result.thumbnailData ? "ready" : "pending",
-            fileSize: buffer.byteLength,
+            thumbnailUrl,
+            thumbnailStatus: "ready",
+            fileSize: result.fileSize,
           });
-        } catch (err) {
-          console.error(`PSD sync failed: ${file.fileName}`, err);
         }
+      } catch (err) {
+        console.error("PSD sync failed:", err);
       }
     };
 

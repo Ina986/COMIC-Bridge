@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
-import { useLayerStore, type HideCondition, type LayerControlResult } from "../store/layerStore";
+import { useLayerStore, type HideCondition, type LayerControlResult, type CustomVisibilityOp } from "../store/layerStore";
 import { matchesCondition, isTextFolder } from "../lib/layerMatcher";
 import type { LayerNode } from "../types";
 
@@ -314,10 +314,120 @@ export function useLayerControl() {
     setLastResults,
   ]);
 
+  // カスタムモード: 個別レイヤー操作を適用
+  const applyCustomOperations = useCallback(async () => {
+    const { customVisibilityOps, customMoveOps, clearCustomOps } = useLayerStore.getState();
+
+    const targetFiles = selectedFileIds.length > 0
+      ? files.filter((f) => selectedFileIds.includes(f.id))
+      : files;
+
+    if (targetFiles.length === 0) return;
+
+    // 操作のあるファイルだけ抽出
+    const filesWithOps = targetFiles.filter((f) => {
+      const visOps = customVisibilityOps.get(f.id);
+      const moveOps = customMoveOps.get(f.id);
+      return (visOps && visOps.length > 0) || (moveOps && moveOps.length > 0);
+    });
+
+    if (filesWithOps.length === 0) return;
+
+    setIsProcessing(true);
+
+    try {
+      const filePaths = filesWithOps.map((f) => f.filePath);
+
+      // Build fileOps array for each file
+      const fileOps = filesWithOps.map((f) => ({
+        filePath: f.filePath.replace(/\\/g, "/"),
+        visibilityOps: (customVisibilityOps.get(f.id) ?? []).map((op) => ({
+          path: op.path,
+          index: op.index,
+          action: op.action,
+        })),
+        moveOps: (customMoveOps.get(f.id) ?? []).map((op) => ({
+          sourcePath: op.sourcePath,
+          sourceIndex: op.sourceIndex,
+          targetPath: op.targetPath,
+          targetIndex: op.targetIndex,
+          placement: op.placement,
+        })),
+      }));
+
+      const psResults = await invoke<PhotoshopResult[]>(
+        "run_photoshop_custom_operations",
+        {
+          filePaths,
+          fileOps,
+          saveMode,
+        }
+      );
+
+      const results: LayerControlResult[] = [];
+
+      for (const psResult of psResults) {
+        const normalizedPath = psResult.filePath.replace(/\//g, "\\");
+        const file = filesWithOps.find(
+          (f) => f.filePath === psResult.filePath || f.filePath === normalizedPath
+        );
+
+        if (!file) continue;
+
+        const opsLine = psResult.changes.find((c: string) => c.includes("operation"));
+        const opsMatch = opsLine ? opsLine.match(/(\d+)/) : null;
+        const changedCount = opsMatch ? parseInt(opsMatch[1], 10) : 0;
+
+        results.push({
+          fileName: file.fileName,
+          success: psResult.success,
+          changedCount,
+          changes: psResult.changes,
+          error: psResult.error || undefined,
+        });
+
+        // Update local layer tree visibility for successful ops
+        if (psResult.success && file.metadata) {
+          const visOps = customVisibilityOps.get(file.id) ?? [];
+          if (visOps.length > 0) {
+            const updatedLayerTree = applyCustomVisibilityToTree(
+              file.metadata.layerTree,
+              visOps
+            );
+            updateFile(file.id, {
+              metadata: {
+                ...file.metadata,
+                layerTree: updatedLayerTree,
+              },
+            });
+          }
+        }
+      }
+
+      setLastResults(results, "custom");
+      clearCustomOps();
+
+      return results;
+    } catch (error) {
+      console.error("Custom operations failed:", error);
+      throw error;
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [
+    files,
+    selectedFileIds,
+    saveMode,
+    setIsProcessing,
+    setLastResults,
+    updateFile,
+  ]);
+
   return {
     applyLayerVisibility,
     organizeLayersIntoFolder,
     moveLayersByConditions,
+    applyCustomOperations,
   };
 }
 
@@ -356,6 +466,41 @@ function updateLayerTreeByConditions(
         conditions,
         setVisible,
         parentIsTextFolder || textFolder
+      );
+    }
+
+    return updatedLayer;
+  });
+}
+
+// カスタム操作後にローカルのレイヤーツリーを更新
+function applyCustomVisibilityToTree(
+  layers: LayerNode[],
+  ops: CustomVisibilityOp[],
+  currentPath: string[] = []
+): LayerNode[] {
+  const nameCounts = new Map<string, number>();
+
+  return layers.map((layer) => {
+    const count = nameCounts.get(layer.name) ?? 0;
+    nameCounts.set(layer.name, count + 1);
+    const layerPath = [...currentPath, layer.name];
+    const pathKey = layerPath.join("/") + ":" + count;
+
+    const op = ops.find(
+      (o) => o.path.join("/") + ":" + o.index === pathKey
+    );
+
+    const updatedLayer: LayerNode = {
+      ...layer,
+      visible: op ? op.action === "show" : layer.visible,
+    };
+
+    if (layer.children && layer.children.length > 0) {
+      updatedLayer.children = applyCustomVisibilityToTree(
+        layer.children,
+        ops,
+        layerPath
       );
     }
 

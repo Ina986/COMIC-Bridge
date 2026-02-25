@@ -1,7 +1,22 @@
 import { create } from "zustand";
 
 // 操作モード
-export type LayerActionMode = "hide" | "show" | "organize" | "layerMove";
+export type LayerActionMode = "hide" | "show" | "organize" | "layerMove" | "custom";
+
+// カスタム操作の型
+export interface CustomVisibilityOp {
+  path: string[];     // ["GroupA", "SubGroup", "LayerName"]
+  index: number;      // 同名レイヤーの曖昧さ回避（同階層でのインデックス）
+  action: "show" | "hide";
+}
+
+export interface CustomMoveOp {
+  sourcePath: string[];
+  sourceIndex: number;
+  targetPath: string[];
+  targetIndex: number;
+  placement: "before" | "after" | "inside";
+}
 
 // レイヤー非表示条件の型
 export interface HideCondition {
@@ -89,6 +104,10 @@ interface LayerVisibilityState {
   // 非表示テキストレイヤー削除オプション（hideモード専用）
   deleteHiddenText: boolean;
 
+  // カスタム操作（個別レイヤーの表示/非表示 + 移動）
+  customVisibilityOps: Map<string, CustomVisibilityOp[]>;  // fileId → ops
+  customMoveOps: Map<string, CustomMoveOp[]>;               // fileId → ops
+
   // 処理中フラグ
   isProcessing: boolean;
 
@@ -121,6 +140,14 @@ interface LayerVisibilityState {
   setLayerMoveCondName: (name: string) => void;
   setLayerMoveCondNamePartial: (value: boolean) => void;
   setDeleteHiddenText: (value: boolean) => void;
+
+  // カスタム操作アクション
+  toggleCustomVisibility: (fileId: string, path: string[], index: number, currentVisible: boolean) => void;
+  addCustomMove: (fileId: string, op: CustomMoveOp) => void;
+  removeCustomVisibilityOp: (fileId: string, path: string[], index: number) => void;
+  removeCustomMoveOp: (fileId: string, opIndex: number) => void;
+  clearCustomOps: (fileId?: string) => void;
+  getCustomOpsSummary: () => { visibility: number; move: number };
 }
 
 export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
@@ -142,6 +169,8 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   layerMoveCondName: "",
   layerMoveCondNamePartial: false,
   deleteHiddenText: false,
+  customVisibilityOps: new Map(),
+  customMoveOps: new Map(),
   isProcessing: false,
   lastResults: [],
   lastActionMode: null,
@@ -252,5 +281,87 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   },
   setDeleteHiddenText: (value) => {
     set({ deleteHiddenText: value });
+  },
+
+  toggleCustomVisibility: (fileId, path, index, currentVisible) => {
+    set((state) => {
+      const newMap = new Map(state.customVisibilityOps);
+      const ops = [...(newMap.get(fileId) ?? [])];
+      const pathKey = path.join("/") + ":" + index;
+      const existing = ops.findIndex((o) => o.path.join("/") + ":" + o.index === pathKey);
+      if (existing >= 0) {
+        // Already has an op — remove it (undo)
+        ops.splice(existing, 1);
+      } else {
+        // Add new op: if currently visible → hide, if hidden → show
+        ops.push({ path, index, action: currentVisible ? "hide" : "show" });
+      }
+      if (ops.length === 0) {
+        newMap.delete(fileId);
+      } else {
+        newMap.set(fileId, ops);
+      }
+      return { customVisibilityOps: newMap };
+    });
+  },
+
+  addCustomMove: (fileId, op) => {
+    set((state) => {
+      const newMap = new Map(state.customMoveOps);
+      const ops = [...(newMap.get(fileId) ?? []), op];
+      newMap.set(fileId, ops);
+      return { customMoveOps: newMap };
+    });
+  },
+
+  removeCustomVisibilityOp: (fileId, path, index) => {
+    set((state) => {
+      const newMap = new Map(state.customVisibilityOps);
+      const ops = (newMap.get(fileId) ?? []).filter(
+        (o) => !(o.path.join("/") === path.join("/") && o.index === index)
+      );
+      if (ops.length === 0) {
+        newMap.delete(fileId);
+      } else {
+        newMap.set(fileId, ops);
+      }
+      return { customVisibilityOps: newMap };
+    });
+  },
+
+  removeCustomMoveOp: (fileId, opIndex) => {
+    set((state) => {
+      const newMap = new Map(state.customMoveOps);
+      const ops = [...(newMap.get(fileId) ?? [])];
+      ops.splice(opIndex, 1);
+      if (ops.length === 0) {
+        newMap.delete(fileId);
+      } else {
+        newMap.set(fileId, ops);
+      }
+      return { customMoveOps: newMap };
+    });
+  },
+
+  clearCustomOps: (fileId) => {
+    set((state) => {
+      if (fileId) {
+        const newVis = new Map(state.customVisibilityOps);
+        const newMove = new Map(state.customMoveOps);
+        newVis.delete(fileId);
+        newMove.delete(fileId);
+        return { customVisibilityOps: newVis, customMoveOps: newMove };
+      }
+      return { customVisibilityOps: new Map(), customMoveOps: new Map() };
+    });
+  },
+
+  getCustomOpsSummary: () => {
+    const state = get();
+    let visibility = 0;
+    let move = 0;
+    for (const ops of state.customVisibilityOps.values()) visibility += ops.length;
+    for (const ops of state.customMoveOps.values()) move += ops.length;
+    return { visibility, move };
   },
 }));

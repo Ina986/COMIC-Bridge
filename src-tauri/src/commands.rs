@@ -3704,6 +3704,81 @@ pub async fn launch_tachimi(file_paths: Vec<String>) -> Result<(), String> {
 }
 
 // ============================================
+// PSD Metadata Batch Parse (Rust-native)
+// ============================================
+
+#[derive(Serialize)]
+pub struct PsdParseResult {
+    #[serde(rename = "filePath")]
+    pub file_path: String,
+    pub metadata: Option<crate::psd_metadata::PsdMetadata>,
+    #[serde(rename = "thumbnailData")]
+    pub thumbnail_data: Option<String>,
+    #[serde(rename = "fileSize")]
+    pub file_size: u64,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn parse_psd_metadata_batch(
+    file_paths: Vec<String>,
+) -> Vec<PsdParseResult> {
+    tokio::task::spawn_blocking(move || {
+        use rayon::prelude::*;
+
+        file_paths.par_iter().map(|path| {
+            match crate::psd_metadata::parse_psd_file(path) {
+                Ok((metadata, thumb_base64)) => {
+                    // If no embedded JFIF thumbnail, generate from composite image
+                    let thumbnail_data = thumb_base64.or_else(|| {
+                        generate_thumbnail_from_composite(std::path::Path::new(path))
+                    });
+                    PsdParseResult {
+                        file_path: path.clone(),
+                        metadata: Some(metadata),
+                        thumbnail_data,
+                        file_size: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
+                        error: None,
+                    }
+                },
+                Err(e) => PsdParseResult {
+                    file_path: path.clone(),
+                    metadata: None,
+                    thumbnail_data: None,
+                    file_size: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
+                    error: Some(e),
+                },
+            }
+        }).collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Generate a thumbnail from PSD composite image (Section 5) as fallback
+/// when no embedded JFIF thumbnail exists in the PSD file.
+fn generate_thumbnail_from_composite(path: &std::path::Path) -> Option<String> {
+    let img = load_psd_composite(path).ok()?;
+
+    // Resize to max 200px on longest side
+    let (w, h) = img.dimensions();
+    let max_dim = 200u32;
+    let (new_w, new_h) = if w >= h {
+        (max_dim, (h as f64 * max_dim as f64 / w as f64) as u32)
+    } else {
+        ((w as f64 * max_dim as f64 / h as f64) as u32, max_dim)
+    };
+    let thumb = img.resize_exact(new_w.max(1), new_h.max(1), FilterType::Triangle);
+
+    // Encode as JPEG to a buffer
+    let mut buf = std::io::Cursor::new(Vec::new());
+    thumb.write_to(&mut buf, image::ImageFormat::Jpeg).ok()?;
+
+    // Base64 encode
+    Some(crate::psd_metadata::base64_encode(buf.get_ref()))
+}
+
+// ============================================
 // Font Name Resolution
 // ============================================
 
@@ -4089,4 +4164,93 @@ pub fn resolve_font_names(postscript_names: Vec<String>) -> HashMap<String, Font
     }
 
     result
+}
+
+// ============================================
+// Photoshop Custom Operations
+// ============================================
+
+#[tauri::command]
+pub async fn run_photoshop_custom_operations(
+    app_handle: tauri::AppHandle,
+    file_paths: Vec<String>,
+    file_ops: Vec<serde_json::Value>,
+    save_mode: Option<String>,
+) -> Result<Vec<PhotoshopResult>, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    let ps_path = find_photoshop_path()
+        .ok_or_else(|| "Photoshop not found. Please install Adobe Photoshop.".to_string())?;
+
+    let resource_path = app_handle.path().resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+    let script_path = resource_path.join("scripts").join("custom_operations.jsx");
+    let script_path_str = if script_path.exists() {
+        script_path.to_string_lossy().to_string()
+    } else {
+        let dev_script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts").join("custom_operations.jsx");
+        if dev_script.exists() { dev_script.to_string_lossy().to_string() }
+        else { return Err("Custom operations script not found".to_string()); }
+    };
+
+    let temp_dir = std::env::temp_dir();
+    let settings_path = temp_dir.join("psd_custom_operations_settings.json");
+    let output_path = temp_dir.join("psd_custom_operations_results.json");
+    let _ = fs::remove_file(&output_path);
+
+    let save_folder = if save_mode.as_deref() == Some("copyToFolder") {
+        let home = std::env::var("USERPROFILE").unwrap_or_else(|_| std::env::var("HOME").unwrap_or_default());
+        let parent_name = file_paths.first()
+            .and_then(|p| Path::new(p).parent().and_then(|par| par.file_name()).map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "output".to_string());
+        let folder = Path::new(&home).join("Desktop").join("Script_Output").join("custom_ops").join(&parent_name);
+        let _ = fs::create_dir_all(&folder);
+        Some(folder.to_string_lossy().to_string().replace("\\", "/"))
+    } else { None };
+
+    let settings = serde_json::json!({
+        "files": file_paths.iter().map(|p| p.replace("\\", "/")).collect::<Vec<_>>(),
+        "fileOps": file_ops,
+        "outputPath": output_path.to_string_lossy().to_string().replace("\\", "/"),
+        "saveFolder": save_folder,
+    });
+    let settings_json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    let mut sf = fs::File::create(&settings_path)
+        .map_err(|e| format!("Failed to create settings file: {}", e))?;
+    sf.write_all(&[0xEF, 0xBB, 0xBF]).map_err(|e| format!("BOM write error: {}", e))?;
+    sf.write_all(settings_json.as_bytes()).map_err(|e| format!("Settings write error: {}", e))?;
+
+    eprintln!("Custom ops - PS: {}, Script: {}, Files: {}", ps_path, script_path_str, file_paths.len());
+
+    let _output = Command::new(&ps_path).arg("-r").arg(&script_path_str).output()
+        .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
+
+    let max_polls = (120 * 1000) / 500;
+    for poll in 0..max_polls {
+        if output_path.exists() {
+            if let Ok(content) = fs::read_to_string(&output_path) {
+                if content.trim().starts_with('[') && content.trim().ends_with(']') {
+                    eprintln!("Custom ops output ready after {} polls", poll);
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if poll > 0 && poll % 20 == 0 { eprintln!("Waiting for Photoshop... ({}s)", poll / 2); }
+    }
+
+    if output_path.exists() {
+        let rj = fs::read_to_string(&output_path).map_err(|e| format!("Failed to read results: {}", e))?;
+        let results: Vec<PhotoshopResult> = serde_json::from_str(&rj)
+            .map_err(|e| format!("Failed to parse results: {}. JSON: {}", e, rj))?;
+        let _ = fs::remove_file(&settings_path);
+        let _ = fs::remove_file(&output_path);
+        if let Some(w) = app_handle.get_webview_window("main") { let _ = w.set_focus(); }
+        Ok(results)
+    } else {
+        if let Some(w) = app_handle.get_webview_window("main") { let _ = w.set_focus(); }
+        Err("Photoshop did not produce output file. Script may have failed.".to_string())
+    }
 }

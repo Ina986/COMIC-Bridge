@@ -1,6 +1,6 @@
 [package]
 name = "comic-bridge"
-version = "1.0.30"
+version = "1.1.0"
 description = "漫画原稿の入稿チェック・差替え・分割を行うデスクトップアプリ"
 authors = ["Ina986"]
 edition = "2021"
@@ -35,6 +35,9 @@ ttf-parser = "0.24"
 
 # File system traversal
 walkdir = "2"
+
+# Parallel processing
+rayon = "1.10"
 
 # Async runtime
 tokio = { version = "1", features = ["rt", "sync"] }

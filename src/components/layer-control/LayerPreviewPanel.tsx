@@ -1,13 +1,24 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useLayerStore, PRESET_CONDITIONS } from "../../store/layerStore";
-import type { LayerActionMode } from "../../store/layerStore";
+import type { LayerActionMode, CustomVisibilityOp, CustomMoveOp } from "../../store/layerStore";
 import { useOpenFolder } from "../../hooks/useOpenFolder";
 import { useHighResPreview, prefetchPreview } from "../../hooks/useHighResPreview";
 import { classifyLayerRisk, isTextFolder, type MatchRisk } from "../../lib/layerMatcher";
 import type { LayerNode } from "../../types";
 import type { PsdFile } from "../../types";
 import type { HideCondition } from "../../store/layerStore";
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 
 // --- Annotated tree types ---
 
@@ -18,6 +29,10 @@ interface AnnotatedLayer {
   willChange: boolean;
   willDelete?: boolean;
   children: AnnotatedLayer[];
+  // Custom mode fields
+  customPath?: string[];
+  customIndex?: number;
+  customAction?: "show" | "hide";
 }
 
 interface FileStats {
@@ -38,22 +53,59 @@ function annotateTree(
   layers: LayerNode[],
   conditions: HideCondition[],
   isHideMode: boolean,
-  parentIsTextFolder = false
+  parentIsTextFolder = false,
+  parentVisible = true
+): AnnotatedLayer[] {
+  const tree = annotateTreePass1(layers, conditions, isHideMode, parentIsTextFolder, parentVisible);
+  // Show mode: propagate willChange upward to parent groups (mirrors ensureParentsVisible in JSX)
+  if (!isHideMode) {
+    propagateParentVisibility(tree);
+  }
+  return tree;
+}
+
+/** Pass 1: annotate matched layers and determine willChange based on effective visibility */
+function annotateTreePass1(
+  layers: LayerNode[],
+  conditions: HideCondition[],
+  isHideMode: boolean,
+  parentIsTextFolder: boolean,
+  parentVisible: boolean
 ): AnnotatedLayer[] {
   return [...layers].reverse().map((layer) => {
     const textFolder = isTextFolder(layer);
     const { matched, risk } = classifyLayerRisk(layer, conditions, parentIsTextFolder);
-    const willChange = matched && (isHideMode ? layer.visible : !layer.visible);
+    // Use effective visibility (considering parent group state) for willChange.
+    // A text layer with visible=true inside a hidden group is effectively NOT visible.
+    const effectivelyVisible = layer.visible && parentVisible;
+    const willChange = matched && (isHideMode ? effectivelyVisible : !effectivelyVisible);
     return {
       node: layer,
       matched,
       risk,
       willChange,
       children: layer.children
-        ? annotateTree(layer.children, conditions, isHideMode, parentIsTextFolder || textFolder)
+        ? annotateTreePass1(layer.children, conditions, isHideMode, parentIsTextFolder || textFolder, effectivelyVisible)
         : [],
     };
   });
+}
+
+/** Pass 2 (show mode only): if any descendant willChange, mark hidden parent groups as willChange too.
+ *  This mirrors the JSX ensureParentsVisible() behavior. Returns true if any descendant has willChange. */
+function propagateParentVisibility(tree: AnnotatedLayer[]): boolean {
+  let anyChildWillChange = false;
+  for (const item of tree) {
+    const descendantWillChange = propagateParentVisibility(item.children);
+    if (item.willChange || descendantWillChange) {
+      // If this is a hidden group and a descendant will be shown, this group will also be shown
+      if (item.node.type === "group" && !item.node.visible && !item.willChange && descendantWillChange) {
+        item.willChange = true;
+      }
+      anyChildWillChange = true;
+    }
+  }
+  return anyChildWillChange;
 }
 
 function countStats(tree: AnnotatedLayer[]): FileStats {
@@ -247,6 +299,64 @@ function annotateTreeLayerMove(
   return annotateLayerMoveRecursive(layers, cond, null, inScope, false);
 }
 
+// --- Custom mode annotation ---
+
+/** Build a path key for matching against CustomVisibilityOp */
+function buildPathKey(path: string[], index: number): string {
+  return path.join("/") + ":" + index;
+}
+
+/** Annotate tree for "custom" mode — marks layers that have pending custom ops */
+function annotateTreeCustom(
+  layers: LayerNode[],
+  ops: CustomVisibilityOp[],
+  currentPath: string[] = [],
+  parentVisible = true
+): AnnotatedLayer[] {
+  // Build a set of path keys for fast lookup
+  const opMap = new Map<string, CustomVisibilityOp>();
+  for (const op of ops) {
+    opMap.set(buildPathKey(op.path, op.index), op);
+  }
+
+  return annotateTreeCustomRecursive(layers, opMap, currentPath, parentVisible);
+}
+
+function annotateTreeCustomRecursive(
+  layers: LayerNode[],
+  opMap: Map<string, CustomVisibilityOp>,
+  currentPath: string[],
+  parentVisible: boolean
+): AnnotatedLayer[] {
+  // Track same-name counts at this level for index disambiguation
+  const nameCounts = new Map<string, number>();
+
+  return [...layers].reverse().map((layer) => {
+    const count = nameCounts.get(layer.name) ?? 0;
+    nameCounts.set(layer.name, count + 1);
+    const layerPath = [...currentPath, layer.name];
+    const pathKey = buildPathKey(layerPath, count);
+    const op = opMap.get(pathKey);
+
+    const effectiveVisible = layer.visible && parentVisible;
+    const willChange = !!op;
+    const matched = willChange;
+
+    return {
+      node: layer,
+      matched,
+      risk: "none" as MatchRisk,
+      willChange,
+      customPath: layerPath,
+      customIndex: count,
+      customAction: op?.action,
+      children: layer.children
+        ? annotateTreeCustomRecursive(layer.children, opMap, layerPath, effectiveVisible)
+        : [],
+    };
+  });
+}
+
 // --- Delete hidden text annotation (post-processing) ---
 
 /** Mark hidden text layers as willDelete in an already-annotated tree */
@@ -291,6 +401,10 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
   const layerMoveCondName = useLayerStore((s) => s.layerMoveCondName);
   const layerMoveCondNamePartial = useLayerStore((s) => s.layerMoveCondNamePartial);
   const deleteHiddenText = useLayerStore((s) => s.deleteHiddenText);
+  // Custom mode
+  const customVisibilityOps = useLayerStore((s) => s.customVisibilityOps);
+  const toggleCustomVisibility = useLayerStore((s) => s.toggleCustomVisibility);
+  const addCustomMove = useLayerStore((s) => s.addCustomMove);
   const { openFolderForFile, revealFiles } = useOpenFolder();
 
   // Tab mode: layers or viewer
@@ -340,22 +454,27 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
   const isHideMode = actionMode === "hide";
   const isOrganizeMode = actionMode === "organize";
   const isLayerMoveMode = actionMode === "layerMove";
+  const isCustomMode = actionMode === "custom";
   const hasAnyLayerMoveCondition = layerMoveCondTextLayer || layerMoveCondSubgroupTop || layerMoveCondSubgroupBottom || layerMoveCondNameEnabled;
 
   // Whether any mode has enough settings to show annotated preview
   const hasAnnotations = useMemo(() => {
+    if (isCustomMode) return true; // Always show interactive tree in custom mode
     if (isOrganizeMode) return organizeTargetName.trim() !== "";
     if (isLayerMoveMode) return hasAnyLayerMoveCondition && layerMoveTargetName.trim() !== "";
     if (isHideMode && deleteHiddenText) return true;
     return hasConditions; // hide/show
-  }, [isOrganizeMode, isLayerMoveMode, isHideMode, organizeTargetName, layerMoveTargetName, hasAnyLayerMoveCondition, hasConditions, deleteHiddenText]);
+  }, [isCustomMode, isOrganizeMode, isLayerMoveMode, isHideMode, organizeTargetName, layerMoveTargetName, hasAnyLayerMoveCondition, hasConditions, deleteHiddenText]);
 
   const fileAnnotations = useMemo((): FileAnnotation[] => {
     return targetFiles.map((file) => {
       const layerTree = file.metadata?.layerTree ?? [];
       let annotatedTree: AnnotatedLayer[] = [];
 
-      if (isOrganizeMode && organizeTargetName.trim()) {
+      if (isCustomMode) {
+        const ops = customVisibilityOps.get(file.id) ?? [];
+        annotatedTree = annotateTreeCustom(layerTree, ops);
+      } else if (isOrganizeMode && organizeTargetName.trim()) {
         annotatedTree = annotateTreeOrganize(layerTree, organizeTargetName, organizeIncludeSpecial);
       } else if (isLayerMoveMode && hasAnyLayerMoveCondition && layerMoveTargetName.trim()) {
         annotatedTree = annotateTreeLayerMove(layerTree, {
@@ -387,6 +506,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
     });
   }, [
     targetFiles, conditions, hasConditions, isHideMode,
+    isCustomMode, customVisibilityOps,
     isOrganizeMode, organizeTargetName, organizeIncludeSpecial,
     isLayerMoveMode, hasAnyLayerMoveCondition, layerMoveTargetName,
     layerMoveSearchScope, layerMoveSearchGroupName,
@@ -682,13 +802,14 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
           <div className="flex items-center gap-2.5 mt-0.5">
             {totalStats.willChange > 0 ? (
               <span className={`text-[11px] font-medium ${
-                isOrganizeMode ? "text-warning"
+                isCustomMode ? "text-sky-500"
+                : isOrganizeMode ? "text-warning"
                 : isLayerMoveMode ? "text-violet-500"
                 : isHideMode ? "text-accent"
                 : "text-accent-tertiary"
               }`}>
                 {totalStats.willChange} 件
-                {isOrganizeMode ? "格納予定" : isLayerMoveMode ? "移動予定" : isHideMode ? "非表示予定" : "表示予定"}
+                {isCustomMode ? "操作登録中" : isOrganizeMode ? "格納予定" : isLayerMoveMode ? "移動予定" : isHideMode ? "非表示予定" : "表示予定"}
               </span>
             ) : (isOrganizeMode || isLayerMoveMode) ? (
               <span className="text-[11px] text-text-muted">
@@ -741,6 +862,8 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                 annotation={fileAnnotations[0]}
                 hasAnnotations={hasAnnotations}
                 actionMode={actionMode}
+                onToggleCustomVisibility={isCustomMode ? (path, index, vis) => toggleCustomVisibility(fileAnnotations[0].file.id, path, index, vis) : undefined}
+                onAddCustomMove={isCustomMode ? (move) => addCustomMove(fileAnnotations[0].file.id, move) : undefined}
               />
             </div>
           ) : (
@@ -760,6 +883,8 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                   onToggleCheck={(shiftKey) => handleCheck(fa.file.id, shiftKey)}
                   onOpenInPhotoshop={onOpenInPhotoshop ? () => onOpenInPhotoshop(fa.file.filePath) : undefined}
                   onOpenFolder={() => openFolderForFile(fa.file.filePath)}
+                  onToggleCustomVisibility={isCustomMode ? (path, index, vis) => toggleCustomVisibility(fa.file.id, path, index, vis) : undefined}
+                  onAddCustomMove={isCustomMode ? (move) => addCustomMove(fa.file.id, move) : undefined}
                 />
               ))}
             </div>
@@ -842,37 +967,55 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
       {/* Legend */}
       {viewMode === "layers" && hasAnnotations && (
         <div className="px-3 py-1.5 border-t border-border flex-shrink-0 flex items-center gap-3">
-          {(hasConditions || isOrganizeMode || isLayerMoveMode) && (
-            <div className="flex items-center gap-1">
-              <span className={`w-2 h-2 rounded-sm ${
-                isOrganizeMode ? "bg-warning/30"
-                : isLayerMoveMode ? "bg-violet-500/30"
-                : isHideMode ? "bg-accent/30"
-                : "bg-accent-tertiary/30"
-              }`} />
-              <span className="text-[9px] text-text-muted">
-                {isOrganizeMode ? "→格納" : isLayerMoveMode ? "→移動" : isHideMode ? "→非表示" : "→表示"}
-              </span>
-            </div>
+          {isCustomMode ? (
+            <>
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-accent-tertiary/30" />
+                <span className="text-[9px] text-text-muted">{`→表示`}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-accent/30" />
+                <span className="text-[9px] text-text-muted">{`→非表示`}</span>
+              </div>
+              <div className="flex items-center gap-1 ml-auto">
+                <span className="text-[9px] text-text-muted/60">クリックで切替</span>
+              </div>
+            </>
+          ) : (
+            <>
+              {(hasConditions || isOrganizeMode || isLayerMoveMode) && (
+                <div className="flex items-center gap-1">
+                  <span className={`w-2 h-2 rounded-sm ${
+                    isOrganizeMode ? "bg-warning/30"
+                    : isLayerMoveMode ? "bg-violet-500/30"
+                    : isHideMode ? "bg-accent/30"
+                    : "bg-accent-tertiary/30"
+                  }`} />
+                  <span className="text-[9px] text-text-muted">
+                    {isOrganizeMode ? "→格納" : isLayerMoveMode ? "→移動" : isHideMode ? "→非表示" : "→表示"}
+                  </span>
+                </div>
+              )}
+              {isHideMode && deleteHiddenText && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-error/30" />
+                  <span className="text-[9px] text-text-muted">{`→削除`}</span>
+                </div>
+              )}
+              {(actionMode === "hide" || actionMode === "show") && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-sm bg-amber-500/30" />
+                  <span className="text-[9px] text-text-muted">要確認</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-text-muted/20" />
+                <span className="text-[9px] text-text-muted">
+                  {(isOrganizeMode || isLayerMoveMode) ? "対象外" : "済"}
+                </span>
+              </div>
+            </>
           )}
-          {isHideMode && deleteHiddenText && (
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-error/30" />
-              <span className="text-[9px] text-text-muted">→削除</span>
-            </div>
-          )}
-          {(actionMode === "hide" || actionMode === "show") && (
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-amber-500/30" />
-              <span className="text-[9px] text-text-muted">要確認</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-sm bg-text-muted/20" />
-            <span className="text-[9px] text-text-muted">
-              {(isOrganizeMode || isLayerMoveMode) ? "対象外" : "済"}
-            </span>
-          </div>
         </div>
       )}
     </div>
@@ -881,10 +1024,12 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
 
 // --- Single file tree ---
 
-function SingleFileTree({ annotation, hasAnnotations, actionMode }: {
+function SingleFileTree({ annotation, hasAnnotations, actionMode, onToggleCustomVisibility, onAddCustomMove }: {
   annotation: FileAnnotation;
   hasAnnotations: boolean;
   actionMode: LayerActionMode;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  onAddCustomMove?: (move: CustomMoveOp) => void;
 }) {
   if (annotation.layerTree.length === 0) {
     return (
@@ -894,16 +1039,87 @@ function SingleFileTree({ annotation, hasAnnotations, actionMode }: {
     );
   }
 
-  return hasAnnotations ? (
-    <AnnotatedTree items={annotation.annotatedTree} depth={0} actionMode={actionMode} parentVisible />
-  ) : (
-    <PlainTree layers={annotation.layerTree} depth={0} parentVisible />
+  if (!hasAnnotations) {
+    return <PlainTree layers={annotation.layerTree} depth={0} parentVisible />;
+  }
+
+  const tree = <AnnotatedTree items={annotation.annotatedTree} depth={0} actionMode={actionMode} parentVisible onToggleCustomVisibility={onToggleCustomVisibility} isDndEnabled={!!onAddCustomMove} />;
+
+  return onAddCustomMove ? (
+    <DndTreeWrapper onAddCustomMove={onAddCustomMove}>{tree}</DndTreeWrapper>
+  ) : tree;
+}
+
+// --- D&D Context Wrapper ---
+
+interface DragItemData {
+  path: string[];
+  index: number;
+}
+
+interface DropTargetData {
+  targetPath: string[];
+  targetIndex: number;
+  placement: "before" | "after" | "inside";
+}
+
+function DndTreeWrapper({ children, onAddCustomMove }: {
+  children: React.ReactNode;
+  onAddCustomMove: (move: CustomMoveOp) => void;
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeName, setActiveName] = useState<string>("");
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+    const data = event.active.data.current as DragItemData | undefined;
+    setActiveName(data?.path[data.path.length - 1] ?? "");
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setActiveId(null);
+    setActiveName("");
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const source = active.data.current as DragItemData | undefined;
+    const target = over.data.current as DropTargetData | undefined;
+    if (!source || !target) return;
+
+    // Prevent dropping on self or own descendant
+    const sourceKey = source.path.join("/");
+    const targetKey = target.targetPath.join("/");
+    if (targetKey.startsWith(sourceKey + "/") || targetKey === sourceKey) return;
+
+    onAddCustomMove({
+      sourcePath: source.path,
+      sourceIndex: source.index,
+      targetPath: target.targetPath,
+      targetIndex: target.targetIndex,
+      placement: target.placement,
+    });
+  }, [onAddCustomMove]);
+
+  return (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      {children}
+      <DragOverlay dropAnimation={null}>
+        {activeId ? (
+          <div className="px-2 py-1 rounded bg-sky-500/20 border border-sky-500/40 text-[11px] text-sky-300 shadow-lg backdrop-blur-sm whitespace-nowrap">
+            {activeName}
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
 // --- File column (multi-file) ---
 
-function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggleCheck, onOpenInPhotoshop, onOpenFolder }: {
+function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggleCheck, onOpenInPhotoshop, onOpenFolder, onToggleCustomVisibility, onAddCustomMove }: {
   annotation: FileAnnotation;
   hasAnnotations: boolean;
   actionMode: LayerActionMode;
@@ -911,6 +1127,8 @@ function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggl
   onToggleCheck: (shiftKey: boolean) => void;
   onOpenInPhotoshop?: () => void;
   onOpenFolder?: () => void;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  onAddCustomMove?: (move: CustomMoveOp) => void;
 }) {
   const { file, layerTree, annotatedTree, stats } = annotation;
 
@@ -949,7 +1167,8 @@ function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggl
         </span>
         {hasAnnotations && stats.willChange > 0 && (
           <span className={`text-[9px] px-1 py-px rounded flex-shrink-0 ${
-            actionMode === "organize" ? "bg-warning/10 text-warning"
+            actionMode === "custom" ? "bg-sky-500/10 text-sky-500"
+            : actionMode === "organize" ? "bg-warning/10 text-warning"
             : actionMode === "layerMove" ? "bg-violet-500/10 text-violet-500"
             : actionMode === "hide" ? "bg-accent/10 text-accent"
             : "bg-accent-tertiary/10 text-accent-tertiary"
@@ -994,7 +1213,12 @@ function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggl
             レイヤー情報なし
           </div>
         ) : hasAnnotations ? (
-          <AnnotatedTree items={annotatedTree} depth={0} actionMode={actionMode} parentVisible />
+          (() => {
+            const tree = <AnnotatedTree items={annotatedTree} depth={0} actionMode={actionMode} parentVisible onToggleCustomVisibility={onToggleCustomVisibility} isDndEnabled={!!onAddCustomMove} />;
+            return onAddCustomMove ? (
+              <DndTreeWrapper onAddCustomMove={onAddCustomMove}>{tree}</DndTreeWrapper>
+            ) : tree;
+          })()
         ) : (
           <PlainTree layers={layerTree} depth={0} parentVisible />
         )}
@@ -1048,23 +1272,89 @@ function PlainItem({ layer, depth, parentVisible }: { layer: LayerNode; depth: n
   );
 }
 
+// --- Drop gap (between items) ---
+
+function DropGap({ id, data }: { id: string; data: DropTargetData }) {
+  const { isOver, setNodeRef } = useDroppable({ id, data });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`h-[2px] -my-[1px] mx-1 rounded-full transition-colors ${isOver ? "bg-sky-500" : "bg-transparent"}`}
+    />
+  );
+}
+
 // --- Annotated tree ---
 
-function AnnotatedTree({ items, depth, actionMode, parentVisible = true }: { items: AnnotatedLayer[]; depth: number; actionMode: LayerActionMode; parentVisible?: boolean }) {
+function AnnotatedTree({ items, depth, actionMode, parentVisible = true, onToggleCustomVisibility, isDndEnabled }: {
+  items: AnnotatedLayer[];
+  depth: number;
+  actionMode: LayerActionMode;
+  parentVisible?: boolean;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  isDndEnabled?: boolean;
+}) {
   return (
     <div className="text-[11px]">
-      {items.map((item) => (
-        <AnnotatedItem key={item.node.id} item={item} depth={depth} actionMode={actionMode} parentVisible={parentVisible} />
+      {items.map((item, idx) => (
+        <div key={item.node.id}>
+          {isDndEnabled && idx === 0 && item.customPath && (
+            <DropGap
+              id={`gap:before:${buildPathKey(item.customPath, item.customIndex ?? 0)}`}
+              data={{ targetPath: item.customPath, targetIndex: item.customIndex ?? 0, placement: "before" }}
+            />
+          )}
+          <AnnotatedItem item={item} depth={depth} actionMode={actionMode} parentVisible={parentVisible} onToggleCustomVisibility={onToggleCustomVisibility} isDndEnabled={isDndEnabled} />
+          {isDndEnabled && item.customPath && (
+            <DropGap
+              id={`gap:after:${buildPathKey(item.customPath, item.customIndex ?? 0)}`}
+              data={{ targetPath: item.customPath, targetIndex: item.customIndex ?? 0, placement: "after" }}
+            />
+          )}
+        </div>
       ))}
     </div>
   );
 }
 
-function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item: AnnotatedLayer; depth: number; actionMode: LayerActionMode; parentVisible?: boolean }) {
+function AnnotatedItem({ item, depth, actionMode, parentVisible = true, onToggleCustomVisibility, isDndEnabled }: {
+  item: AnnotatedLayer;
+  depth: number;
+  actionMode: LayerActionMode;
+  parentVisible?: boolean;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  isDndEnabled?: boolean;
+}) {
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const { node, matched, risk, willChange, children } = item;
   const hasChildren = children.length > 0;
+  const isHideMode = actionMode === "hide";
+  const isCustomMode = actionMode === "custom";
   const effectiveVisible = node.visible && parentVisible;
+
+  // D&D: draggable
+  const pathKey = item.customPath ? buildPathKey(item.customPath, item.customIndex ?? 0) : "";
+  const { attributes: dragAttrs, listeners: dragListeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: isDndEnabled ? `drag:${pathKey}` : "__disabled__",
+    data: { path: item.customPath ?? [], index: item.customIndex ?? 0 } as DragItemData,
+    disabled: !isDndEnabled,
+  });
+
+  // D&D: droppable (groups only — "inside" placement)
+  const { isOver: isOverGroup, setNodeRef: setDropRef } = useDroppable({
+    id: isDndEnabled && hasChildren ? `group:${pathKey}` : "__disabled_drop__",
+    data: { targetPath: item.customPath ?? [], targetIndex: item.customIndex ?? 0, placement: "inside" } as DropTargetData,
+    disabled: !isDndEnabled || !hasChildren,
+  });
+
+  // Post-action visibility
+  const postActionVisible = isCustomMode
+    ? item.customAction === "show" ? true
+      : item.customAction === "hide" ? false
+      : effectiveVisible
+    : willChange
+      ? !isHideMode  // hide->false, show->true
+      : effectiveVisible;
 
   const isDeleteTarget = !!item.willDelete;
   let rowBg = "";
@@ -1078,7 +1368,10 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item
     rowBg = "bg-amber-500/8";
     borderLeft = "border-l-[2px] border-amber-500";
   } else if (willChange) {
-    if (actionMode === "organize") {
+    if (actionMode === "custom") {
+      rowBg = "bg-sky-500/8";
+      borderLeft = "border-l-[2px] border-sky-500/50";
+    } else if (actionMode === "organize") {
       rowBg = "bg-warning/8";
       borderLeft = "border-l-[2px] border-warning/50";
     } else if (actionMode === "layerMove") {
@@ -1095,7 +1388,7 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item
     rowBg = "bg-bg-tertiary/30";
     borderLeft = "border-l-[2px] border-text-muted/15";
     rowOpacity = "opacity-55";
-  } else {
+  } else if (!postActionVisible) {
     rowOpacity = "opacity-35";
   }
 
@@ -1103,48 +1396,88 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item
   const badgeClass = isDeleteTarget
     ? "bg-error/12 text-error font-medium"
     : willChange
-      ? actionMode === "organize"
-        ? "bg-warning/12 text-warning font-medium"
-        : actionMode === "layerMove"
-          ? "bg-violet-500/12 text-violet-500 font-medium"
-          : actionMode === "hide"
-            ? "bg-accent/12 text-accent font-medium"
-            : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
+      ? actionMode === "custom"
+        ? item.customAction === "hide"
+          ? "bg-accent/12 text-accent font-medium"
+          : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
+        : actionMode === "organize"
+          ? "bg-warning/12 text-warning font-medium"
+          : actionMode === "layerMove"
+            ? "bg-violet-500/12 text-violet-500 font-medium"
+            : actionMode === "hide"
+              ? "bg-accent/12 text-accent font-medium"
+              : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
       : "bg-text-muted/8 text-text-muted/70";
 
   const badgeText = isDeleteTarget
     ? "→削除"
     : willChange
-      ? actionMode === "organize" ? "→格納"
-        : actionMode === "layerMove" ? "→移動"
-        : actionMode === "hide" ? "→非表示"
-        : "→表示"
+      ? actionMode === "custom"
+        ? item.customAction === "hide" ? "→非表示" : "→表示"
+        : actionMode === "organize" ? "→格納"
+          : actionMode === "layerMove" ? "→移動"
+          : actionMode === "hide" ? "→非表示"
+          : "→表示"
       : actionMode === "organize" || actionMode === "layerMove"
         ? "対象外"
         : actionMode === "hide" ? "非表示済" : "表示済";
 
+  // Custom mode: click handler for VisIcon
+  // Use effectiveVisible (not node.visible) so that a layer hidden by parent group
+  // correctly registers as "→表示" instead of misleading "→非表示"
+  const handleVisClick = isCustomMode && onToggleCustomVisibility && item.customPath
+    ? (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onToggleCustomVisibility(item.customPath!, item.customIndex!, effectiveVisible);
+      }
+    : undefined;
+
+  // Merge refs for drag + drop on same element
+  const mergedRef = useCallback((el: HTMLElement | null) => {
+    setDragRef(el);
+    if (hasChildren) setDropRef(el);
+  }, [setDragRef, setDropRef, hasChildren]);
+
   return (
-    <div>
+    <div style={isDragging ? { opacity: 0.4 } : undefined}>
       <div
+        ref={isDndEnabled ? mergedRef : undefined}
         className={`
           flex items-center gap-1 py-[3px] px-1 rounded transition-colors
-          hover:bg-bg-tertiary/50 cursor-default
+          ${isCustomMode ? "hover:bg-sky-500/5 cursor-pointer" : "hover:bg-bg-tertiary/50 cursor-default"}
           ${rowBg} ${borderLeft} ${rowOpacity}
+          ${isOverGroup && isDndEnabled ? "ring-1 ring-sky-500/60 bg-sky-500/10" : ""}
         `}
-        style={{ paddingLeft: `${depth * 12 + 2}px` }}
+        style={{ paddingLeft: `${depth * 12 + (isDndEnabled ? 0 : 2)}px` }}
+        onClick={handleVisClick}
       >
+        {/* Drag handle */}
+        {isDndEnabled && (
+          <button
+            className="w-4 h-4 flex items-center justify-center text-text-muted/40 hover:text-sky-400 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none"
+            {...dragListeners}
+            {...dragAttrs}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="5" cy="3" r="1.2" /><circle cx="11" cy="3" r="1.2" />
+              <circle cx="5" cy="8" r="1.2" /><circle cx="11" cy="8" r="1.2" />
+              <circle cx="5" cy="13" r="1.2" /><circle cx="11" cy="13" r="1.2" />
+            </svg>
+          </button>
+        )}
         <ExpandBtn has={hasChildren} open={isExpanded} toggle={() => setIsExpanded(!isExpanded)} />
-        <VisIcon visible={node.visible} effective={effectiveVisible} />
-        <TypeIcon type={node.type} visible={effectiveVisible} />
+        <VisIcon visible={node.visible} effective={postActionVisible} onClick={handleVisClick} customAction={willChange ? item.customAction : undefined} />
+        <TypeIcon type={node.type} visible={postActionVisible} />
         <span
-          className={`truncate flex-1 ${effectiveVisible ? "text-text-primary" : "text-text-muted/50"}`}
+          className={`truncate flex-1 ${postActionVisible ? "text-text-primary" : "text-text-muted/50"}`}
           title={node.name}
         >
           {node.name || <span className="italic text-text-muted/50">名称なし</span>}
         </span>
 
         {/* Warning badge (hide/show only) */}
-        {risk === "warning" && willChange && (
+        {risk === "warning" && willChange && !isCustomMode && (
           <span
             className="flex items-center gap-px px-1 py-px rounded bg-amber-500/15 text-amber-600 text-[9px] font-medium flex-shrink-0"
             title="ラスターレイヤー: フキダシや描画の可能性"
@@ -1153,14 +1486,14 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item
             確認
           </span>
         )}
-        {risk === "warning" && !willChange && matched && (
+        {risk === "warning" && !willChange && matched && !isCustomMode && (
           <span className="px-1 py-px rounded bg-text-muted/8 text-text-muted/70 text-[9px] flex-shrink-0">
             ラスタ
           </span>
         )}
 
         {/* Status badge */}
-        {matched && (
+        {(matched || willChange) && (
           <span className={`text-[9px] px-1 py-px rounded flex-shrink-0 leading-none ${badgeClass}`}>
             {badgeText}
           </span>
@@ -1171,7 +1504,7 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true }: { item
       {hasChildren && isExpanded && (
         <div className="relative">
           <div className="absolute left-0 top-0 bottom-1 w-px bg-border/40" style={{ marginLeft: `${depth * 12 + 9}px` }} />
-          <AnnotatedTree items={children} depth={depth + 1} actionMode={actionMode} parentVisible={effectiveVisible} />
+          <AnnotatedTree items={children} depth={depth + 1} actionMode={actionMode} parentVisible={postActionVisible} onToggleCustomVisibility={onToggleCustomVisibility} isDndEnabled={isDndEnabled} />
         </div>
       )}
     </div>
@@ -1198,11 +1531,21 @@ function ExpandBtn({ has, open, toggle }: { has: boolean; open: boolean; toggle:
   );
 }
 
-function VisIcon({ visible, effective = visible }: { visible: boolean; effective?: boolean }) {
+function VisIcon({ visible, effective = visible, onClick, customAction }: {
+  visible: boolean;
+  effective?: boolean;
+  onClick?: (e: React.MouseEvent) => void;
+  customAction?: "show" | "hide";
+}) {
   // visible = PS上のフラグ（アイコン形状）, effective = 実際に見えるか（色の濃さ）
-  const color = effective ? "text-accent-tertiary" : "text-text-muted/50";
+  const color = customAction
+    ? customAction === "show" ? "text-accent-tertiary" : "text-accent"
+    : effective ? "text-accent-tertiary" : "text-text-muted/50";
   return (
-    <div className={`w-3.5 h-3.5 flex items-center justify-center ${color}`}>
+    <div
+      className={`w-3.5 h-3.5 flex items-center justify-center ${color} ${onClick ? "cursor-pointer hover:scale-125 transition-transform" : ""}`}
+      onClick={onClick}
+    >
       {visible ? (
         <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
           <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />

@@ -50,12 +50,23 @@ export function LayerControlPanel() {
   const layerMoveCondNamePartial = useLayerStore((state) => state.layerMoveCondNamePartial);
   const setLayerMoveCondNamePartial = useLayerStore((state) => state.setLayerMoveCondNamePartial);
 
-  const { applyLayerVisibility, organizeLayersIntoFolder, moveLayersByConditions } = useLayerControl();
+  // カスタム操作
+  const customVisibilityOps = useLayerStore((state) => state.customVisibilityOps);
+  const customMoveOps = useLayerStore((state) => state.customMoveOps);
+  const clearCustomOps = useLayerStore((state) => state.clearCustomOps);
+
+  const { applyLayerVisibility, organizeLayersIntoFolder, moveLayersByConditions, applyCustomOperations } = useLayerControl();
 
   const targetCount = selectedFileIds.length > 0 ? selectedFileIds.length : files.length;
   const isHideMode = actionMode === "hide";
   const isOrganizeMode = actionMode === "organize";
   const isLayerMoveMode = actionMode === "layerMove";
+  const isCustomMode = actionMode === "custom";
+
+  // カスタム操作のサマリー
+  const customVisCount = Array.from(customVisibilityOps.values()).reduce((acc, ops) => acc + ops.length, 0);
+  const customMoveCount = Array.from(customMoveOps.values()).reduce((acc, ops) => acc + ops.length, 0);
+  const customTotalCount = customVisCount + customMoveCount;
 
   const hasAnyLayerMoveCondition = layerMoveCondTextLayer || layerMoveCondSubgroupTop || layerMoveCondSubgroupBottom || layerMoveCondNameEnabled;
   const layerMoveCondCount = [layerMoveCondTextLayer, layerMoveCondSubgroupTop, layerMoveCondSubgroupBottom, layerMoveCondNameEnabled].filter(Boolean).length;
@@ -73,7 +84,9 @@ export function LayerControlPanel() {
 
   const handleApply = async () => {
     try {
-      if (isOrganizeMode) {
+      if (isCustomMode) {
+        await applyCustomOperations();
+      } else if (isOrganizeMode) {
         await organizeLayersIntoFolder();
       } else if (isLayerMoveMode) {
         await moveLayersByConditions();
@@ -85,11 +98,13 @@ export function LayerControlPanel() {
     }
   };
 
-  const canExecute = isOrganizeMode
-    ? !isProcessing && files.length > 0 && organizeTargetName.trim() !== ""
-    : isLayerMoveMode
-      ? !isProcessing && files.length > 0 && layerMoveTargetName.trim() !== "" && hasAnyLayerMoveCondition
-      : !isProcessing && files.length > 0 && (selectedConditions.length > 0 || (isHideMode && deleteHiddenText));
+  const canExecute = isCustomMode
+    ? !isProcessing && files.length > 0 && customTotalCount > 0
+    : isOrganizeMode
+      ? !isProcessing && files.length > 0 && organizeTargetName.trim() !== ""
+      : isLayerMoveMode
+        ? !isProcessing && files.length > 0 && layerMoveTargetName.trim() !== "" && hasAnyLayerMoveCondition
+        : !isProcessing && files.length > 0 && (selectedConditions.length > 0 || (isHideMode && deleteHiddenText));
 
   return (
     <div className="flex flex-col h-full">
@@ -99,14 +114,16 @@ export function LayerControlPanel() {
           <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          {isLayerMoveMode ? "レイヤー整理" : isOrganizeMode ? "フォルダ格納" : "レイヤー可視性"}
+          {isCustomMode ? "カスタム操作" : isLayerMoveMode ? "レイヤー整理" : isOrganizeMode ? "フォルダ格納" : "レイヤー可視性"}
         </h3>
         <p className="text-xs text-text-muted mt-1">
-          {isLayerMoveMode
-            ? "条件に一致するレイヤーを指定グループに移動"
-            : isOrganizeMode
-              ? "レイヤーを指定フォルダに格納"
-              : "条件を選択してレイヤーを一括操作"
+          {isCustomMode
+            ? "レイヤーを個別に操作"
+            : isLayerMoveMode
+              ? "条件に一致するレイヤーを指定グループに移動"
+              : isOrganizeMode
+                ? "レイヤーを指定フォルダに格納"
+                : "条件を選択してレイヤーを一括操作"
           }
         </p>
       </div>
@@ -160,9 +177,69 @@ export function LayerControlPanel() {
             currentMode={actionMode}
             onChange={setActionMode}
           />
+          <ModeButton
+            mode="custom"
+            label="カスタム"
+            icon={
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            }
+            currentMode={actionMode}
+            onChange={setActionMode}
+          />
         </div>
 
-        {isLayerMoveMode ? (
+        {isCustomMode ? (
+          /* カスタム操作モード */
+          <>
+            <div className="bg-bg-tertiary rounded-xl p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  右のプレビューでレイヤーの目アイコンをクリックして、個別に表示/非表示を設定できます。
+                </p>
+              </div>
+            </div>
+
+            {/* 操作サマリー */}
+            <div className="bg-bg-tertiary rounded-xl p-3 space-y-2">
+              <h4 className="text-xs font-medium text-text-muted">操作一覧</h4>
+              {customTotalCount === 0 ? (
+                <p className="text-xs text-text-muted/60 py-2 text-center">
+                  まだ操作が登録されていません
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {customVisCount > 0 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="w-2 h-2 rounded-full bg-sky-400" />
+                      <span className="text-text-secondary">表示/非表示: {customVisCount} 件</span>
+                    </div>
+                  )}
+                  {customMoveCount > 0 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="w-2 h-2 rounded-full bg-violet-400" />
+                      <span className="text-text-secondary">移動: {customMoveCount} 件</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* クリアボタン */}
+            {customTotalCount > 0 && (
+              <button
+                onClick={() => clearCustomOps()}
+                className="w-full px-3 py-2 text-xs font-medium rounded-lg bg-bg-elevated text-text-secondary border border-white/10 hover:border-error/30 hover:text-error transition-all duration-200"
+              >
+                すべてクリア
+              </button>
+            )}
+          </>
+        ) : isLayerMoveMode ? (
           /* レイヤー整理（条件ベース移動）モード設定 */
           <>
             {/* 検索範囲 */}
@@ -492,13 +569,15 @@ export function LayerControlPanel() {
           saveMode={saveMode}
           onChange={setSaveMode}
           folderHint={files.length > 0 ? files[0].filePath.replace(/\\/g, "/").split("/").slice(-2, -1)[0] || "" : ""}
-          isOrganizeMode={isOrganizeMode || isLayerMoveMode}
+          isOrganizeMode={isOrganizeMode || isLayerMoveMode || isCustomMode}
         />
         <div className="flex items-center justify-between text-xs text-text-muted">
           <span>対象: {targetCount} ファイル</span>
-          {isLayerMoveMode
-            ? <span>{layerMoveCondCount} 条件選択中</span>
-            : !isOrganizeMode && <span>{selectedConditions.length} 条件選択中</span>
+          {isCustomMode
+            ? <span>{customTotalCount} 操作登録中</span>
+            : isLayerMoveMode
+              ? <span>{layerMoveCondCount} 条件選択中</span>
+              : !isOrganizeMode && <span>{selectedConditions.length} 条件選択中</span>
           }
         </div>
         <button
@@ -506,13 +585,15 @@ export function LayerControlPanel() {
           disabled={!canExecute}
           className={`
             w-full px-4 py-3 text-sm font-medium rounded-xl text-white
-            ${isLayerMoveMode
-              ? "bg-gradient-to-r from-violet-500 to-purple-500 shadow-[0_4px_15px_rgba(139,92,246,0.3)] hover:shadow-[0_6px_20px_rgba(139,92,246,0.4)]"
-              : isOrganizeMode
-                ? "bg-gradient-to-r from-warning to-amber-500 shadow-[0_4px_15px_rgba(245,158,11,0.3)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.4)]"
-                : isHideMode
-                  ? "bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:shadow-[0_6px_20px_rgba(255,107,157,0.4)]"
-                  : "bg-gradient-to-r from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)] hover:shadow-[0_6px_20px_rgba(0,212,170,0.4)]"
+            ${isCustomMode
+              ? "bg-gradient-to-r from-sky-500 to-blue-500 shadow-[0_4px_15px_rgba(14,165,233,0.3)] hover:shadow-[0_6px_20px_rgba(14,165,233,0.4)]"
+              : isLayerMoveMode
+                ? "bg-gradient-to-r from-violet-500 to-purple-500 shadow-[0_4px_15px_rgba(139,92,246,0.3)] hover:shadow-[0_6px_20px_rgba(139,92,246,0.4)]"
+                : isOrganizeMode
+                  ? "bg-gradient-to-r from-warning to-amber-500 shadow-[0_4px_15px_rgba(245,158,11,0.3)] hover:shadow-[0_6px_20px_rgba(245,158,11,0.4)]"
+                  : isHideMode
+                    ? "bg-gradient-to-r from-accent to-accent-secondary shadow-glow-pink hover:shadow-[0_6px_20px_rgba(255,107,157,0.4)]"
+                    : "bg-gradient-to-r from-accent-tertiary to-manga-sky shadow-[0_4px_15px_rgba(0,212,170,0.3)] hover:shadow-[0_6px_20px_rgba(0,212,170,0.4)]"
             }
             hover:-translate-y-0.5
             transition-all duration-200
@@ -524,6 +605,13 @@ export function LayerControlPanel() {
             <>
               <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
               処理中...
+            </>
+          ) : isCustomMode ? (
+            <>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              カスタム操作を適用 ({customTotalCount})
             </>
           ) : isLayerMoveMode ? (
             <>
@@ -584,6 +672,7 @@ function ModeButton({
     mode === "hide" ? "bg-accent text-white"
     : mode === "show" ? "bg-accent-tertiary text-white"
     : mode === "layerMove" ? "bg-violet-500 text-white"
+    : mode === "custom" ? "bg-sky-500 text-white"
     : "bg-warning text-white";
 
   return (

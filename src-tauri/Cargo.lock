@@ -442,12 +442,13 @@ dependencies = [
 
 [[package]]
 name = "comic-bridge"
-version = "1.0.30"
+version = "1.1.0"
 dependencies = [
  "fontdb",
  "image",
  "pdfium-render",
  "psd",
+ "rayon",
  "serde",
  "serde_json",
  "tauri",

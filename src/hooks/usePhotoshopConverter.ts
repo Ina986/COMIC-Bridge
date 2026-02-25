@@ -1,10 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { readFile } from "@tauri-apps/plugin-fs";
 import { usePsdStore } from "../store/psdStore";
 import { useSpecStore, type ConversionResult } from "../store/specStore";
-import { parsePsdBufferFast } from "../lib/psd/parser";
 import { useSpecChecker } from "./useSpecChecker";
+import type { PsdMetadata } from "../types";
 
 // Rust command types
 interface PhotoshopConversionOptions {
@@ -159,33 +158,34 @@ export function usePhotoshopConverter() {
         }
       }
 
-      // Reload converted files from disk to get actual metadata
+      // Reload converted files from disk to get actual metadata (Rust-native)
       if (successfulFiles.length > 0) {
         console.log(`Reloading ${successfulFiles.length} converted files...`);
 
-        for (const { id, filePath } of successfulFiles) {
-          try {
-            const buffer = await readFile(filePath);
-            const arrayBuffer = buffer.buffer.slice(
-              buffer.byteOffset,
-              buffer.byteOffset + buffer.byteLength
-            );
+        try {
+          const parseResults = await invoke<{ filePath: string; metadata: PsdMetadata | null; thumbnailData: string | null; fileSize: number; error: string | null }[]>(
+            "parse_psd_metadata_batch",
+            { filePaths: successfulFiles.map((f) => f.filePath) }
+          );
 
-            const parseResult = await parsePsdBufferFast(arrayBuffer);
+          for (const result of parseResults) {
+            const file = successfulFiles.find((f) => f.filePath === result.filePath);
+            if (!file || !result.metadata) continue;
 
-            updateFile(id, {
-              metadata: parseResult.metadata,
-              thumbnailUrl: parseResult.thumbnailData,
-              thumbnailStatus: parseResult.thumbnailData ? "ready" : "pending",
+            const thumbnailUrl = result.thumbnailData
+              ? `data:image/jpeg;base64,${result.thumbnailData}`
+              : undefined;
+            updateFile(file.id, {
+              metadata: result.metadata,
+              thumbnailUrl,
+              thumbnailStatus: "ready",
             });
-          } catch (reloadError) {
-            console.error(`Failed to reload ${filePath}:`, reloadError);
           }
+        } catch (reloadError) {
+          console.error("Failed to reload converted files:", reloadError);
         }
 
         // Re-run spec check with updated metadata
-        console.log("Re-running spec check...");
-        // Small delay to ensure state is updated
         await new Promise((resolve) => setTimeout(resolve, 100));
         checkAllFiles(specifications);
       }

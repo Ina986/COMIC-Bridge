@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod commands;
 pub mod pdf;
+pub mod psd_metadata;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -52,6 +53,8 @@ pub fn run() {
             commands::detect_psd_folders,
             commands::list_all_files,
             commands::open_with_default_app,
+            commands::parse_psd_metadata_batch,
+            commands::run_photoshop_custom_operations,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]
