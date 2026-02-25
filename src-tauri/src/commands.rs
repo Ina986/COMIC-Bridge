@@ -3697,8 +3697,6 @@ pub async fn launch_tachimi(file_paths: Vec<String>) -> Result<(), String> {
         .map_err(|e| format!("JSON書き込みエラー: {}", e))?;
 
     Command::new(&tachimi_path)
-        .arg("--files")
-        .arg(json_path.to_string_lossy().to_string())
         .spawn()
         .map_err(|e| format!("Tachimi起動エラー: {}", e))?;
 

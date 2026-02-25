@@ -78,6 +78,8 @@ export function PreviewGrid() {
           );
         })}
       </div>
+      {/* フローティングボタンとサムネが重ならないよう余白を確保 */}
+      <div className="h-44" />
     </div>
   );
 }
