@@ -18,6 +18,7 @@ import { SpecLayerGrid } from "../spec-checker/SpecLayerGrid";
 import { SpecTextGrid } from "../spec-checker/SpecTextGrid";
 import { DropZone } from "../file-browser/DropZone";
 import { THUMBNAIL_SIZES, type ThumbnailSize } from "../../types";
+import { invoke } from "@tauri-apps/api/core";
 
 export function SpecCheckView() {
   const files = usePsdStore((state) => state.files);
@@ -42,6 +43,7 @@ export function SpecCheckView() {
   const [showResults, setShowResults] = useState(false);
   const [showGuidePrompt, setShowGuidePrompt] = useState(false);
   const [viewMode, setViewMode] = useState<"thumbnails" | "layers" | "text">("thumbnails");
+  const [tachimiError, setTachimiError] = useState<string | null>(null);
   const guidePromptRef = useRef<HTMLDivElement>(null);
 
   const { checkAllFiles, isChecking } = useSpecChecker();
@@ -152,6 +154,18 @@ export function SpecCheckView() {
     }
   };
 
+  // Tachimi起動（PDF化連携）
+  const handleLaunchTachimi = async () => {
+    setTachimiError(null);
+    try {
+      const filePaths = files.map((f) => f.filePath).filter(Boolean);
+      if (filePaths.length === 0) return;
+      await invoke("launch_tachimi", { filePaths });
+    } catch (e) {
+      setTachimiError(String(e));
+    }
+  };
+
   // 変換結果の集計
   const resultStats = useMemo(() => {
     if (conversionResults.length === 0) return null;
@@ -169,6 +183,7 @@ export function SpecCheckView() {
 
   const noSpecSelected = !activeSpecId;
   const hasChecked = checkResults.size > 0;
+  const allPassed = hasChecked && stats.failed === 0 && stats.unchecked === 0;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -502,7 +517,7 @@ export function SpecCheckView() {
           {viewMode === "text" && <SpecTextGrid />}
 
           {/* Floating Action Buttons (thumbnails mode only) */}
-          {viewMode === "thumbnails" && (stats.failed > 0 || stats.noGuides > 0) && (
+          {viewMode === "thumbnails" && (
             <div className="absolute bottom-6 right-6 flex flex-col items-end gap-4 z-10">
               {stats.noGuides > 0 && (
                 <button
@@ -595,6 +610,35 @@ export function SpecCheckView() {
                         </span>
                       </>
                     )}
+                  </button>
+                </div>
+              )}
+              {/* PDF化ボタン（Tachimi連携） - 常時表示、全OK時に強調 */}
+              <button
+                className={`h-14 min-w-[200px] px-7 text-base font-bold rounded-2xl shadow-lg transition-all duration-200 flex items-center justify-center gap-3 active:scale-[0.97] ${
+                  allPassed
+                    ? "text-white bg-gradient-to-r from-accent to-accent-secondary shadow-[0_6px_25px_rgba(255,90,138,0.4)] hover:shadow-[0_8px_35px_rgba(255,90,138,0.55)] hover:brightness-110"
+                    : "bg-bg-secondary/95 backdrop-blur-md border border-border text-text-secondary hover:text-text-primary hover:bg-bg-tertiary hover:border-border"
+                }`}
+                onClick={handleLaunchTachimi}
+                title="Tachimiを起動してPDF作成"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                PDF化
+                <span className={`px-2 py-0.5 rounded-lg text-sm font-bold ${
+                  allPassed ? "bg-white/25" : "bg-bg-tertiary"
+                }`}>
+                  {files.length}
+                </span>
+              </button>
+              {/* Tachimi起動エラー */}
+              {tachimiError && (
+                <div className="px-4 py-2 rounded-xl bg-error/10 border border-error/30 text-xs text-error max-w-xs">
+                  {tachimiError}
+                  <button onClick={() => setTachimiError(null)} className="ml-2 underline">
+                    閉じる
                   </button>
                 </div>
               )}

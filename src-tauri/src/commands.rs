@@ -3672,6 +3672,39 @@ pub async fn launch_kenban_diff(
     Ok(())
 }
 
+/// Launch Tachimi with file paths for PDF generation
+#[tauri::command]
+pub async fn launch_tachimi(file_paths: Vec<String>) -> Result<(), String> {
+    use std::process::Command;
+
+    let local_app_data = std::env::var("LOCALAPPDATA")
+        .map_err(|_| "LOCALAPPDATA not found".to_string())?;
+    let tachimi_path = Path::new(&local_app_data).join("Tachimi").join("Tachimi.exe");
+
+    if !tachimi_path.exists() {
+        return Err(format!(
+            "Tachimi.exe が見つかりません: {}",
+            tachimi_path.display()
+        ));
+    }
+
+    // ファイルパスをJSONでtempに書き出し
+    let temp_dir = std::env::temp_dir();
+    let json_path = temp_dir.join("tachimi_cli_files.json");
+    let json_content = serde_json::to_string(&file_paths)
+        .map_err(|e| format!("JSON変換エラー: {}", e))?;
+    std::fs::write(&json_path, &json_content)
+        .map_err(|e| format!("JSON書き込みエラー: {}", e))?;
+
+    Command::new(&tachimi_path)
+        .arg("--files")
+        .arg(json_path.to_string_lossy().to_string())
+        .spawn()
+        .map_err(|e| format!("Tachimi起動エラー: {}", e))?;
+
+    Ok(())
+}
+
 // ============================================
 // Font Name Resolution
 // ============================================

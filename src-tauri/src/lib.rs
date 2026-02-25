@@ -45,6 +45,7 @@ pub fn run() {
             commands::get_pdf_thumbnail,
             commands::run_photoshop_tiff_convert,
             commands::launch_kenban_diff,
+            commands::launch_tachimi,
             commands::resolve_font_names,
             commands::run_photoshop_scan_psd,
             commands::poll_scan_psd_progress,
