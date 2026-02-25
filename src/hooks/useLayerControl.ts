@@ -1,8 +1,9 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../store/psdStore";
-import { useLayerStore, type HideCondition, type LayerControlResult, type CustomVisibilityOp } from "../store/layerStore";
+import { useLayerStore, type HideCondition, type LayerControlResult } from "../store/layerStore";
 import { matchesCondition, isTextFolder } from "../lib/layerMatcher";
+import { applyVirtualMoves, applyCustomVisibilityToTree, buildIdToPathInfo } from "../lib/layerTreeOps";
 import type { LayerNode } from "../types";
 
 interface PhotoshopResult {
@@ -339,21 +340,45 @@ export function useLayerControl() {
       const filePaths = filesWithOps.map((f) => f.filePath);
 
       // Build fileOps array for each file
-      const fileOps = filesWithOps.map((f) => ({
-        filePath: f.filePath.replace(/\\/g, "/"),
-        visibilityOps: (customVisibilityOps.get(f.id) ?? []).map((op) => ({
-          path: op.path,
-          index: op.index,
-          action: op.action,
-        })),
-        moveOps: (customMoveOps.get(f.id) ?? []).map((op) => ({
-          sourcePath: op.sourcePath,
-          sourceIndex: op.sourceIndex,
-          targetPath: op.targetPath,
-          targetIndex: op.targetIndex,
-          placement: op.placement,
-        })),
-      }));
+      // When both visibility and move ops exist, re-resolve visibility op paths
+      // against the post-move tree using layerId tracking
+      const fileOps = filesWithOps.map((f) => {
+        const visOps = customVisibilityOps.get(f.id) ?? [];
+        const moveOps = customMoveOps.get(f.id) ?? [];
+        const layerTree = f.metadata?.layerTree ?? [];
+
+        // If both vis and move ops exist, re-resolve vis paths for post-move tree
+        let resolvedVisOps = visOps;
+        if (moveOps.length > 0 && visOps.length > 0 && layerTree.length > 0) {
+          const { layers: virtualTree } = applyVirtualMoves(layerTree, moveOps);
+          const idToPath = buildIdToPathInfo(virtualTree);
+          resolvedVisOps = visOps.map((op) => {
+            if (op.layerId) {
+              const info = idToPath.get(op.layerId);
+              if (info) {
+                return { ...op, path: info.path, index: info.index };
+              }
+            }
+            return op;
+          });
+        }
+
+        return {
+          filePath: f.filePath.replace(/\\/g, "/"),
+          visibilityOps: resolvedVisOps.map((op) => ({
+            path: op.path,
+            index: op.index,
+            action: op.action,
+          })),
+          moveOps: moveOps.map((op) => ({
+            sourcePath: op.sourcePath,
+            sourceIndex: op.sourceIndex,
+            targetPath: op.targetPath,
+            targetIndex: op.targetIndex,
+            placement: op.placement,
+          })),
+        };
+      });
 
       const psResults = await invoke<PhotoshopResult[]>(
         "run_photoshop_custom_operations",
@@ -386,18 +411,30 @@ export function useLayerControl() {
           error: psResult.error || undefined,
         });
 
-        // Update local layer tree visibility for successful ops
+        // Update local layer tree to reflect changes applied by Photoshop
         if (psResult.success && file.metadata) {
-          const visOps = customVisibilityOps.get(file.id) ?? [];
-          if (visOps.length > 0) {
-            const updatedLayerTree = applyCustomVisibilityToTree(
-              file.metadata.layerTree,
-              visOps
-            );
+          const moveOps = customMoveOps.get(file.id) ?? [];
+
+          let updatedTree = file.metadata.layerTree;
+
+          // Apply moves first (same order as JSX script)
+          if (moveOps.length > 0) {
+            const { layers } = applyVirtualMoves(updatedTree, moveOps);
+            updatedTree = layers;
+          }
+
+          // Then apply visibility changes (use resolved paths from fileOps)
+          const matchingFileOps = fileOps.find((fo) => fo.filePath === file.filePath.replace(/\\/g, "/"));
+          const resolvedVisForTree = matchingFileOps?.visibilityOps ?? [];
+          if (resolvedVisForTree.length > 0) {
+            updatedTree = applyCustomVisibilityToTree(updatedTree, resolvedVisForTree);
+          }
+
+          if (updatedTree !== file.metadata.layerTree) {
             updateFile(file.id, {
               metadata: {
                 ...file.metadata,
-                layerTree: updatedLayerTree,
+                layerTree: updatedTree,
               },
             });
           }
@@ -473,37 +510,4 @@ function updateLayerTreeByConditions(
   });
 }
 
-// カスタム操作後にローカルのレイヤーツリーを更新
-function applyCustomVisibilityToTree(
-  layers: LayerNode[],
-  ops: CustomVisibilityOp[],
-  currentPath: string[] = []
-): LayerNode[] {
-  const nameCounts = new Map<string, number>();
-
-  return layers.map((layer) => {
-    const count = nameCounts.get(layer.name) ?? 0;
-    nameCounts.set(layer.name, count + 1);
-    const layerPath = [...currentPath, layer.name];
-    const pathKey = layerPath.join("/") + ":" + count;
-
-    const op = ops.find(
-      (o) => o.path.join("/") + ":" + o.index === pathKey
-    );
-
-    const updatedLayer: LayerNode = {
-      ...layer,
-      visible: op ? op.action === "show" : layer.visible,
-    };
-
-    if (layer.children && layer.children.length > 0) {
-      updatedLayer.children = applyCustomVisibilityToTree(
-        layer.children,
-        ops,
-        layerPath
-      );
-    }
-
-    return updatedLayer;
-  });
-}
+// applyCustomVisibilityToTree is imported from ../lib/layerTreeOps

@@ -93,7 +93,9 @@ function processFile(filePath, visOps, moveOps, saveFolder) {
             var sourceLayer = findLayerByPathAndIndex(doc.layers, mop.sourcePath, mop.sourceIndex);
             var targetLayer = findLayerByPathAndIndex(doc.layers, mop.targetPath, mop.targetIndex);
             if (!sourceLayer || !targetLayer) {
-                result.changes.push("Move: layer not found");
+                var debugSrc = (mop.sourcePath || []).join("/") + ":" + mop.sourceIndex;
+                var debugTgt = (mop.targetPath || []).join("/") + ":" + mop.targetIndex;
+                result.changes.push("Move: not found (src=" + debugSrc + " " + (sourceLayer ? "OK" : "MISS") + ", tgt=" + debugTgt + " " + (targetLayer ? "OK" : "MISS") + ")");
                 continue;
             }
             try {
@@ -173,27 +175,30 @@ function processFile(filePath, visOps, moveOps, saveFolder) {
 function findLayerByPathAndIndex(layers, path, targetIndex) {
     if (!path || path.length === 0) return null;
     var targetName = path[0];
+    var isLeaf = (path.length === 1);
     var nameCount = 0;
 
-    for (var i = layers.length - 1; i >= 0; i--) {
+    // Iterate top-to-bottom (layers[0]=top in PS panel)
+    // to match frontend annotation counting direction
+    for (var i = 0; i < layers.length; i++) {
         var layer = layers[i];
         if (layer.name === targetName) {
-            if (path.length === 1) {
-                // Leaf level: match by index
+            if (isLeaf) {
+                // Leaf level: use targetIndex to disambiguate same-named layers
                 if (nameCount === targetIndex) {
                     return layer;
                 }
                 nameCount++;
             } else {
-                // Intermediate level: recurse into group
-                if (nameCount === targetIndex && layer.typename === "LayerSet") {
+                // Intermediate level: enter first matching group,
+                // pass targetIndex through to the leaf level
+                if (layer.typename === "LayerSet") {
                     var remaining = [];
                     for (var j = 1; j < path.length; j++) {
                         remaining.push(path[j]);
                     }
-                    return findLayerByPathAndIndex(layer.layers, remaining, 0);
+                    return findLayerByPathAndIndex(layer.layers, remaining, targetIndex);
                 }
-                nameCount++;
             }
         }
     }

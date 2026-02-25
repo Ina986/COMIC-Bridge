@@ -5,6 +5,7 @@ import type { LayerActionMode, CustomVisibilityOp, CustomMoveOp } from "../../st
 import { useOpenFolder } from "../../hooks/useOpenFolder";
 import { useHighResPreview, prefetchPreview } from "../../hooks/useHighResPreview";
 import { classifyLayerRisk, isTextFolder, type MatchRisk } from "../../lib/layerMatcher";
+import { buildPathKey, applyVirtualMoves } from "../../lib/layerTreeOps";
 import type { LayerNode } from "../../types";
 import type { PsdFile } from "../../types";
 import type { HideCondition } from "../../store/layerStore";
@@ -32,7 +33,7 @@ interface AnnotatedLayer {
   // Custom mode fields
   customPath?: string[];
   customIndex?: number;
-  customAction?: "show" | "hide";
+  customAction?: "show" | "hide" | "move";
 }
 
 interface FileStats {
@@ -301,30 +302,30 @@ function annotateTreeLayerMove(
 
 // --- Custom mode annotation ---
 
-/** Build a path key for matching against CustomVisibilityOp */
-function buildPathKey(path: string[], index: number): string {
-  return path.join("/") + ":" + index;
-}
+// buildPathKey and applyVirtualMoves imported from ../../lib/layerTreeOps
+
+// Virtual move helpers (cloneTree, buildPathIdMap, removeLayerById, insertLayerRelative, applyVirtualMoves)
+// are imported from ../../lib/layerTreeOps
 
 /** Annotate tree for "custom" mode — marks layers that have pending custom ops */
 function annotateTreeCustom(
   layers: LayerNode[],
-  ops: CustomVisibilityOp[],
+  visOps: CustomVisibilityOp[],
+  movedIds: Set<string> = new Set(),
   currentPath: string[] = [],
   parentVisible = true
 ): AnnotatedLayer[] {
-  // Build a set of path keys for fast lookup
   const opMap = new Map<string, CustomVisibilityOp>();
-  for (const op of ops) {
+  for (const op of visOps) {
     opMap.set(buildPathKey(op.path, op.index), op);
   }
-
-  return annotateTreeCustomRecursive(layers, opMap, currentPath, parentVisible);
+  return annotateTreeCustomRecursive(layers, opMap, movedIds, currentPath, parentVisible);
 }
 
 function annotateTreeCustomRecursive(
   layers: LayerNode[],
   opMap: Map<string, CustomVisibilityOp>,
+  movedIds: Set<string>,
   currentPath: string[],
   parentVisible: boolean
 ): AnnotatedLayer[] {
@@ -336,11 +337,13 @@ function annotateTreeCustomRecursive(
     nameCounts.set(layer.name, count + 1);
     const layerPath = [...currentPath, layer.name];
     const pathKey = buildPathKey(layerPath, count);
-    const op = opMap.get(pathKey);
+    const visOp = opMap.get(pathKey);
+    const isMoved = movedIds.has(layer.id);
 
     const effectiveVisible = layer.visible && parentVisible;
-    const willChange = !!op;
+    const willChange = !!visOp || isMoved;
     const matched = willChange;
+    const customAction: "show" | "hide" | "move" | undefined = visOp?.action ?? (isMoved ? "move" : undefined);
 
     return {
       node: layer,
@@ -349,9 +352,9 @@ function annotateTreeCustomRecursive(
       willChange,
       customPath: layerPath,
       customIndex: count,
-      customAction: op?.action,
+      customAction,
       children: layer.children
-        ? annotateTreeCustomRecursive(layer.children, opMap, layerPath, effectiveVisible)
+        ? annotateTreeCustomRecursive(layer.children, opMap, movedIds, layerPath, effectiveVisible)
         : [],
     };
   });
@@ -403,8 +406,10 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
   const deleteHiddenText = useLayerStore((s) => s.deleteHiddenText);
   // Custom mode
   const customVisibilityOps = useLayerStore((s) => s.customVisibilityOps);
+  const customMoveOps = useLayerStore((s) => s.customMoveOps);
   const toggleCustomVisibility = useLayerStore((s) => s.toggleCustomVisibility);
   const addCustomMove = useLayerStore((s) => s.addCustomMove);
+  const undoCustomOp = useLayerStore((s) => s.undoCustomOp);
   const { openFolderForFile, revealFiles } = useOpenFolder();
 
   // Tab mode: layers or viewer
@@ -473,7 +478,9 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
 
       if (isCustomMode) {
         const ops = customVisibilityOps.get(file.id) ?? [];
-        annotatedTree = annotateTreeCustom(layerTree, ops);
+        const moveOps = customMoveOps.get(file.id) ?? [];
+        const { layers: virtualTree, movedIds } = applyVirtualMoves(layerTree, moveOps);
+        annotatedTree = annotateTreeCustom(virtualTree, ops, movedIds);
       } else if (isOrganizeMode && organizeTargetName.trim()) {
         annotatedTree = annotateTreeOrganize(layerTree, organizeTargetName, organizeIncludeSpecial);
       } else if (isLayerMoveMode && hasAnyLayerMoveCondition && layerMoveTargetName.trim()) {
@@ -506,7 +513,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
     });
   }, [
     targetFiles, conditions, hasConditions, isHideMode,
-    isCustomMode, customVisibilityOps,
+    isCustomMode, customVisibilityOps, customMoveOps,
     isOrganizeMode, organizeTargetName, organizeIncludeSpecial,
     isLayerMoveMode, hasAnyLayerMoveCondition, layerMoveTargetName,
     layerMoveSearchScope, layerMoveSearchGroupName,
@@ -664,6 +671,21 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onOpenInPhotoshop, checkedFileIds, fileAnnotations, targetFiles]);
+
+  // Ctrl+Z undo for custom mode
+  useEffect(() => {
+    if (!isCustomMode) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        e.preventDefault();
+        undoCustomOp();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isCustomMode, undoCustomOp]);
 
   // Empty
   if (targetFiles.length === 0) {
@@ -862,7 +884,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                 annotation={fileAnnotations[0]}
                 hasAnnotations={hasAnnotations}
                 actionMode={actionMode}
-                onToggleCustomVisibility={isCustomMode ? (path, index, vis) => toggleCustomVisibility(fileAnnotations[0].file.id, path, index, vis) : undefined}
+                onToggleCustomVisibility={isCustomMode ? (path, index, vis, layerId) => toggleCustomVisibility(fileAnnotations[0].file.id, path, index, vis, layerId) : undefined}
                 onAddCustomMove={isCustomMode ? (move) => addCustomMove(fileAnnotations[0].file.id, move) : undefined}
               />
             </div>
@@ -883,7 +905,7 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                   onToggleCheck={(shiftKey) => handleCheck(fa.file.id, shiftKey)}
                   onOpenInPhotoshop={onOpenInPhotoshop ? () => onOpenInPhotoshop(fa.file.filePath) : undefined}
                   onOpenFolder={() => openFolderForFile(fa.file.filePath)}
-                  onToggleCustomVisibility={isCustomMode ? (path, index, vis) => toggleCustomVisibility(fa.file.id, path, index, vis) : undefined}
+                  onToggleCustomVisibility={isCustomMode ? (path, index, vis, layerId) => toggleCustomVisibility(fa.file.id, path, index, vis, layerId) : undefined}
                   onAddCustomMove={isCustomMode ? (move) => addCustomMove(fa.file.id, move) : undefined}
                 />
               ))}
@@ -977,8 +999,12 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
                 <span className="w-2 h-2 rounded-sm bg-accent/30" />
                 <span className="text-[9px] text-text-muted">{`→非表示`}</span>
               </div>
+              <div className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-violet-500/30" />
+                <span className="text-[9px] text-text-muted">移動</span>
+              </div>
               <div className="flex items-center gap-1 ml-auto">
-                <span className="text-[9px] text-text-muted/60">クリックで切替</span>
+                <span className="text-[9px] text-text-muted/60">クリックで切替 / D&Dで移動</span>
               </div>
             </>
           ) : (
@@ -1028,7 +1054,7 @@ function SingleFileTree({ annotation, hasAnnotations, actionMode, onToggleCustom
   annotation: FileAnnotation;
   hasAnnotations: boolean;
   actionMode: LayerActionMode;
-  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean, layerId?: string) => void;
   onAddCustomMove?: (move: CustomMoveOp) => void;
 }) {
   if (annotation.layerTree.length === 0) {
@@ -1089,10 +1115,14 @@ function DndTreeWrapper({ children, onAddCustomMove }: {
     const target = over.data.current as DropTargetData | undefined;
     if (!source || !target) return;
 
-    // Prevent dropping on self or own descendant
-    const sourceKey = source.path.join("/");
-    const targetKey = target.targetPath.join("/");
-    if (targetKey.startsWith(sourceKey + "/") || targetKey === sourceKey) return;
+    // Prevent dropping on exact same layer (path + index must match)
+    const sourcePathKey = source.path.join("/") + ":" + source.index;
+    const targetPathKey = target.targetPath.join("/") + ":" + target.targetIndex;
+    if (targetPathKey === sourcePathKey) return;
+
+    // Prevent dropping into own subtree (child path starts with source path/)
+    const sourcePath = source.path.join("/");
+    if (target.targetPath.join("/").startsWith(sourcePath + "/")) return;
 
     onAddCustomMove({
       sourcePath: source.path,
@@ -1127,7 +1157,7 @@ function FileColumn({ annotation, hasAnnotations, actionMode, isChecked, onToggl
   onToggleCheck: (shiftKey: boolean) => void;
   onOpenInPhotoshop?: () => void;
   onOpenFolder?: () => void;
-  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean, layerId?: string) => void;
   onAddCustomMove?: (move: CustomMoveOp) => void;
 }) {
   const { file, layerTree, annotatedTree, stats } = annotation;
@@ -1277,10 +1307,9 @@ function PlainItem({ layer, depth, parentVisible }: { layer: LayerNode; depth: n
 function DropGap({ id, data }: { id: string; data: DropTargetData }) {
   const { isOver, setNodeRef } = useDroppable({ id, data });
   return (
-    <div
-      ref={setNodeRef}
-      className={`h-[2px] -my-[1px] mx-1 rounded-full transition-colors ${isOver ? "bg-sky-500" : "bg-transparent"}`}
-    />
+    <div ref={setNodeRef} className="h-[8px] -my-[3px] relative flex items-center">
+      <div className={`h-[2px] mx-1 rounded-full w-full transition-colors ${isOver ? "bg-sky-500" : "bg-transparent"}`} />
+    </div>
   );
 }
 
@@ -1291,7 +1320,7 @@ function AnnotatedTree({ items, depth, actionMode, parentVisible = true, onToggl
   depth: number;
   actionMode: LayerActionMode;
   parentVisible?: boolean;
-  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean, layerId?: string) => void;
   isDndEnabled?: boolean;
 }) {
   return (
@@ -1322,7 +1351,7 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true, onToggle
   depth: number;
   actionMode: LayerActionMode;
   parentVisible?: boolean;
-  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean) => void;
+  onToggleCustomVisibility?: (path: string[], index: number, currentVisible: boolean, layerId?: string) => void;
   isDndEnabled?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(depth < 2);
@@ -1369,8 +1398,13 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true, onToggle
     borderLeft = "border-l-[2px] border-amber-500";
   } else if (willChange) {
     if (actionMode === "custom") {
-      rowBg = "bg-sky-500/8";
-      borderLeft = "border-l-[2px] border-sky-500/50";
+      if (item.customAction === "move") {
+        rowBg = "bg-violet-500/8";
+        borderLeft = "border-l-[2px] border-violet-500/50";
+      } else {
+        rowBg = "bg-sky-500/8";
+        borderLeft = "border-l-[2px] border-sky-500/50";
+      }
     } else if (actionMode === "organize") {
       rowBg = "bg-warning/8";
       borderLeft = "border-l-[2px] border-warning/50";
@@ -1397,9 +1431,11 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true, onToggle
     ? "bg-error/12 text-error font-medium"
     : willChange
       ? actionMode === "custom"
-        ? item.customAction === "hide"
-          ? "bg-accent/12 text-accent font-medium"
-          : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
+        ? item.customAction === "move"
+          ? "bg-violet-500/12 text-violet-500 font-medium"
+          : item.customAction === "hide"
+            ? "bg-accent/12 text-accent font-medium"
+            : "bg-accent-tertiary/12 text-accent-tertiary font-medium"
         : actionMode === "organize"
           ? "bg-warning/12 text-warning font-medium"
           : actionMode === "layerMove"
@@ -1413,7 +1449,7 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true, onToggle
     ? "→削除"
     : willChange
       ? actionMode === "custom"
-        ? item.customAction === "hide" ? "→非表示" : "→表示"
+        ? item.customAction === "move" ? "移動" : item.customAction === "hide" ? "→非表示" : "→表示"
         : actionMode === "organize" ? "→格納"
           : actionMode === "layerMove" ? "→移動"
           : actionMode === "hide" ? "→非表示"
@@ -1428,7 +1464,7 @@ function AnnotatedItem({ item, depth, actionMode, parentVisible = true, onToggle
   const handleVisClick = isCustomMode && onToggleCustomVisibility && item.customPath
     ? (e: React.MouseEvent) => {
         e.stopPropagation();
-        onToggleCustomVisibility(item.customPath!, item.customIndex!, effectiveVisible);
+        onToggleCustomVisibility(item.customPath!, item.customIndex!, effectiveVisible, item.node.id);
       }
     : undefined;
 
@@ -1535,11 +1571,13 @@ function VisIcon({ visible, effective = visible, onClick, customAction }: {
   visible: boolean;
   effective?: boolean;
   onClick?: (e: React.MouseEvent) => void;
-  customAction?: "show" | "hide";
+  customAction?: "show" | "hide" | "move";
 }) {
   // visible = PS上のフラグ（アイコン形状）, effective = 実際に見えるか（色の濃さ）
   const color = customAction
-    ? customAction === "show" ? "text-accent-tertiary" : "text-accent"
+    ? customAction === "show" ? "text-accent-tertiary"
+      : customAction === "move" ? "text-violet-500"
+      : "text-accent"
     : effective ? "text-accent-tertiary" : "text-text-muted/50";
   return (
     <div

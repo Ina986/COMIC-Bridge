@@ -8,6 +8,7 @@ export interface CustomVisibilityOp {
   path: string[];     // ["GroupA", "SubGroup", "LayerName"]
   index: number;      // 同名レイヤーの曖昧さ回避（同階層でのインデックス）
   action: "show" | "hide";
+  layerId?: string;   // レイヤーIDで追跡（移動後のパス再解決用）
 }
 
 export interface CustomMoveOp {
@@ -142,12 +143,16 @@ interface LayerVisibilityState {
   setDeleteHiddenText: (value: boolean) => void;
 
   // カスタム操作アクション
-  toggleCustomVisibility: (fileId: string, path: string[], index: number, currentVisible: boolean) => void;
+  toggleCustomVisibility: (fileId: string, path: string[], index: number, currentVisible: boolean, layerId?: string) => void;
   addCustomMove: (fileId: string, op: CustomMoveOp) => void;
   removeCustomVisibilityOp: (fileId: string, path: string[], index: number) => void;
   removeCustomMoveOp: (fileId: string, opIndex: number) => void;
   clearCustomOps: (fileId?: string) => void;
   getCustomOpsSummary: () => { visibility: number; move: number };
+  undoCustomOp: () => void;
+
+  // Undo stack (internal)
+  _customOpsHistory: Array<{ vis: Map<string, CustomVisibilityOp[]>; move: Map<string, CustomMoveOp[]> }>;
 }
 
 export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
@@ -171,6 +176,7 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
   deleteHiddenText: false,
   customVisibilityOps: new Map(),
   customMoveOps: new Map(),
+  _customOpsHistory: [],
   isProcessing: false,
   lastResults: [],
   lastActionMode: null,
@@ -283,8 +289,11 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
     set({ deleteHiddenText: value });
   },
 
-  toggleCustomVisibility: (fileId, path, index, currentVisible) => {
+  toggleCustomVisibility: (fileId, path, index, currentVisible, layerId) => {
     set((state) => {
+      // Push current state to undo history
+      const history = [...state._customOpsHistory, { vis: state.customVisibilityOps, move: state.customMoveOps }].slice(-50);
+
       const newMap = new Map(state.customVisibilityOps);
       const ops = [...(newMap.get(fileId) ?? [])];
       const pathKey = path.join("/") + ":" + index;
@@ -294,23 +303,26 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
         ops.splice(existing, 1);
       } else {
         // Add new op: if currently visible → hide, if hidden → show
-        ops.push({ path, index, action: currentVisible ? "hide" : "show" });
+        ops.push({ path, index, action: currentVisible ? "hide" : "show", layerId });
       }
       if (ops.length === 0) {
         newMap.delete(fileId);
       } else {
         newMap.set(fileId, ops);
       }
-      return { customVisibilityOps: newMap };
+      return { customVisibilityOps: newMap, _customOpsHistory: history };
     });
   },
 
   addCustomMove: (fileId, op) => {
     set((state) => {
+      // Push current state to undo history
+      const history = [...state._customOpsHistory, { vis: state.customVisibilityOps, move: state.customMoveOps }].slice(-50);
+
       const newMap = new Map(state.customMoveOps);
       const ops = [...(newMap.get(fileId) ?? []), op];
       newMap.set(fileId, ops);
-      return { customMoveOps: newMap };
+      return { customMoveOps: newMap, _customOpsHistory: history };
     });
   },
 
@@ -350,9 +362,22 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
         const newMove = new Map(state.customMoveOps);
         newVis.delete(fileId);
         newMove.delete(fileId);
-        return { customVisibilityOps: newVis, customMoveOps: newMove };
+        return { customVisibilityOps: newVis, customMoveOps: newMove, _customOpsHistory: [] };
       }
-      return { customVisibilityOps: new Map(), customMoveOps: new Map() };
+      return { customVisibilityOps: new Map(), customMoveOps: new Map(), _customOpsHistory: [] };
+    });
+  },
+
+  undoCustomOp: () => {
+    set((state) => {
+      if (state._customOpsHistory.length === 0) return state;
+      const history = [...state._customOpsHistory];
+      const prev = history.pop()!;
+      return {
+        customVisibilityOps: prev.vis,
+        customMoveOps: prev.move,
+        _customOpsHistory: history,
+      };
     });
   },
 
