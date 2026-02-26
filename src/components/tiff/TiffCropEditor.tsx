@@ -44,6 +44,11 @@ export function TiffCropEditor() {
     return files[idx] || null;
   }, [files, referenceFileIndex]);
 
+  // PSD元ガイド（読み取り専用表示用）
+  const psdGuides = useMemo(() => {
+    return referenceFile?.metadata?.guides ?? [];
+  }, [referenceFile]);
+
   const setReferenceImageSize = useTiffStore((state) => state.setReferenceImageSize);
 
   // 高解像度プレビュー
@@ -725,6 +730,39 @@ export function TiffCropEditor() {
             draggable={false}
           />
         )}
+
+        {/* PSD Original Guides (read-only reference overlay) */}
+        {imageLayout && originalSize && psdGuides.length > 0 && psdGuides.map((guide, i) => (
+          guide.direction === "horizontal" ? (
+            <div
+              key={`psd-g-${i}`}
+              className="absolute z-[5] pointer-events-none"
+              style={{
+                left: imageLayout.offsetX,
+                top: imageLayout.offsetY + guide.position * imageLayout.scale,
+                width: imageLayout.displayW,
+                height: 1,
+                background: "#00e5ff",
+                opacity: 0.55,
+                boxShadow: "0 0 3px rgba(0,229,255,0.4)",
+              }}
+            />
+          ) : (
+            <div
+              key={`psd-g-${i}`}
+              className="absolute z-[5] pointer-events-none"
+              style={{
+                left: imageLayout.offsetX + guide.position * imageLayout.scale,
+                top: imageLayout.offsetY,
+                width: 1,
+                height: imageLayout.displayH,
+                background: "#00e5ff",
+                opacity: 0.55,
+                boxShadow: "0 0 3px rgba(0,229,255,0.4)",
+              }}
+            />
+          )
+        ))}
 
         {/* Guide Lines (only when crop is enabled) */}
         {cropEnabled && showRulers && imageLayout && originalSize && (
