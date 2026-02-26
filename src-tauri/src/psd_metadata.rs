@@ -94,6 +94,15 @@ struct RawLayer {
     /// lsct section divider type: None = normal layer, Some(0) = hidden divider,
     /// Some(1/2) = open/closed group
     section_type: Option<u32>,
+    /// Parsed TySh (text layer) data
+    tysh_data: Option<TyShData>,
+}
+
+#[derive(Debug)]
+struct TyShData {
+    text: String,
+    fonts: Vec<String>,
+    font_sizes: Vec<f64>,
 }
 
 // ================================================================
@@ -467,6 +476,7 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
     let mut is_smart_object = false;
     let mut is_adjustment = false;
     let mut is_shape = false;
+    let mut tysh_data: Option<TyShData> = None;
 
     // Layer mask data
     let mask_len = read_u32(r)? as u64;
@@ -540,9 +550,15 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
             b"vmsk" | b"vsms" => {
                 has_vector_mask = true;
             }
-            // Text layer
+            // Text layer — also extract text content, fonts, sizes
             b"TySh" => {
                 is_text = true;
+                if tag_data_len > 50 && tag_data_len < 10_000_000 {
+                    let mut tysh_buf = vec![0u8; tag_data_len as usize];
+                    if r.read_exact(&mut tysh_buf).is_ok() {
+                        tysh_data = parse_tysh_data(&tysh_buf);
+                    }
+                }
             }
             // Smart object
             b"SoLd" | b"PlLd" | b"SoLE" => {
@@ -583,6 +599,7 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
         is_adjustment,
         is_shape,
         section_type,
+        tysh_data,
     })
 }
 
@@ -600,7 +617,7 @@ fn is_psb_long_key(key: &[u8; 4]) -> bool {
 // Layer tree construction
 // ================================================================
 
-fn build_layer_tree(raw_layers: &[RawLayer], _dpi: u32) -> Vec<LayerNode> {
+fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
     // PSD stores layers in bottom-to-top order (file order).
     // ag-psd returns layers in this same bottom-to-top order, and UI components
     // (.reverse()) handle the display reversal. So we process in file order.
@@ -670,6 +687,25 @@ fn build_layer_tree(raw_layers: &[RawLayer], _dpi: u32) -> Vec<LayerNode> {
                     "layer"
                 };
 
+                let text_info = raw.tysh_data.as_ref().map(|td| {
+                    // EngineData stores font sizes in document pixels;
+                    // convert to points: pt = px * 72 / dpi
+                    let dpi_f = dpi as f64;
+                    let font_sizes: Vec<f64> = if dpi > 72 {
+                        td.font_sizes.iter().map(|&s| {
+                            let pt = s * 72.0 / dpi_f;
+                            (pt * 10.0).round() / 10.0
+                        }).collect()
+                    } else {
+                        td.font_sizes.clone()
+                    };
+                    TextInfo {
+                        text: td.text.clone(),
+                        fonts: td.fonts.clone(),
+                        font_sizes,
+                    }
+                });
+
                 let node = LayerNode {
                     id: format!("layer-{}", path),
                     name: raw.name.clone(),
@@ -680,7 +716,7 @@ fn build_layer_tree(raw_layers: &[RawLayer], _dpi: u32) -> Vec<LayerNode> {
                     has_mask: raw.has_mask,
                     has_vector_mask: raw.has_vector_mask,
                     clipping: raw.clipping,
-                    text_info: None,
+                    text_info,
                     children: None,
                 };
                 root.push(node);
@@ -716,6 +752,331 @@ fn detect_tombo(nodes: &[LayerNode]) -> bool {
         }
     }
     false
+}
+
+// ================================================================
+// TySh (Text Layer) Parsing
+// ================================================================
+
+/// Parse TySh tagged block data to extract text content, font names, and sizes.
+/// Returns None on any parse error (graceful fallback to text_info: None).
+fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
+    use std::io::Cursor;
+    let mut r = Cursor::new(data);
+
+    // Version (2 bytes) — expect 1
+    let _version = read_u16(&mut r).ok()?;
+
+    // Transform matrix: 6 doubles (48 bytes) — skip for now
+    r.seek(SeekFrom::Current(48)).ok()?;
+
+    // Text data version (2 bytes)
+    let _text_version = read_u16(&mut r).ok()?;
+
+    // Descriptor version (4 bytes)
+    let _desc_version = read_u32(&mut r).ok()?;
+
+    // Parse text descriptor — extract "Txt " text and "EngineData" blob
+    let (text, engine_data) = parse_ps_descriptor_for_text(&mut r)?;
+
+    // Extract font names and sizes from EngineData
+    // Note: font sizes are in document pixels; DPI conversion happens in build_layer_tree
+    let (fonts, font_sizes) = match engine_data {
+        Some(ed) => extract_from_engine_data(&ed),
+        None => (Vec::new(), Vec::new()),
+    };
+
+    Some(TyShData { text, fonts, font_sizes })
+}
+
+/// Parse a Photoshop descriptor, extracting only "Txt " (text content)
+/// and "EngineData" (raw blob for font extraction). Skips everything else.
+fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Option<Vec<u8>>)> {
+    // Unicode class name (length-prefixed, UTF-16BE)
+    let name_len = read_u32(r).ok()? as i64;
+    r.seek(SeekFrom::Current(name_len * 2)).ok()?;
+
+    // Class ID (length-prefixed; if length=0, read 4 bytes)
+    let class_id_len = read_u32(r).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+
+    // Item count
+    let count = read_u32(r).ok()?;
+    if count > 200 { return None; }
+
+    let mut text: Option<String> = None;
+    let mut engine_data: Option<Vec<u8>> = None;
+
+    for _ in 0..count {
+        // Key
+        let key = read_ps_key(r)?;
+
+        // Type tag (4 bytes)
+        let mut tt = [0u8; 4];
+        r.read_exact(&mut tt).ok()?;
+
+        match &tt {
+            b"TEXT" => {
+                let s = read_ps_text(r)?;
+                if key == b"Txt " { text = Some(s); }
+            }
+            b"tdta" => {
+                let data_len = read_u32(r).ok()? as usize;
+                if data_len > 50_000_000 { return None; }
+                if key.starts_with(b"Engin") {
+                    let mut buf = vec![0u8; data_len];
+                    r.read_exact(&mut buf).ok()?;
+                    engine_data = Some(buf);
+                } else {
+                    r.seek(SeekFrom::Current(data_len as i64)).ok()?;
+                }
+            }
+            _ => {
+                if skip_ps_value(r, &tt).is_none() { break; }
+            }
+        }
+    }
+
+    Some((text.unwrap_or_default(), engine_data))
+}
+
+/// Read a Photoshop descriptor key (4-byte length; if 0, key is 4 bytes)
+fn read_ps_key<R: Read>(r: &mut R) -> Option<Vec<u8>> {
+    let len = read_u32(r).ok()?;
+    let actual = if len == 0 { 4 } else { len as usize };
+    let mut buf = vec![0u8; actual];
+    r.read_exact(&mut buf).ok()?;
+    Some(buf)
+}
+
+/// Read a Unicode TEXT value from a Photoshop descriptor
+fn read_ps_text<R: Read>(r: &mut R) -> Option<String> {
+    let char_count = read_u32(r).ok()? as usize;
+    if char_count == 0 { return Some(String::new()); }
+    if char_count > 10_000_000 { return None; }
+    let mut buf = vec![0u8; char_count * 2];
+    r.read_exact(&mut buf).ok()?;
+    let utf16: Vec<u16> = buf.chunks_exact(2)
+        .map(|c| u16::from_be_bytes([c[0], c[1]]))
+        .collect();
+    let end = utf16.iter().position(|&c| c == 0).unwrap_or(utf16.len());
+    Some(String::from_utf16_lossy(&utf16[..end]))
+}
+
+/// Skip a typed Photoshop descriptor value (for types we don't need)
+fn skip_ps_value<R: Read + Seek>(r: &mut R, tt: &[u8; 4]) -> Option<()> {
+    match tt {
+        b"TEXT" => { let n = read_u32(r).ok()? as i64; r.seek(SeekFrom::Current(n * 2)).ok()?; }
+        b"tdta" | b"alis" | b"Pth " => { let n = read_u32(r).ok()? as i64; r.seek(SeekFrom::Current(n)).ok()?; }
+        b"Objc" | b"GlbO" => { skip_ps_descriptor(r)?; }
+        b"VlLs" => {
+            let count = read_u32(r).ok()?;
+            for _ in 0..count { skip_ps_typed_value(r)?; }
+        }
+        b"enum" => {
+            let t = read_u32(r).ok()?;
+            r.seek(SeekFrom::Current(if t == 0 { 4 } else { t as i64 })).ok()?;
+            let v = read_u32(r).ok()?;
+            r.seek(SeekFrom::Current(if v == 0 { 4 } else { v as i64 })).ok()?;
+        }
+        b"long" => { r.seek(SeekFrom::Current(4)).ok()?; }
+        b"doub" => { r.seek(SeekFrom::Current(8)).ok()?; }
+        b"bool" => { r.seek(SeekFrom::Current(1)).ok()?; }
+        b"UntF" => { r.seek(SeekFrom::Current(12)).ok()?; } // unit(4) + double(8)
+        b"comp" => { r.seek(SeekFrom::Current(8)).ok()?; }
+        b"type" | b"GlbC" => {
+            // Class reference: name + classID
+            let n = read_u32(r).ok()? as i64;
+            r.seek(SeekFrom::Current(n * 2)).ok()?;
+            let c = read_u32(r).ok()?;
+            r.seek(SeekFrom::Current(if c == 0 { 4 } else { c as i64 })).ok()?;
+        }
+        _ => { return None; } // Unknown type — bail
+    }
+    Some(())
+}
+
+/// Skip an entire Photoshop descriptor (for nested Objc values)
+fn skip_ps_descriptor<R: Read + Seek>(r: &mut R) -> Option<()> {
+    let name_len = read_u32(r).ok()? as i64;
+    r.seek(SeekFrom::Current(name_len * 2)).ok()?;
+    let class_id_len = read_u32(r).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+    let count = read_u32(r).ok()?;
+    if count > 200 { return None; }
+    for _ in 0..count {
+        // Key
+        let kl = read_u32(r).ok()?;
+        r.seek(SeekFrom::Current(if kl == 0 { 4 } else { kl as i64 })).ok()?;
+        // Typed value
+        skip_ps_typed_value(r)?;
+    }
+    Some(())
+}
+
+/// Skip a single typed value (type tag + value)
+fn skip_ps_typed_value<R: Read + Seek>(r: &mut R) -> Option<()> {
+    let mut tt = [0u8; 4];
+    r.read_exact(&mut tt).ok()?;
+    skip_ps_value(r, &tt)
+}
+
+/// Extract font PostScript names and font sizes from EngineData blob.
+/// Builds a font index from /FontSet, then only returns fonts actually
+/// referenced by /Font indices in style runs (filtering out Photoshop
+/// internal fonts like AdobeInvisFont and CJK fallbacks).
+fn extract_from_engine_data(data: &[u8]) -> (Vec<String>, Vec<f64>) {
+    // 1. Build indexed font name list from /FontSet
+    let mut font_index: Vec<String> = Vec::new();
+    if let Some(font_set_pos) = find_subsequence(data, b"/FontSet") {
+        let region = &data[font_set_pos..];
+        let end = find_byte(region, b']').unwrap_or(region.len().min(8192));
+        let region = &region[..end];
+
+        let mut pos = 0;
+        while pos < region.len() {
+            if let Some(offset) = find_subsequence(&region[pos..], b"/Name") {
+                let after = pos + offset + 5;
+                if let Some(s) = read_paren_string(region, after) {
+                    font_index.push(s);
+                } else {
+                    font_index.push(String::new());
+                }
+                pos = after + 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 2. Find /Font N references only in /StyleRun section (before /ResourceDict)
+    //    /ResourceDict contains /StyleSheetSet with fallback font definitions
+    //    that are NOT actual text fonts — exclude them.
+    let font_scan_end = find_subsequence(data, b"/ResourceDict").unwrap_or(data.len());
+    let mut used_indices = std::collections::BTreeSet::new();
+    let mut pos = 0;
+    while pos < font_scan_end {
+        if let Some(offset) = find_subsequence(&data[pos..font_scan_end], b"/Font") {
+            let abs = pos + offset;
+            let after_key = abs + 5; // position after "/Font"
+            // Ensure it's exactly "/Font" followed by whitespace, not "/FontSize" etc.
+            if after_key < font_scan_end && is_ed_whitespace(data[after_key]) {
+                if let Some(idx) = read_number_after_whitespace(data, after_key) {
+                    used_indices.insert(idx as usize);
+                }
+            }
+            pos = after_key + 1;
+        } else {
+            break;
+        }
+    }
+
+    // 3. Map indices to names, filtering internal fonts
+    let fonts: Vec<String> = if used_indices.is_empty() {
+        // Fallback: return all non-internal fonts from FontSet
+        font_index.iter()
+            .filter(|f| !f.is_empty() && !is_internal_font(f))
+            .cloned()
+            .collect()
+    } else {
+        let mut seen = std::collections::HashSet::new();
+        used_indices.iter()
+            .filter_map(|&idx| font_index.get(idx).cloned())
+            .filter(|f| !f.is_empty() && !is_internal_font(f) && seen.insert(f.clone()))
+            .collect()
+    };
+
+    // 4. Find all /FontSize values (only in /StyleRun section, before /ResourceDict)
+    let mut sizes_set = std::collections::BTreeSet::new();
+    let mut pos = 0;
+    while pos < font_scan_end {
+        if let Some(offset) = find_subsequence(&data[pos..font_scan_end], b"/FontSize") {
+            let after = pos + offset + 9;
+            if let Some(size) = read_number_after_whitespace(data, after) {
+                if size > 0.0 {
+                    let rounded = (size * 10.0).round() / 10.0;
+                    sizes_set.insert((rounded * 10.0) as i64);
+                }
+            }
+            pos = after + 1;
+        } else {
+            break;
+        }
+    }
+
+    let font_sizes: Vec<f64> = sizes_set.iter().rev().map(|&v| v as f64 / 10.0).collect();
+    (fonts, font_sizes)
+}
+
+fn is_ed_whitespace(b: u8) -> bool {
+    b == b' ' || b == b'\t' || b == b'\n' || b == b'\r'
+}
+
+/// Filter out Photoshop-internal fonts that appear in /FontSet but aren't user fonts
+fn is_internal_font(name: &str) -> bool {
+    name.contains("AdobeInvisFont")
+}
+
+/// Find a byte subsequence in a slice
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Find a single byte in a slice
+fn find_byte(data: &[u8], byte: u8) -> Option<usize> {
+    data.iter().position(|&b| b == byte)
+}
+
+/// Read a parenthesized string from EngineData: skip whitespace, then read (...)
+fn read_paren_string(data: &[u8], start: usize) -> Option<String> {
+    let mut i = start;
+    // Skip whitespace
+    while i < data.len() && (data[i] == b' ' || data[i] == b'\t' || data[i] == b'\n' || data[i] == b'\r') {
+        i += 1;
+    }
+    if i >= data.len() || data[i] != b'(' { return None; }
+    i += 1; // skip '('
+    let str_start = i;
+    let mut depth = 1u32;
+    while i < data.len() && depth > 0 {
+        match data[i] {
+            b'\\' => { i += 1; } // skip escaped char
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            _ => {}
+        }
+        if depth > 0 { i += 1; }
+    }
+    // Handle potential UTF-16BE encoding (starts with \xfe\xff BOM)
+    let raw = &data[str_start..i];
+    if raw.len() >= 2 && raw[0] == 0xFE && raw[1] == 0xFF {
+        // UTF-16BE: decode skipping BOM
+        let utf16: Vec<u16> = raw[2..].chunks_exact(2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
+        let end = utf16.iter().position(|&c| c == 0).unwrap_or(utf16.len());
+        Some(String::from_utf16_lossy(&utf16[..end]))
+    } else {
+        // ASCII
+        Some(String::from_utf8_lossy(raw).to_string())
+    }
+}
+
+/// Read a number (int or float) after skipping whitespace
+fn read_number_after_whitespace(data: &[u8], start: usize) -> Option<f64> {
+    let mut i = start;
+    while i < data.len() && (data[i] == b' ' || data[i] == b'\t' || data[i] == b'\n' || data[i] == b'\r') {
+        i += 1;
+    }
+    let num_start = i;
+    // Allow leading minus
+    if i < data.len() && data[i] == b'-' { i += 1; }
+    while i < data.len() && (data[i].is_ascii_digit() || data[i] == b'.') {
+        i += 1;
+    }
+    if i == num_start { return None; }
+    let s = std::str::from_utf8(&data[num_start..i]).ok()?;
+    s.parse::<f64>().ok()
 }
 
 // ================================================================
@@ -779,6 +1140,12 @@ fn read_u64<R: Read>(r: &mut R) -> Result<u64, String> {
     let mut buf = [0u8; 8];
     r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
     Ok(u64::from_be_bytes(buf))
+}
+
+fn read_f64<R: Read>(r: &mut R) -> Result<f64, String> {
+    let mut buf = [0u8; 8];
+    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    Ok(f64::from_be_bytes(buf))
 }
 
 fn stream_pos<R: Seek>(r: &mut R) -> Result<u64, String> {
