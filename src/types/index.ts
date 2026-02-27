@@ -42,6 +42,8 @@ export interface PsdFile {
   pdfPageIndex?: number;
   // Subfolder support (TIFF tab)
   subfolderName?: string; // サブフォルダ名（ルート直下は空文字/undefined）
+  // File watcher
+  fileChanged?: boolean; // 外部でファイルが変更された
 }
 
 export interface PsdMetadata {

@@ -98,6 +98,41 @@ pub async fn clear_psd_cache() {
     }
 }
 
+// ============================================
+// File watcher commands
+// ============================================
+
+#[tauri::command]
+pub async fn start_file_watcher(
+    app_handle: tauri::AppHandle,
+    file_paths: Vec<String>,
+) -> Result<(), String> {
+    crate::watcher::start(app_handle, file_paths)
+}
+
+#[tauri::command]
+pub async fn stop_file_watcher() -> Result<(), String> {
+    crate::watcher::stop()
+}
+
+/// 特定ファイルのキャッシュを無効化（ファイル変更時に使用）
+#[tauri::command]
+pub async fn invalidate_file_cache(file_path: String) {
+    if let Ok(mut cache) = get_psd_cache().lock() {
+        cache.remove(&file_path);
+    }
+    if let Ok(mut cache) = get_preview_result_cache().lock() {
+        let keys_to_remove: Vec<String> = cache
+            .keys()
+            .filter(|k| k.starts_with(&file_path))
+            .cloned()
+            .collect();
+        for key in keys_to_remove {
+            cache.remove(&key);
+        }
+    }
+}
+
 /// ファイルの更新日時をUNIXエポックからの秒数で取得
 fn get_file_modified_secs(path: &Path) -> u64 {
     fs::metadata(path)

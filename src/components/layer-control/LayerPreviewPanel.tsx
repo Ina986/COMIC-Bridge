@@ -3,7 +3,8 @@ import { usePsdStore } from "../../store/psdStore";
 import { useLayerStore, PRESET_CONDITIONS } from "../../store/layerStore";
 import type { LayerActionMode, CustomVisibilityOp, CustomMoveOp } from "../../store/layerStore";
 import { useOpenFolder } from "../../hooks/useOpenFolder";
-import { useHighResPreview, prefetchPreview } from "../../hooks/useHighResPreview";
+import { invoke } from "@tauri-apps/api/core";
+import { useHighResPreview, prefetchPreview, invalidateUrlCache } from "../../hooks/useHighResPreview";
 import { classifyLayerRisk, isTextFolder, type MatchRisk } from "../../lib/layerMatcher";
 import { buildPathKey, applyVirtualMoves } from "../../lib/layerTreeOps";
 import type { LayerNode } from "../../types";
@@ -551,6 +552,32 @@ export function LayerPreviewPanel({ onOpenInPhotoshop }: LayerPreviewPanelProps)
     pdfPageIndex: viewerFile?.pdfPageIndex,
     pdfSourcePath: viewerFile?.pdfSourcePath,
   });
+
+  // 表示中ファイルが外部変更された場合、自動リロード
+  useEffect(() => {
+    if (!viewerFile?.fileChanged || !viewerFile.filePath) return;
+    invalidateUrlCache(viewerFile.filePath);
+    invoke("invalidate_file_cache", { filePath: viewerFile.filePath }).catch(() => {});
+    viewerReload();
+    invoke("parse_psd_metadata_batch", { filePaths: [viewerFile.filePath] })
+      .then((results: unknown) => {
+        const arr = results as { metadata?: unknown; thumbnailData?: string; fileSize?: number }[];
+        if (arr?.[0]?.metadata) {
+          const r = arr[0];
+          const thumbnailUrl = r.thumbnailData
+            ? `data:image/jpeg;base64,${r.thumbnailData}`
+            : undefined;
+          usePsdStore.getState().updateFile(viewerFile.id, {
+            metadata: r.metadata as import("../../types").PsdMetadata,
+            thumbnailUrl,
+            thumbnailStatus: "ready",
+            fileSize: r.fileSize,
+            fileChanged: false,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [viewerFile?.fileChanged, viewerFile?.id]);
 
   // Reset viewer index when files change
   useEffect(() => {

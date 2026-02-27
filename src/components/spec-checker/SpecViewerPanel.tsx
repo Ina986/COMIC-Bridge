@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../../store/psdStore";
-import { useHighResPreview, prefetchPreview } from "../../hooks/useHighResPreview";
+import { useHighResPreview, prefetchPreview, invalidateUrlCache } from "../../hooks/useHighResPreview";
 import { useOpenFolder } from "../../hooks/useOpenFolder";
 import { useFontResolver, collectTextLayers } from "../../hooks/useFontResolver";
 import { TextLayerRow } from "./SpecTextGrid";
@@ -116,6 +117,34 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
     }
     return [...fontSet];
   }, [textLayers]);
+
+  // 表示中ファイルが外部変更された場合、自動リロード
+  useEffect(() => {
+    if (!viewerFile?.fileChanged || !viewerFile.filePath) return;
+    // キャッシュ無効化 → プレビューリロード → メタデータ再取得
+    invalidateUrlCache(viewerFile.filePath);
+    invoke("invalidate_file_cache", { filePath: viewerFile.filePath }).catch(() => {});
+    viewerReload();
+    // メタデータ再取得
+    invoke("parse_psd_metadata_batch", { filePaths: [viewerFile.filePath] })
+      .then((results: unknown) => {
+        const arr = results as { metadata?: unknown; thumbnailData?: string; fileSize?: number }[];
+        if (arr?.[0]?.metadata) {
+          const r = arr[0];
+          const thumbnailUrl = r.thumbnailData
+            ? `data:image/jpeg;base64,${r.thumbnailData}`
+            : undefined;
+          usePsdStore.getState().updateFile(viewerFile.id, {
+            metadata: r.metadata as import("../../types").PsdMetadata,
+            thumbnailUrl,
+            thumbnailStatus: "ready",
+            fileSize: r.fileSize,
+            fileChanged: false,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [viewerFile?.fileChanged, viewerFile?.id]);
 
   // Reset index when files change
   useEffect(() => {

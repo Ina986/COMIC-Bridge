@@ -38,6 +38,19 @@ function cacheKey(filePath: string, maxSize: number, pdfPageIndex?: number) {
 }
 
 /**
+ * 特定ファイルのフロントエンドURLキャッシュを無効化。
+ * ファイルが外部で変更されたときに呼ぶ。
+ */
+export function invalidateUrlCache(filePath: string): void {
+  const normalized = filePath.replace(/\//g, "\\").toLowerCase();
+  for (const key of urlCache.keys()) {
+    if (key.toLowerCase().startsWith(normalized + "::")) {
+      urlCache.delete(key);
+    }
+  }
+}
+
+/**
  * Rust側のキャッシュをウォームアップ（結果はURLキャッシュにも保存）。
  * コンポーネント外から呼べるのでプリフェッチに最適。
  */
