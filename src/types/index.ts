@@ -81,6 +81,7 @@ export interface TextInfo {
   text: string;
   fonts: string[];
   fontSizes: number[];
+  strokeSize?: number;
 }
 
 export interface LayerNode {

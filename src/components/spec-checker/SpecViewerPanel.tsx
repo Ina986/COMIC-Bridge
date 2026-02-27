@@ -419,7 +419,7 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
         </div>
 
         {/* Sidebar content */}
-        <div className="flex-1 overflow-auto min-h-0">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
           {sidebarTab === "text" ? (
             <div className="p-2 space-y-1.5">
               {/* Per-file font badges */}

@@ -33,11 +33,31 @@ export function SpecTextGrid() {
     return [...sizeCount.entries()].sort((a, b) => b[1] - a[1]);
   }, [files]);
 
+  // 白フチ統計の集計（サイズ別頻度順）
+  const strokeStats = useMemo(() => {
+    const strokeCount = new Map<number, number>();
+    let totalWithStroke = 0;
+    for (const file of files) {
+      if (!file.metadata?.layerTree) continue;
+      for (const entry of collectTextLayers(file.metadata.layerTree)) {
+        const s = entry.textInfo?.strokeSize;
+        if (s != null && s > 0) {
+          strokeCount.set(s, (strokeCount.get(s) || 0) + 1);
+          totalWithStroke++;
+        }
+      }
+    }
+    return {
+      entries: [...strokeCount.entries()].sort((a, b) => b[1] - a[1]),
+      total: totalWithStroke,
+    };
+  }, [files]);
+
   return (
     <div className="h-full overflow-auto p-4 select-none">
-      {/* Summary row: Font + Size */}
-      {(allFonts.length > 0 || sizeStats.length > 0) && (
-        <div className="mb-4 grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      {/* Summary row: Font + Size + Stroke */}
+      {(allFonts.length > 0 || sizeStats.length > 0 || strokeStats.entries.length > 0) && (
+        <div className="mb-4 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
           {/* Font Summary */}
           {allFonts.length > 0 && (
             <div className="p-3 bg-bg-secondary/80 border border-border rounded-xl">
@@ -103,6 +123,34 @@ export function SpecTextGrid() {
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[#64b5f6]/30 bg-[#64b5f6]/10 text-[10px]"
                   >
                     <span className="font-medium text-[#64b5f6]">{size}pt</span>
+                    <span className="text-text-muted">({count})</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Stroke Summary */}
+          {strokeStats.entries.length > 0 && (
+            <div className="p-3 bg-bg-secondary/80 border border-border rounded-xl">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-3.5 h-3.5 text-accent-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span className="text-[11px] font-medium text-text-primary">
+                  白フチ統計
+                </span>
+                <span className="text-[10px] text-text-muted">
+                  {strokeStats.total} レイヤー
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {strokeStats.entries.map(([size, count]) => (
+                  <span
+                    key={size}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-accent-tertiary/30 bg-accent-tertiary/10 text-[10px]"
+                  >
+                    <span className="font-medium text-accent-tertiary">{size}px</span>
                     <span className="text-text-muted">({count})</span>
                   </span>
                 ))}
@@ -254,7 +302,7 @@ export function TextLayerRow({ entry, fontInfo, useActualFont = false }: { entry
       `}
     >
       {/* Font badges + size + visibility */}
-      <div className="flex items-center gap-1.5 mb-0.5">
+      <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
         <svg className="w-3 h-3 text-[#f06292] flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
           <path d="M5 4h10v2.5h-1.2V5.5H10.6V14h1.5v1.5h-4.2V14h1.5V5.5H6.2v1H5V4z" />
         </svg>
@@ -264,7 +312,7 @@ export function TextLayerRow({ entry, fontInfo, useActualFont = false }: { entry
           return (
             <span
               key={font}
-              className="text-[9px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+              className="text-[9px] px-1.5 py-0.5 rounded font-medium"
               style={{
                 backgroundColor: `${color}15`,
                 color,
@@ -278,12 +326,17 @@ export function TextLayerRow({ entry, fontInfo, useActualFont = false }: { entry
           );
         })}
         {info && info.fontSizes.length > 0 && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-text-muted flex-shrink-0">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-text-muted">
             {info.fontSizes.join(" / ")}pt
           </span>
         )}
+        {info?.strokeSize != null && info.strokeSize > 0 && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent-tertiary/15 text-accent-tertiary">
+            白フチ{info.strokeSize}px
+          </span>
+        )}
         {!entry.visible && (
-          <span className="text-[9px] px-1 py-px rounded bg-text-muted/10 text-text-muted flex-shrink-0">
+          <span className="text-[9px] px-1 py-px rounded bg-text-muted/10 text-text-muted">
             非表示
           </span>
         )}

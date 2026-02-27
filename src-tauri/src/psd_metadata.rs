@@ -72,6 +72,8 @@ pub struct TextInfo {
     pub fonts: Vec<String>,
     #[serde(rename = "fontSizes")]
     pub font_sizes: Vec<f64>,
+    #[serde(rename = "strokeSize", skip_serializing_if = "Option::is_none")]
+    pub stroke_size: Option<f64>,
 }
 
 // ================================================================
@@ -96,6 +98,8 @@ struct RawLayer {
     section_type: Option<u32>,
     /// Parsed TySh (text layer) data
     tysh_data: Option<TyShData>,
+    /// Stroke (border) size from lfx2 layer effects
+    stroke_size: Option<f64>,
 }
 
 #[derive(Debug)]
@@ -477,6 +481,7 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
     let mut is_adjustment = false;
     let mut is_shape = false;
     let mut tysh_data: Option<TyShData> = None;
+    let mut stroke_size: Option<f64> = None;
 
     // Layer mask data
     let mask_len = read_u32(r)? as u64;
@@ -560,6 +565,15 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
                     }
                 }
             }
+            // Layer effects (stroke/border etc.)
+            b"lfx2" | b"lmfx" => {
+                if tag_data_len > 8 && tag_data_len < 1_000_000 {
+                    let mut buf = vec![0u8; tag_data_len as usize];
+                    if r.read_exact(&mut buf).is_ok() {
+                        stroke_size = parse_lfx2_stroke_size(&buf);
+                    }
+                }
+            }
             // Smart object
             b"SoLd" | b"PlLd" | b"SoLE" => {
                 is_smart_object = true;
@@ -600,6 +614,7 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
         is_shape,
         section_type,
         tysh_data,
+        stroke_size,
     })
 }
 
@@ -703,6 +718,7 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                         text: td.text.clone(),
                         fonts: td.fonts.clone(),
                         font_sizes,
+                        stroke_size: raw.stroke_size,
                     }
                 });
 
@@ -919,6 +935,85 @@ fn skip_ps_typed_value<R: Read + Seek>(r: &mut R) -> Option<()> {
     let mut tt = [0u8; 4];
     r.read_exact(&mut tt).ok()?;
     skip_ps_value(r, &tt)
+}
+
+// ================================================================
+// lfx2: Layer effects — extract stroke (FrFX) size
+// ================================================================
+
+/// Parse lfx2 tag data and extract stroke (border/FrFX) size in pixels.
+/// Returns None if no enabled stroke effect is found.
+fn parse_lfx2_stroke_size(data: &[u8]) -> Option<f64> {
+    use std::io::Cursor;
+    let mut r = Cursor::new(data);
+
+    // Version (4 bytes)
+    let _version = read_u32(&mut r).ok()?;
+
+    // Descriptor version (4 bytes) — present in lfx2
+    let _desc_version = read_u32(&mut r).ok()?;
+
+    // Parse outer descriptor: look for "FrFX" key
+    // Unicode class name
+    let name_len = read_u32(&mut r).ok()? as i64;
+    r.seek(SeekFrom::Current(name_len * 2)).ok()?;
+    // Class ID
+    let class_id_len = read_u32(&mut r).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+
+    let count = read_u32(&mut r).ok()?;
+    if count > 100 { return None; }
+
+    for _ in 0..count {
+        let key = read_ps_key(&mut r)?;
+        let mut tt = [0u8; 4];
+        r.read_exact(&mut tt).ok()?;
+
+        if key == b"FrFX" && (&tt == b"Objc" || &tt == b"GlbO") {
+            // Parse the FrFX descriptor to find enab and Sz
+            return parse_frfx_descriptor(&mut r);
+        } else {
+            skip_ps_value(&mut r, &tt)?;
+        }
+    }
+    None
+}
+
+/// Parse a FrFX (stroke) descriptor, extracting enabled state and size.
+fn parse_frfx_descriptor<R: Read + Seek>(r: &mut R) -> Option<f64> {
+    // Unicode class name
+    let name_len = read_u32(r).ok()? as i64;
+    r.seek(SeekFrom::Current(name_len * 2)).ok()?;
+    // Class ID
+    let class_id_len = read_u32(r).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+
+    let count = read_u32(r).ok()?;
+    if count > 100 { return None; }
+
+    let mut enabled = true;
+    let mut size: Option<f64> = None;
+
+    for _ in 0..count {
+        let key = read_ps_key(r)?;
+        let mut tt = [0u8; 4];
+        r.read_exact(&mut tt).ok()?;
+
+        if key == b"enab" && &tt == b"bool" {
+            let mut b = [0u8; 1];
+            r.read_exact(&mut b).ok()?;
+            enabled = b[0] != 0;
+        } else if key == b"Sz  " && &tt == b"UntF" {
+            // Unit (4 bytes) + double (8 bytes)
+            r.seek(SeekFrom::Current(4)).ok()?; // skip unit (e.g. #Pxl)
+            let val = read_f64(r).ok()?;
+            size = Some(val);
+        } else {
+            skip_ps_value(r, &tt)?;
+        }
+    }
+
+    if enabled { size } else { None }
 }
 
 /// Extract font PostScript names and font sizes from EngineData blob.

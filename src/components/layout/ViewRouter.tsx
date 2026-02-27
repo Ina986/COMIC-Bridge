@@ -1,6 +1,5 @@
 import { useViewStore } from "../../store/viewStore";
 import { SpecCheckView } from "../views/SpecCheckView";
-import { ViewerView } from "../views/ViewerView";
 import { LayerControlView } from "../views/LayerControlView";
 import { SplitView } from "../views/SplitView";
 import { ReplaceView } from "../views/ReplaceView";
@@ -15,7 +14,6 @@ export function ViewRouter() {
   return (
     <div className="flex-1 overflow-hidden bg-bg-primary relative">
       {activeView === "specCheck" && <SpecCheckView />}
-      {activeView === "viewer" && <ViewerView />}
       {activeView === "layers" && <LayerControlView />}
       {activeView === "split" && <SplitView />}
       {activeView === "replace" && <ReplaceView />}
