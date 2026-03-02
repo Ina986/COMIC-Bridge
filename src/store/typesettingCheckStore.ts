@@ -37,6 +37,9 @@ export interface TypesettingCheckState {
   // 検索
   searchQuery: string;
 
+  // チェック済み項目
+  checkedItems: Set<string>;
+
   // Actions
   setCheckData: (data: ParsedProofreadingData | null) => void;
   setCheckTabMode: (mode: CheckTabMode) => void;
@@ -45,6 +48,7 @@ export interface TypesettingCheckState {
   setViewerFileIndex: (index: number) => void;
   setSearchQuery: (query: string) => void;
   navigateToPage: (pageStr: string) => void;
+  toggleChecked: (key: string) => void;
   reset: () => void;
 }
 
@@ -55,8 +59,9 @@ export const useTypesettingCheckStore = create<TypesettingCheckState>((set) => (
   showJsonBrowser: false,
   viewerFileIndex: 0,
   searchQuery: "",
+  checkedItems: new Set<string>(),
 
-  setCheckData: (checkData) => set({ checkData }),
+  setCheckData: (checkData) => set({ checkData, checkedItems: new Set<string>() }),
   setCheckTabMode: (checkTabMode) => set({ checkTabMode }),
   setJsonBasePath: (path) => {
     savePath("typesetting-json-base-path", path);
@@ -67,20 +72,32 @@ export const useTypesettingCheckStore = create<TypesettingCheckState>((set) => (
   setSearchQuery: (searchQuery) => set({ searchQuery }),
 
   navigateToPage: (pageStr) => {
-    const match = pageStr.match(/^(\d+)/);
+    const match = pageStr.match(/(\d+)/);
     if (!match) return;
     const pageNum = parseInt(match[1], 10);
 
     const files = usePsdStore.getState().files;
-    // ファイル名末尾の連続数字とページ番号を照合
+    // ファイル名の最後の連続数字とページ番号を照合（usePageNumberCheck と同じロジック）
     const idx = files.findIndex((f) => {
-      const nameMatch = f.fileName.replace(/\.[^.]+$/, "").match(/(\d+)$/);
+      const nameWithoutExt = f.fileName.replace(/\.[^.]+$/, "");
+      const nameMatch = nameWithoutExt.match(/(\d+)(?=[^\d]*$)/);
       return nameMatch && parseInt(nameMatch[1], 10) === pageNum;
     });
     if (idx >= 0) {
       set({ viewerFileIndex: idx });
     }
   },
+
+  toggleChecked: (key) =>
+    set((state) => {
+      const next = new Set(state.checkedItems);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return { checkedItems: next };
+    }),
 
   reset: () =>
     set({
@@ -89,5 +106,6 @@ export const useTypesettingCheckStore = create<TypesettingCheckState>((set) => (
       showJsonBrowser: false,
       viewerFileIndex: 0,
       searchQuery: "",
+      checkedItems: new Set<string>(),
     }),
 }));
