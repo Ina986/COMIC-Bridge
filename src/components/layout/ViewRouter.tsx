@@ -7,6 +7,7 @@ import { ComposeView } from "../views/ComposeView";
 import { RenameView } from "../views/RenameView";
 import { TiffView } from "../views/TiffView";
 import { ScanPsdView } from "../views/ScanPsdView";
+import { TypesettingCheckView } from "../views/TypesettingCheckView";
 
 export function ViewRouter() {
   const activeView = useViewStore((s) => s.activeView);
@@ -21,6 +22,7 @@ export function ViewRouter() {
       {activeView === "rename" && <RenameView />}
       {activeView === "tiff" && <TiffView />}
       {activeView === "scanPsd" && <ScanPsdView />}
+      {activeView === "typesettingCheck" && <TypesettingCheckView />}
     </div>
   );
 }
