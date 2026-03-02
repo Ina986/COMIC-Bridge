@@ -227,10 +227,10 @@ export function TypesettingCheckPanel() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 p-2">
         {checkTabMode === "both" && hasCorrectness && hasProposal ? (
-          /* 2カラム表示 */
-          <div className="flex gap-2 h-full">
+          /* 上下並び表示 */
+          <div className="space-y-3">
             {/* 正誤チェック */}
-            <div className="flex-1 overflow-y-auto min-w-0">
+            <div>
               <div className="sticky top-0 z-10 px-2 py-1 mb-1 rounded-md bg-error/10 text-error text-[10px] font-medium text-center">
                 正誤チェック ({filteredItems.correctness.length})
               </div>
@@ -241,7 +241,7 @@ export function TypesettingCheckPanel() {
               />
             </div>
             {/* 提案チェック */}
-            <div className="flex-1 overflow-y-auto min-w-0">
+            <div>
               <div className="sticky top-0 z-10 px-2 py-1 mb-1 rounded-md bg-accent-secondary/10 text-accent-secondary text-[10px] font-medium text-center">
                 提案チェック ({filteredItems.proposal.length})
               </div>
