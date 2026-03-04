@@ -218,11 +218,17 @@
 - ファイル名: `{title}.json` / `{title}_scandata.json`
 - 保存先: `{basePath}/{label}/`
 - レーベル・タイトル未入力時: `{basePath}/_仮保存/temp.json` に仮保存 → 入力後に正式保存＆仮データ削除
-- スキャン完了後に自動保存 (`performPresetJsonSave()`)
+- スキャン完了後にフォント自動登録 (`autoRegisterDetectedFonts()`) → 自動保存 (`performPresetJsonSave()`)
+- `autoRegisterDetectedFonts()`: `scanData.fonts` から全プリセットセット未登録のフォントを検出し、現在のセットに `getAutoSubName()` でカテゴリ名付きで自動追加（je-nsonman準拠）
 - スキャン開始にはレーベル・タイトルの事前入力が必須
 
-**元スクリプトJSON互換:**
-- 元スクリプトのJSONは `fontSizeStats` の形式がアプリと異なる（`mostFrequent`: 数値 vs オブジェクト、`sizes`: 数値配列 vs オブジェクト配列、`top10Sizes` はアプリに存在しない）
+**元スクリプトJSON互換（エクスポート）:**
+- `convertSizeStatsForExport()`: 内部形式（`mostFrequent: {size,count}`, `sizes: [{size,count}]`）→ je-nsonman形式（`mostFrequent: number`, `sizes: number[]`, `top10Sizes: [{size,count}]`）に変換
+- `convertStrokeSizesForExport()`: 内部の `count` フィールドを除去、`size` + `fontSizes` のみ出力
+- `convertPresetsForExport()`: 空の `subName` を省略、`description` に「使用回数:」を含む場合は省略
+- `saveLocation`: `workInfo.label` をエクスポートデータに追加
+
+**元スクリプトJSON互換（インポート）:**
 - `loadPresetJson` のフォールバックで安全に変換
 - `scannedFolders`, `textLayersByDoc`, `fonts` 等のアプリ専用フィールドが欠落する可能性 → 全タブでオプショナルチェーン (`?.`) ガード済み
 
