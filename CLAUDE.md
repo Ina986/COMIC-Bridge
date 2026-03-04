@@ -205,6 +205,15 @@
 - **モード**: 新規作成（スキャン→保存）/ JSON編集（既存JSONの読み込み・編集）
 - **5タブ構成**: 作品情報(WorkInfoTab) / フォント種類(FontTypesTab) / サイズ統計(FontSizesTab) / ガイド線(GuideLinesTab) / ルビ(TextRubyTab)
 
+**FontTypesTab（フォント種類タブ）:**
+- **プリセットセット管理**: 複数のプリセットセット（「デフォルト」「手動追加」等）を切替・追加・削除・リネーム
+- **フィルタ機能**: トグルチップで絞り込み。カテゴリあり/なし（排他）、インストール済み/未インストール（排他）。異なるペア間はAND
+- **ソート機能**: ドロップダウンで切替。デフォルト（カテゴリ順+未インストール最下位）/ 名前順 / カテゴリ順 / 出現数順 / インストール順
+- **纏め（グループ化）機能**: フォントファミリーを自動検出し、同ファミリーの重複フォントを統合。`extractGroupKey()` で表示名からファミリーキーを抽出（ＤＦＰ→ＤＦ正規化、バージョン識別子除去等）。使用回数最多のフォントを「メイン」として残し、他を除去。プレビュー→確認→実行のUIフロー
+- **未登録フォント**: scanData.fontsに存在するがpresetSetsに未登録のフォントを「未登録フォント」セクションに表示。個別追加 / 一括追加ボタン
+- **カテゴリ自動判定**: `getAutoSubName()` でPostScript名からセリフ/モノローグ/ナレーション等のカテゴリを自動付与（`FONT_SUB_NAME_MAP` 定義）
+- **インストール状態表示**: `useFontResolver` でフォントのインストール有無を色分け表示
+
 **データ分離設計:**
 - **プリセットJSON** (`{jsonFolderPath}/{label}/{title}.json`): 選択されたガイドのみ (`guides`)、プリセット、作品情報。`guideSets`/`excludedGuideIndices` は含めない
 - **scandata** (`{saveDataBasePath}/{label}/{title}_scandata.json`): 全ガイドセット、選択・除外状態 (`selectedGuideSetIndex`, `excludedGuideIndices`)、フォント統計等の完全データ
@@ -277,7 +286,18 @@
 - 更新検出時にプロンプト表示、ダウンロード＆インストール後に1.5秒後自動再起動
 - エラーハンドリング: エラー状態表示＋dismissボタン
 
-### 16. ユーティリティ機能
+### 16. 写植チェック（校正チェック）
+- **概要**: MojiQ等が出力する校正チェックJSONを読み込み、校正指摘を一覧表示
+- **データ構造**: `ProofreadingCheckData`（MojiQ JSON構造準拠）。`checks.variation` / `checks.simple` の2グループ。各項目に `checkKind`（correctness=正誤 / proposal=提案）
+- **タブモード**: 正誤のみ / 提案のみ / 両方 の3モード切替。データ読み込み時に自動選択
+- **カテゴリ表示**: `CheckCategoryGroup` でカテゴリ別にグループ化・折りたたみ表示。カテゴリ番号に対応した色パレット（10色）
+- **検索**: デバウンス付きテキスト検索（excerpt, content, category, page）
+- **ビューアー連動**: `TypesettingViewerPanel` でPSDプレビューと校正指摘を並列表示。ページクリックでビューアーのページに遷移（`navigateToPage`）
+- **JSONブラウザ**: `JsonFileBrowser` を再利用してJSONフォルダからファイル選択
+- **コンポーネント**: TypesettingCheckView, TypesettingCheckPanel, TypesettingViewerPanel, CheckCategoryGroup
+- **ストア**: `typesettingCheckStore.ts` — checkData, checkTabMode, searchQuery, jsonBasePath, showJsonBrowser, navigateToPage
+
+### 17. ユーティリティ機能
 
 **キャンバスサイズチェック** (`useCanvasSizeCheck.ts`):
 - 全読み込みファイルのキャンバス寸法を分析、多数派サイズを検出
@@ -300,8 +320,8 @@
 ## UI構成
 
 ### レイアウト
-- **TopNav**: 上部ナビゲーション。タブでビュー切替（仕様チェック/ビューアー/レイヤー制御/見開き分割/差替え/合成/リネーム/TIFF化/Scan PSD）
-- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | viewer | layers | split | replace | compose | rename | tiff | scanPsd）
+- **TopNav**: 上部ナビゲーション。タブでビュー切替（仕様チェック/写植調整/ビューアー/レイヤー制御/見開き分割/差替え/合成/リネーム/TIFF化/Scan PSD）
+- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | typesettingCheck | viewer | layers | split | replace | compose | rename | tiff | scanPsd）
 - **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）、グローバルD&Dリスナー（useGlobalDragDrop）。`handleMouseDown`で領域外クリック時に選択解除（モーダルは`onMouseDown stopPropagation`で保護が必要）
 
 ### ビュー
@@ -311,6 +331,7 @@
   - viewMode切替: サムネイル（PreviewGrid）、レイヤー構造（SpecLayerGrid）、写植仕様（SpecTextGrid）
   - SpecTextGrid: 使用フォントサマリー（種類数・レイヤー数）、サイズ統計（頻度順・基本ポイント数）、ファイル別テキストレイヤー一覧。フォント切替（デフォルト/プレビュー）、ソート切替（昇順/降順）
   - SpecLayerGrid: 全ファイルのレイヤー構造をグリッド表示
+- **TypesettingCheckView**: 写植調整（2カラム: TypesettingCheckPanel | TypesettingViewerPanel）。MojiQ校正JSONの読み込み・カテゴリ別表示・ページ遷移連動
 - **ViewerView**: 独立ビューアー（SpecViewerPanelを再利用）。画像+サイドバー（写植仕様/レイヤー構造タブ）。OS全画面（Tauri setFullscreen）、スプラッシュトランジション、矢印キー/ホイールナビ、P/Fショートカット
 - **ReplaceView**: レイヤー差替え
 - **ComposeView**: 合成（2カラム: ComposePanel | ComposeDropZone）。Replace機能と類似のペアリングUI
