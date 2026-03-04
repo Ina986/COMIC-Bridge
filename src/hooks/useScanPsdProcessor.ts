@@ -189,7 +189,7 @@ async function performPresetJsonSave(): Promise<boolean> {
     workInfo: store.workInfo,
     presets: convertPresetsForExport(store.presetSets),
     fontSizeStats: convertSizeStatsForExport(store.scanData?.sizeStats),
-    strokeSizes: convertStrokeSizesForExport(store.scanData?.strokeStats.sizes),
+    strokeSizes: convertStrokeSizesForExport(store.scanData?.strokeStats?.sizes),
     guides: selectedGuide
       ? { horizontal: selectedGuide.horizontal, vertical: selectedGuide.vertical }
       : existingData.presetData?.guides,
