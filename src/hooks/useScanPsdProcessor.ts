@@ -10,7 +10,7 @@ import type {
   FontPreset,
   RubyEntry,
 } from "../types/scanPsd";
-import { normalizeRubyEntries } from "../types/scanPsd";
+import { normalizeRubyEntries, getAutoSubName } from "../types/scanPsd";
 
 export type ScanResult =
   | { success: true; processedFiles: number; newFolders: string[]; rubyCount: number }
@@ -137,6 +137,38 @@ function convertPresetsForExport(
     });
   }
   return result;
+}
+
+/**
+ * スキャン完了後に検出フォントを自動的にプリセットに追加（je-nsonman準拠）
+ * scanData.fonts に含まれるが presetSets に未登録のフォントを自動追加する
+ */
+function autoRegisterDetectedFonts(scanData: ScanData): void {
+  const store = useScanPsdStore.getState();
+  const { presetSets, currentSetName } = store;
+
+  if (!scanData.fonts || scanData.fonts.length === 0) return;
+
+  // 全プリセットセットに登録済みのフォント（PostScript名）を収集
+  const registeredFonts = new Set<string>();
+  for (const list of Object.values(presetSets)) {
+    for (const p of list) registeredFonts.add(p.font);
+  }
+
+  // 未登録フォントを抽出
+  const unregistered = scanData.fonts.filter((f) => !registeredFonts.has(f.name));
+  if (unregistered.length === 0) return;
+
+  // 現在のセット（またはデフォルト）に追加
+  const targetSet = currentSetName || "デフォルト";
+  for (const f of unregistered) {
+    store.addFontToPreset(targetSet, {
+      name: f.displayName || f.name,
+      subName: getAutoSubName(f.name),
+      font: f.name,
+      description: `使用回数: ${f.count}`,
+    });
+  }
 }
 
 /**
@@ -866,6 +898,9 @@ export function useScanPsdProcessor() {
           useScanPsdStore.getState().setSelectedGuideIndex(bestIndex);
         }
       }
+
+      // 検出フォントを自動的にプリセットに追加（je-nsonman準拠）
+      autoRegisterDetectedFonts(scanData);
 
       // スキャン完了後に自動保存
       try {
