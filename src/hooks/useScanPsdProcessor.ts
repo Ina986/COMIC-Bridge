@@ -65,6 +65,56 @@ function autoSelectGuideSet(guideSets: ScanGuideSet[]): number | null {
 }
 
 /**
+ * 内部 sizeStats を je-nsonman 互換のエクスポート形式に変換
+ * - mostFrequent: {size,count} → 数値 (size のみ)
+ * - sizes: {size,count}[] → 数値配列 (昇順)
+ * - top10Sizes: 上位10件を {size,count}[] で別途出力
+ */
+function convertSizeStatsForExport(
+  sizeStats: ScanData["sizeStats"] | undefined
+): Record<string, unknown> | undefined {
+  if (!sizeStats) return undefined;
+
+  const excludeRange = sizeStats.excludeRange;
+  const exMin = excludeRange?.min ?? 0;
+  const exMax = excludeRange?.max ?? 0;
+
+  // top10: count降順で上位10件（excludeRange内を除外、count>=2）
+  const top10Sizes: { size: number; count: number }[] = [];
+  const sorted = [...sizeStats.sizes].sort((a, b) => b.count - a.count);
+  for (const entry of sorted) {
+    if (top10Sizes.length >= 10) break;
+    if (entry.count < 2) continue;
+    if (exMin > 0 && exMax > 0 && entry.size >= exMin && entry.size <= exMax) continue;
+    top10Sizes.push({ size: entry.size, count: entry.count });
+  }
+
+  // sizes: 全サイズを数値配列で昇順
+  const sizes = sizeStats.sizes.map((s) => s.size).sort((a, b) => a - b);
+
+  return {
+    mostFrequent: sizeStats.mostFrequent?.size ?? null,
+    sizes,
+    top10Sizes,
+    excludeRange: excludeRange ?? undefined,
+  };
+}
+
+/**
+ * 内部 strokeStats.sizes を je-nsonman 互換のエクスポート形式に変換
+ * - count フィールドを除去、fontSizes のみ出力
+ */
+function convertStrokeSizesForExport(
+  strokeSizes: ScanData["strokeStats"]["sizes"] | undefined
+): { size: number; fontSizes: number[] }[] | undefined {
+  if (!strokeSizes || strokeSizes.length === 0) return undefined;
+  return strokeSizes.map((s) => ({
+    size: s.size,
+    fontSizes: s.fontSizes,
+  }));
+}
+
+/**
  * プリセットJSON保存の実処理（スタンドアロン関数）
  * startScan完了後の自動保存からも呼ばれる
  */
@@ -113,8 +163,8 @@ async function performPresetJsonSave(): Promise<boolean> {
     ...existingData.presetData,
     workInfo: store.workInfo,
     presets: store.presetSets,
-    fontSizeStats: store.scanData?.sizeStats,
-    strokeSizes: store.scanData?.strokeStats.sizes,
+    fontSizeStats: convertSizeStatsForExport(store.scanData?.sizeStats),
+    strokeSizes: convertStrokeSizesForExport(store.scanData?.strokeStats.sizes),
     guides: selectedGuide
       ? { horizontal: selectedGuide.horizontal, vertical: selectedGuide.vertical }
       : existingData.presetData?.guides,
@@ -125,7 +175,9 @@ async function performPresetJsonSave(): Promise<boolean> {
     selectionRanges: store.selectionRanges.length > 0 ? store.selectionRanges : undefined,
   };
 
-  const outputData: PresetJsonData = {
+  // presetData の fontSizeStats/strokeSizes はエクスポート形式（je-nsonman互換）のため
+  // 内部型と異なる → Record<string, unknown> にキャスト
+  const outputData = {
     ...existingData,
     presetData,
   };
