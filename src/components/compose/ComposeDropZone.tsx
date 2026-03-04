@@ -170,7 +170,7 @@ export function ComposeDropZone() {
         <div ref={sourceRef} className="flex-1 min-w-0">
           <DropCard
             label="原稿A"
-            sublabel="テキスト等を取り出すファイル"
+            sublabel="合成元ファイル"
             icon={<SourceIcon />}
             color="pink"
             folderPath={folders.sourceFolder}
@@ -220,7 +220,7 @@ export function ComposeDropZone() {
         <div ref={targetRef} className="flex-1 min-w-0">
           <DropCard
             label="原稿B"
-            sublabel="画像等を取り出すファイル"
+            sublabel="合成元ファイル"
             icon={<TargetIcon />}
             color="purple"
             folderPath={folders.targetFolder}

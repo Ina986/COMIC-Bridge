@@ -149,7 +149,7 @@ const defaultSettings: ReplaceSettings = {
   },
   generalSettings: {
     skipResize: false,
-    roundFontSize: true,
+    roundFontSize: false,
     saveFileName: "target",
     outputFolderName: "",
   },
@@ -160,13 +160,13 @@ const defaultSettings: ReplaceSettings = {
     elements: [
       { id: "textFolders", type: "textFolders", label: "テキストフォルダ", source: "A" },
       { id: "background", type: "background", label: "背景", source: "B" },
-      { id: "manuscript", type: "namedGroup", label: "#原稿#", source: "B", customName: "#原稿#", partialMatch: false },
-      { id: "specialLayer", type: "specialLayer", label: "白消し", source: "B", customName: "白消し", partialMatch: true },
-      { id: "namedGroup", type: "namedGroup", label: "棒消し", source: "B", customName: "棒消し", partialMatch: true },
+      { id: "manuscript", type: "namedGroup", label: "#背景#", source: "exclude", customName: "#背景#", partialMatch: false },
+      { id: "specialLayer", type: "specialLayer", label: "白消し", source: "exclude", customName: "白消し", partialMatch: true },
+      { id: "namedGroup", type: "namedGroup", label: "棒消し", source: "exclude", customName: "棒消し", partialMatch: true },
     ],
     restSource: "B",
     skipResize: false,
-    roundFontSize: true,
+    roundFontSize: false,
   },
 };
 

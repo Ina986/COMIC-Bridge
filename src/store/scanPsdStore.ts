@@ -10,7 +10,7 @@ import type {
   SelectionRange,
   PresetJsonData,
 } from "../types/scanPsd";
-import { DEFAULT_WORK_INFO } from "../types/scanPsd";
+import { DEFAULT_WORK_INFO, normalizeRubyEntries } from "../types/scanPsd";
 
 // --- デフォルトパス ---
 const DEFAULT_JSON_FOLDER_PATH =
@@ -313,6 +313,11 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
   loadFromPresetJson: (data) =>
     set((s) => {
       const pd = data.presetData || {};
+      // je-nsonman互換: parent/ruby → parentText/rubyText, volume文字列→数値
+      const rawRuby = pd.rubyList as unknown[] | undefined;
+      const normalizedRuby = rawRuby && rawRuby.length > 0
+        ? normalizeRubyEntries(rawRuby)
+        : undefined;
       return {
         workInfo: pd.workInfo ? { ...DEFAULT_WORK_INFO, ...pd.workInfo } : s.workInfo,
         presetSets: pd.presets && Object.keys(pd.presets).length > 0 ? pd.presets : s.presetSets,
@@ -320,7 +325,7 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
         excludedGuideIndices: pd.excludedGuideIndices
           ? new Set(pd.excludedGuideIndices)
           : s.excludedGuideIndices,
-        rubyList: pd.rubyList ?? s.rubyList,
+        rubyList: normalizedRuby ?? s.rubyList,
         selectionRanges: pd.selectionRanges ?? s.selectionRanges,
       };
     }),
@@ -332,6 +337,11 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
         selectedGuideSetIndex?: number;
         excludedGuideIndices?: number[];
       };
+      // je-nsonman互換: parent/ruby → parentText/rubyText, volume文字列→数値
+      const rawRuby = data.editedRubyList as unknown[] | undefined;
+      const normalizedRuby = rawRuby && rawRuby.length > 0
+        ? normalizeRubyEntries(rawRuby)
+        : undefined;
       return {
         scanData: data,
         workInfo: data.workInfo ? { ...DEFAULT_WORK_INFO, ...data.workInfo } : s.workInfo,
@@ -339,7 +349,7 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
           ext.presets && Object.keys(ext.presets).length > 0
             ? ext.presets
             : s.presetSets,
-        rubyList: data.editedRubyList ?? s.rubyList,
+        rubyList: normalizedRuby ?? s.rubyList,
         selectedGuideIndex: ext.selectedGuideSetIndex ?? s.selectedGuideIndex,
         excludedGuideIndices: ext.excludedGuideIndices
           ? new Set(ext.excludedGuideIndices)

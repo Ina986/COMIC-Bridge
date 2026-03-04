@@ -10,6 +10,7 @@ import type {
   FontPreset,
   RubyEntry,
 } from "../types/scanPsd";
+import { normalizeRubyEntries } from "../types/scanPsd";
 
 export type ScanResult =
   | { success: true; processedFiles: number; newFolders: string[]; rubyCount: number }
@@ -362,7 +363,7 @@ async function performExportTextLog(): Promise<void> {
     const currentVolume = folderVolumeMapping[srcFolderName] !== undefined
       ? folderVolumeMapping[srcFolderName]
       : startVolume + folderIdx;
-    const volumeStr = String(currentVolume);
+    const volumeStr = String(currentVolume).padStart(2, "0");
 
     const folderData = scanData.textLogByFolder[srcFolderName];
 
@@ -421,7 +422,7 @@ async function performExportTextLog(): Promise<void> {
       return a.page - b.page;
     });
     for (const r of sorted) {
-      const volStr = String(r.volume);
+      const volStr = String(r.volume).padStart(2, "0");
       const cleanRuby = r.rubyText.replace(/[\s\u3000]/g, "");
       rubyContent += `[${volStr}巻-${r.page}]${r.parentText}(${cleanRuby})\n\n`;
     }
@@ -768,7 +769,8 @@ export function useScanPsdProcessor() {
       store.setWorkInfo(mergedWorkInfo);
 
       if (scanData.editedRubyList) {
-        store.setRubyList(scanData.editedRubyList);
+        // je-nsonman互換: parent/ruby → parentText/rubyText, volume文字列→数値
+        store.setRubyList(normalizeRubyEntries(scanData.editedRubyList as unknown[]));
       }
 
       // 新しくスキャンしたフォルダからルビを抽出して追加（je-nsonman appendRubyFromNewFolders 準拠）
@@ -875,6 +877,11 @@ export function useScanPsdProcessor() {
           }
           if (sd.excludedGuideIndices) {
             store.setExcludedGuideIndices(new Set(sd.excludedGuideIndices));
+          }
+          // scandataからルビリストを復元（je-nsonman互換: parent/ruby → parentText/rubyText）
+          const rawRuby = scandataData.editedRubyList as unknown[] | undefined;
+          if (rawRuby && rawRuby.length > 0) {
+            store.setRubyList(normalizeRubyEntries(rawRuby));
           }
         } catch {
           // scandataが見つからない場合、JSON内のguideSetsから最小限のscanDataを構築

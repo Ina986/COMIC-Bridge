@@ -2837,7 +2837,6 @@ pub async fn run_photoshop_replace(
     eprintln!("Replace - Script: {}", script_path_str);
     eprintln!("Replace - Pairs: {}", jobs_normalized.pairs.len());
     eprintln!("Replace - Mode: {}", jobs_normalized.mode);
-
     // spawn() で即座にリターン（output() だと PS が開いている間ブロックする）
     let _child = Command::new(&ps_path)
         .arg("-r")
@@ -4211,6 +4210,7 @@ pub async fn run_photoshop_custom_operations(
     file_paths: Vec<String>,
     file_ops: Vec<serde_json::Value>,
     save_mode: Option<String>,
+    delete_hidden_text: Option<bool>,
 ) -> Result<Vec<PhotoshopResult>, String> {
     use std::process::Command;
     use std::io::Write;
@@ -4249,6 +4249,7 @@ pub async fn run_photoshop_custom_operations(
         "fileOps": file_ops,
         "outputPath": output_path.to_string_lossy().to_string().replace("\\", "/"),
         "saveFolder": save_folder,
+        "deleteHiddenText": delete_hidden_text.unwrap_or(false),
     });
     let settings_json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;

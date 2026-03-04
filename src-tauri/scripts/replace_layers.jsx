@@ -300,8 +300,15 @@ function main() {
     var isBatchMode = (mode === "batch");
     var isImageOnlyMode = (mode === "image");
     var isSwitchMode = (mode === "switch");
+    var isComposeMode = (mode === "compose");
+    var composeSettings = isComposeMode ? settings.composeSettings : null;
+
     // テキスト差替え / バッチモード: 通常方向(source→target), 画像差替え: 逆方向(target→source)
     var isReverseDirection = isImageOnlyMode;
+    // 合成モード: restSourceがAなら植字データ(source)を保存
+    if (isComposeMode && composeSettings) {
+        isReverseDirection = (composeSettings.restSource === "A");
+    }
 
     var shouldReplaceText = (mode === "text" && textSettings.subMode === "textLayers");
     var shouldReplaceTextGroup = (mode === "text" && textSettings.subMode === "namedGroup");
@@ -361,7 +368,9 @@ function main() {
                 switchWhitePartialMatch: isSwitchMode ? switchSettings.whitePartialMatch : false,
                 switchBarName: isSwitchMode ? switchSettings.barGroupName : "",
                 switchBarPartialMatch: isSwitchMode ? switchSettings.barPartialMatch : false,
-                switchPlaceFromBottom: isSwitchMode ? switchSettings.placeFromBottom : false
+                switchPlaceFromBottom: isSwitchMode ? switchSettings.placeFromBottom : false,
+                isComposeMode: isComposeMode,
+                composeSettings: composeSettings
             });
             results.push(result);
 
@@ -385,11 +394,218 @@ function main() {
     }
 
     // Write results
+    var resultsJSON = arrayToJSON(results);
     var outputFile = new File(settings.outputPath);
     outputFile.open("w");
     outputFile.encoding = "UTF-8";
-    outputFile.write(arrayToJSON(results));
+    outputFile.write(resultsJSON);
     outputFile.close();
+
+}
+
+/* =====================================================
+   Compose Helpers
+ ===================================================== */
+
+// 合成モード: ドキュメントから要素を除外
+function composeRemoveElement(doc, elem, result) {
+    setActiveDocument(doc);
+    var name = elem.customName || "";
+    var partial = elem.partialMatch || false;
+    var elemType = elem["type"] || "";
+
+    switch (elemType) {
+        case "textFolders":
+            var removedCount = 0;
+            for (var i = doc.layerSets.length - 1; i >= 0; i--) {
+                if (hasTextLayersInFolder(doc.layerSets[i])) {
+                    var rName = doc.layerSets[i].name;
+                    try { doc.layerSets[i].remove(); removedCount++; result.changes.push("    除外: \"" + rName + "\""); } catch (e) { result.changes.push("    除外失敗: \"" + rName + "\" " + e.message); }
+                }
+            }
+            result.changes.push("    textFolders除外: " + removedCount + " removed");
+            break;
+
+        case "background":
+            var bg = getBottomLayer(doc);
+            if (bg) {
+                var bgOk = unlockAndRemoveLayer(bg);
+                result.changes.push("    背景除外: " + (bgOk ? "OK" : "失敗"));
+            } else {
+                result.changes.push("    背景除外: 背景レイヤーなし");
+            }
+            break;
+
+        case "specialLayer":
+            var sLayers = [];
+            collectSpecialLayers(doc, sLayers, name, partial);
+            for (var si = sLayers.length - 1; si >= 0; si--) {
+                try { unlockAndRemoveLayer(sLayers[si]); } catch (e) {}
+            }
+            result.changes.push("    specialLayer \"" + name + "\" 除外: " + sLayers.length + " found");
+            break;
+
+        case "namedGroup":
+            var nGroups = [];
+            collectSpecialLayerSets(doc, nGroups, name, partial);
+            for (var ni = nGroups.length - 1; ni >= 0; ni--) {
+                try { nGroups[ni].remove(); } catch (e) {}
+            }
+            result.changes.push("    namedGroup \"" + name + "\" 除外: " + nGroups.length + " found");
+            break;
+
+        case "custom":
+            if ((elem.customKind || "layer") === "group") {
+                var cGroups = [];
+                collectSpecialLayerSets(doc, cGroups, name, partial);
+                for (var cgi = cGroups.length - 1; cgi >= 0; cgi--) {
+                    try { cGroups[cgi].remove(); } catch (e) {}
+                }
+                result.changes.push("    custom group \"" + name + "\" 除外: " + cGroups.length + " found");
+            } else {
+                var cLayers = [];
+                collectSpecialLayers(doc, cLayers, name, partial);
+                for (var cli = cLayers.length - 1; cli >= 0; cli--) {
+                    try { unlockAndRemoveLayer(cLayers[cli]); } catch (e) {}
+                }
+                result.changes.push("    custom layer \"" + name + "\" 除外: " + cLayers.length + " found");
+            }
+            break;
+
+        default:
+            result.changes.push("    除外: unknown type \"" + elemType + "\"");
+            break;
+    }
+}
+
+// 合成モード: otherDoc → baseDoc へ要素をコピー
+function composeCopyElement(fromDoc, toDoc, elem, composeOpts, result, offsetX, offsetY, needFontScale, scaleX, scaleY) {
+    var name = elem.customName || "";
+    var partial = elem.partialMatch || false;
+    var elemType = elem["type"] || "";
+
+    switch (elemType) {
+        case "textFolders":
+            var textCopyCount = 0;
+            result.changes.push("    [textFolders] fromDoc layerSets=" + fromDoc.layerSets.length);
+            for (var ti = 0; ti < fromDoc.layerSets.length; ti++) {
+                setActiveDocument(fromDoc);
+                var srcSet = fromDoc.layerSets[ti];
+                var hasText = hasTextLayersInFolder(srcSet);
+                result.changes.push("      layerSet[" + ti + "] \"" + srcSet.name + "\" visible=" + srcSet.visible + " hasText=" + hasText);
+                if (srcSet.visible && hasText) {
+                    try {
+                        var dupFolder = duplicateLayerSet(srcSet, toDoc, ElementPlacement.PLACEATBEGINNING);
+                        if (dupFolder) {
+                            setActiveDocument(toDoc);
+                            clearLayerColor(dupFolder);
+                            removeNonTextLayersFromFolder(dupFolder);
+                            if (needFontScale) {
+                                try { scaleTextFontSizes(dupFolder, scaleX, scaleY, composeOpts.roundFontSize); } catch (e) {}
+                            }
+                            if (composeOpts.skipResize) {
+                                try { dupFolder.translate(offsetX, offsetY); } catch (e) {}
+                            }
+                            result.changes.push("      -> OK: \"" + srcSet.name + "\"");
+                            textCopyCount++;
+                        } else {
+                            result.changes.push("      -> duplicateLayerSet returned null");
+                        }
+                    } catch (e) { result.changes.push("      -> ERROR: " + e.message); }
+                }
+            }
+            result.changes.push("    textFolders: " + textCopyCount + " copied");
+            break;
+
+        case "background":
+            setActiveDocument(fromDoc);
+            var srcBg = getBottomLayer(fromDoc);
+            if (srcBg) {
+                setActiveDocument(toDoc);
+                var tgtBg = getBottomLayer(toDoc);
+                try {
+                    setActiveDocument(fromDoc);
+                    var dupBg = srcBg.duplicate(toDoc, ElementPlacement.PLACEATEND);
+                    if (composeOpts.skipResize) { setActiveDocument(toDoc); dupBg.translate(offsetX, offsetY); }
+                } catch (e) { result.changes.push("    背景複製エラー: " + e.message); }
+                if (tgtBg) { setActiveDocument(toDoc); unlockAndRemoveLayer(tgtBg); }
+                result.changes.push("    背景を差替え");
+            } else {
+                result.changes.push("    背景: fromDocに背景レイヤーなし");
+            }
+            break;
+
+        case "specialLayer":
+            setActiveDocument(fromDoc);
+            var sLayers = [];
+            collectSpecialLayers(fromDoc, sLayers, name, partial);
+            for (var si = 0; si < sLayers.length; si++) {
+                try {
+                    var sParent = sLayers[si].parent;
+                    var tContainer = toDoc;
+                    var sPlacement = ElementPlacement.PLACEATBEGINNING;
+                    if (sParent.typename === 'LayerSet') {
+                        var tParent = findLayerSetByName(toDoc, sParent.name);
+                        if (tParent) tContainer = tParent;
+                    }
+                    setActiveDocument(fromDoc);
+                    var dup = sLayers[si].duplicate(tContainer, sPlacement);
+                    if (composeOpts.skipResize) { setActiveDocument(toDoc); dup.translate(offsetX, offsetY); }
+                } catch (e) { result.changes.push("    specialLayer複製エラー: " + e.message); }
+            }
+            result.changes.push("    specialLayer \"" + name + "\": " + sLayers.length + " found");
+            break;
+
+        case "namedGroup":
+            setActiveDocument(fromDoc);
+            var nGroups = [];
+            collectSpecialLayerSets(fromDoc, nGroups, name, partial);
+            for (var ni = 0; ni < nGroups.length; ni++) {
+                try {
+                    setActiveDocument(toDoc);
+                    var smartPlace = getSmartPlacement(toDoc);
+                    setActiveDocument(fromDoc);
+                    var dupGroup = smartPlace.relative
+                        ? nGroups[ni].duplicate(smartPlace.relative, smartPlace.placement)
+                        : nGroups[ni].duplicate(toDoc, smartPlace.placement);
+                    if (composeOpts.skipResize) { setActiveDocument(toDoc); dupGroup.translate(offsetX, offsetY); }
+                } catch (e) { result.changes.push("    namedGroup複製エラー: " + e.message); }
+            }
+            result.changes.push("    namedGroup \"" + name + "\": " + nGroups.length + " found");
+            break;
+
+        case "custom":
+            if ((elem.customKind || "layer") === "group") {
+                setActiveDocument(fromDoc);
+                var cGroups = [];
+                collectSpecialLayerSets(fromDoc, cGroups, name, partial);
+                for (var cgi = 0; cgi < cGroups.length; cgi++) {
+                    try {
+                        setActiveDocument(fromDoc);
+                        var cDup = cGroups[cgi].duplicate(toDoc, ElementPlacement.PLACEATBEGINNING);
+                        if (composeOpts.skipResize) { setActiveDocument(toDoc); cDup.translate(offsetX, offsetY); }
+                    } catch (e) { result.changes.push("    customGroup複製エラー: " + e.message); }
+                }
+                result.changes.push("    customGroup \"" + name + "\": " + cGroups.length + " found");
+            } else {
+                setActiveDocument(fromDoc);
+                var cLayers = [];
+                collectSpecialLayers(fromDoc, cLayers, name, partial);
+                for (var cli = 0; cli < cLayers.length; cli++) {
+                    try {
+                        setActiveDocument(fromDoc);
+                        var cDup2 = cLayers[cli].duplicate(toDoc, ElementPlacement.PLACEATBEGINNING);
+                        if (composeOpts.skipResize) { setActiveDocument(toDoc); cDup2.translate(offsetX, offsetY); }
+                    } catch (e) { result.changes.push("    customLayer複製エラー: " + e.message); }
+                }
+                result.changes.push("    customLayer \"" + name + "\": " + cLayers.length + " found");
+            }
+            break;
+
+        default:
+            result.changes.push("    unknown type: \"" + elemType + "\"");
+            break;
+    }
 }
 
 /* =====================================================
@@ -454,11 +670,132 @@ function processPair(pair, opts) {
         var centerOffsetX = 0, centerOffsetY = 0;
         var scaleX = 1, scaleY = 1;
 
-        // テキスト差替え時はリサイズ前にスケール比を計算
+      if (opts.isComposeMode && !opts.composeSettings) {
+        result.changes.push("警告: 合成モードですがcomposeSettingsが空です (type=" + typeof opts.composeSettings + ")");
+      }
+
+      if (opts.isComposeMode && opts.composeSettings) {
+        // ============================================================
+        //  合成モード処理
+        // ============================================================
+        var cs = opts.composeSettings;
+        var rest = cs.restSource || "B";
+        var composeSkipResize = cs.skipResize || false;
+        var composeRoundFont = cs.roundFontSize !== false;  // default true
+        // base = 残りを保持するドキュメント, other = 要素をコピーする元
+        var baseDoc = (rest === "A") ? sourceDoc : targetDoc;
+        var otherDoc = (rest === "A") ? targetDoc : sourceDoc;
+
+        result.changes.push("=== 合成モード開始 ===");
+        result.changes.push("restSource=" + rest + " | elements=" + cs.elements.length + " | skipResize=" + composeSkipResize);
+        result.changes.push("baseDoc=" + (rest === "A" ? "sourceDoc(A)" : "targetDoc(B)") + " mode=" + baseDoc.mode);
+        result.changes.push("otherDoc=" + (rest === "A" ? "targetDoc(B)" : "sourceDoc(A)") + " mode=" + otherDoc.mode);
+        result.changes.push("baseDoc: " + baseDoc.width.as('px') + "x" + baseDoc.height.as('px') + " " + baseDoc.resolution + "dpi");
+        result.changes.push("otherDoc: " + otherDoc.width.as('px') + "x" + otherDoc.height.as('px') + " " + otherDoc.resolution + "dpi");
+        result.changes.push("baseDoc layers=" + baseDoc.layers.length + " layerSets=" + baseDoc.layerSets.length);
+        result.changes.push("otherDoc layers=" + otherDoc.layers.length + " layerSets=" + otherDoc.layerSets.length);
+
+        // sourceDoc (A) のビットマップモード変換 — リサイズ前に実行
+        setActiveDocument(sourceDoc);
+        if (sourceDoc.mode == DocumentMode.BITMAP) {
+            sourceDoc.changeMode(ChangeMode.GRAYSCALE);
+            sourceDoc.resizeImage(null, null, 600, ResampleMethod.NONE);
+            result.changes.push("sourceDoc: BITMAP -> GRAYSCALE変換");
+        }
+
+        // baseのラベルを記録（文字列比較用）
+        var baseLabel = (rest === "A") ? "A" : "B";
+
+        // テキストフォルダを他方からコピーするか判定（フォントサイズ調整判定用）
+        var hasTextCopy = false;
+        for (var ci = 0; ci < cs.elements.length; ci++) {
+            var ciElem = cs.elements[ci];
+            if (ciElem["type"] === "textFolders" && ciElem.source !== "exclude") {
+                if (ciElem.source !== baseLabel) { hasTextCopy = true; break; }
+            }
+        }
+
+        var needFontSizeAdjustment = hasTextCopy && !composeSkipResize;
+        if (needFontSizeAdjustment) {
+            var oRes = otherDoc.resolution;
+            var bRes = baseDoc.resolution;
+            scaleX = (baseDoc.width.as('px') / bRes) / (otherDoc.width.as('px') / oRes);
+            scaleY = (baseDoc.height.as('px') / bRes) / (otherDoc.height.as('px') / oRes);
+            if (Math.abs(scaleX - 1.0) < 0.005 && Math.abs(scaleY - 1.0) < 0.005) {
+                needFontSizeAdjustment = false;
+                scaleX = 1; scaleY = 1;
+            }
+        }
+        result.changes.push("hasTextCopy=" + hasTextCopy + " needFontScale=" + needFontSizeAdjustment + " scale=" + scaleX.toFixed(3));
+
+        // other を base のサイズにリサイズ
+        if (!composeSkipResize) {
+            setActiveDocument(otherDoc);
+            otherDoc.resizeImage(baseDoc.width, baseDoc.height, baseDoc.resolution, ResampleMethod.BICUBIC);
+            result.changes.push("リサイズ実行 (otherDoc -> baseDocサイズ)");
+        } else {
+            centerOffsetX = (baseDoc.width - otherDoc.width) / 2;
+            centerOffsetY = (baseDoc.height - otherDoc.height) / 2;
+            result.changes.push("リサイズスキップ (offset=" + centerOffsetX + "," + centerOffsetY + ")");
+        }
+
+        // 合成設定オプション（composeCopyElementへ渡す）
+        var composeOpts = {
+            skipResize: composeSkipResize,
+            roundFontSize: composeRoundFont
+        };
+
+        // 各合成要素を処理（文字列比較で判定 — ExtendScriptではDocumentオブジェクト比較が不安定）
+        for (var ei = 0; ei < cs.elements.length; ei++) {
+            var elem = cs.elements[ei];
+            var elemType = elem["type"] || "";
+
+            result.changes.push("--- 要素[" + ei + "]: type=\"" + elemType + "\" source=\"" + elem.source + "\" name=\"" + (elem.customName || "") + "\"");
+
+            if (elem.source === "exclude") {
+                // baseDoc から該当要素を除外
+                result.changes.push("  -> exclude: baseDocから除外");
+                composeRemoveElement(baseDoc, elem, result);
+            } else if (elem.source === baseLabel) {
+                // ベースに既に存在 → スキップ
+                result.changes.push("  -> skip: 既にbaseDoc内 (source=" + elem.source + " === baseLabel=" + baseLabel + ")");
+            } else {
+                // otherDoc → baseDoc へ要素をコピー
+                result.changes.push("  -> copy: otherDoc -> baseDoc (source=" + elem.source + " !== baseLabel=" + baseLabel + ")");
+                composeCopyElement(otherDoc, baseDoc, elem, composeOpts, result, centerOffsetX, centerOffsetY, needFontSizeAdjustment, scaleX, scaleY);
+            }
+        }
+
+        if (needFontSizeAdjustment) {
+            result.changes.push("フォントサイズ調整適用 (scale: " + ((scaleX + scaleY) / 2).toFixed(3) + ")");
+        }
+        result.changes.push("=== 合成モード完了 ===");
+
+      } else {
+        // ============================================================
+        //  既存モード処理（text / image / batch / switch）
+        // ============================================================
+
+        // テキスト差替え時はリサイズ前にスケール比を計算（フォントサイズ調整用）
         var needFontSizeAdjustment = opts.shouldReplaceText && !opts.skipResize;
         if (needFontSizeAdjustment) {
-            scaleX = targetDoc.width.as('px') / sourceDoc.width.as('px');
-            scaleY = targetDoc.height.as('px') / sourceDoc.height.as('px');
+            // ピクセル数ではなく物理サイズ（インチ）で比率を計算する
+            // 解像度が異なる原稿（例: カラー350dpi→モノクロ600dpi）でも
+            // 同じ用紙サイズなら scaleX/Y ≈ 1 になり、フォントサイズを変えない
+            var srcRes = sourceDoc.resolution;  // ppi
+            var tgtRes = targetDoc.resolution;  // ppi
+            var srcWInch = sourceDoc.width.as('px') / srcRes;
+            var srcHInch = sourceDoc.height.as('px') / srcRes;
+            var tgtWInch = targetDoc.width.as('px') / tgtRes;
+            var tgtHInch = targetDoc.height.as('px') / tgtRes;
+            scaleX = tgtWInch / srcWInch;
+            scaleY = tgtHInch / srcHInch;
+            // 物理サイズが実質同一（誤差0.5%以内）ならフォントサイズ調整は不要
+            if (Math.abs(scaleX - 1.0) < 0.005 && Math.abs(scaleY - 1.0) < 0.005) {
+                needFontSizeAdjustment = false;
+                scaleX = 1;
+                scaleY = 1;
+            }
         }
 
         if (!opts.skipResize) {
@@ -858,6 +1195,8 @@ function processPair(pair, opts) {
                 }
             }
         }
+
+      } // end of if/else (compose vs existing modes)
 
         // === 保存処理 ===
         var outputFileName = opts.useSourceFileName

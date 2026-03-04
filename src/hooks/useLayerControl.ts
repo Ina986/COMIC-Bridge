@@ -317,7 +317,7 @@ export function useLayerControl() {
 
   // カスタムモード: 個別レイヤー操作を適用
   const applyCustomOperations = useCallback(async () => {
-    const { customVisibilityOps, customMoveOps, clearCustomOps } = useLayerStore.getState();
+    const { customVisibilityOps, customMoveOps, clearCustomOps, deleteHiddenText } = useLayerStore.getState();
 
     const targetFiles = selectedFileIds.length > 0
       ? files.filter((f) => selectedFileIds.includes(f.id))
@@ -325,12 +325,14 @@ export function useLayerControl() {
 
     if (targetFiles.length === 0) return;
 
-    // 操作のあるファイルだけ抽出
-    const filesWithOps = targetFiles.filter((f) => {
-      const visOps = customVisibilityOps.get(f.id);
-      const moveOps = customMoveOps.get(f.id);
-      return (visOps && visOps.length > 0) || (moveOps && moveOps.length > 0);
-    });
+    // deleteHiddenText が有効な場合は全ファイル対象、それ以外は操作のあるファイルのみ
+    const filesWithOps = deleteHiddenText
+      ? targetFiles
+      : targetFiles.filter((f) => {
+          const visOps = customVisibilityOps.get(f.id);
+          const moveOps = customMoveOps.get(f.id);
+          return (visOps && visOps.length > 0) || (moveOps && moveOps.length > 0);
+        });
 
     if (filesWithOps.length === 0) return;
 
@@ -386,6 +388,7 @@ export function useLayerControl() {
           filePaths,
           fileOps,
           saveMode,
+          deleteHiddenText: deleteHiddenText ? true : undefined,
         }
       );
 
@@ -428,6 +431,11 @@ export function useLayerControl() {
           const resolvedVisForTree = matchingFileOps?.visibilityOps ?? [];
           if (resolvedVisForTree.length > 0) {
             updatedTree = applyCustomVisibilityToTree(updatedTree, resolvedVisForTree);
+          }
+
+          // 非表示テキストレイヤー削除
+          if (deleteHiddenText) {
+            updatedTree = removeHiddenTextLayers(updatedTree);
           }
 
           if (updatedTree !== file.metadata.layerTree) {

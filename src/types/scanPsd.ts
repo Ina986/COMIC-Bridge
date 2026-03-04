@@ -189,6 +189,40 @@ export const DEFAULT_WORK_INFO: ScanWorkInfo = {
 
 export const TAB_LABELS = ["作品情報", "フォント種類", "フォントサイズ", "タチキリ枠", "テキスト"] as const;
 
+/**
+ * je-nsonman形式のルビエントリをCOMIC-Bridge形式に正規化する。
+ * je-nsonman: { parent, ruby, volume (string "01"), page, order }
+ * COMIC-Bridge: { id, parentText, rubyText, volume (number), page, order }
+ */
+export function normalizeRubyEntries(raw: unknown[]): RubyEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((r) => {
+    const entry = r as Record<string, unknown>;
+    // parentText / rubyText が無ければ parent / ruby からフォールバック
+    const parentText = (entry.parentText as string) ?? (entry.parent as string) ?? "";
+    const rubyText = (entry.rubyText as string) ?? (entry.ruby as string) ?? "";
+    // volume: 文字列 "01" → 数値 1
+    let volume: number;
+    if (typeof entry.volume === "number") {
+      volume = entry.volume;
+    } else if (typeof entry.volume === "string") {
+      volume = parseInt(entry.volume, 10) || 1;
+    } else {
+      volume = 1;
+    }
+    // id が無ければ生成
+    const id = (entry.id as string) || `ruby_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    return {
+      id,
+      parentText,
+      rubyText,
+      volume,
+      page: (entry.page as number) ?? 1,
+      order: (entry.order as number) ?? 0,
+    };
+  });
+}
+
 export function getAutoSubName(fontName: string): string {
   if (!fontName) return "";
   const lower = fontName.toLowerCase();

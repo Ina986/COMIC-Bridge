@@ -32,6 +32,7 @@ function main() {
 
     var results = [];
     var saveFolder = settings.saveFolder || null;
+    var deleteHiddenText = settings.deleteHiddenText || false;
 
     for (var i = 0; i < settings.files.length; i++) {
         var filePath = settings.files[i];
@@ -45,7 +46,7 @@ function main() {
                 break;
             }
         }
-        var result = processFile(filePath, visOps, moveOps, saveFolder);
+        var result = processFile(filePath, visOps, moveOps, saveFolder, deleteHiddenText);
         results.push(result);
     }
 
@@ -59,7 +60,7 @@ function main() {
 /* -----------------------------------------------------
   File Processing
  ----------------------------------------------------- */
-function processFile(filePath, visOps, moveOps, saveFolder) {
+function processFile(filePath, visOps, moveOps, saveFolder, deleteHiddenText) {
     var result = {
         filePath: filePath,
         success: false,
@@ -129,6 +130,19 @@ function processFile(filePath, visOps, moveOps, saveFolder) {
                     ensureParentsVisible(layer);
                 }
                 result.changes.push((targetVisible ? "Show" : "Hide") + ": " + layer.name);
+            }
+        }
+
+        // 3. Delete hidden text layers if requested
+        if (deleteHiddenText) {
+            var deletedNames = [];
+            var deletedCount = deleteHiddenTextLayers(doc.layers, deletedNames, []);
+            changedCount += deletedCount;
+            if (deletedCount > 0) {
+                result.changes.push("Deleted " + deletedCount + " hidden text layer(s)");
+                for (var d = 0; d < deletedNames.length; d++) {
+                    result.changes.push("  deleted: " + deletedNames[d]);
+                }
             }
         }
 
@@ -224,6 +238,25 @@ function createFolderRecursive(folder) {
     var parent = folder.parent;
     if (!parent.exists) createFolderRecursive(parent);
     return folder.create();
+}
+
+/* -----------------------------------------------------
+  Delete Hidden Text Layers
+ ----------------------------------------------------- */
+function deleteHiddenTextLayers(layers, deletedNames, currentPath) {
+    var count = 0;
+    for (var i = layers.length - 1; i >= 0; i--) {
+        var layer = layers[i];
+        var layerPath = currentPath.concat([layer.name]);
+        if (layer.typename === "LayerSet") {
+            count += deleteHiddenTextLayers(layer.layers, deletedNames, layerPath);
+        } else if (layer.kind === LayerKind.TEXT && !layer.visible) {
+            deletedNames.push(layerPath.join("/"));
+            layer.remove();
+            count++;
+        }
+    }
+    return count;
 }
 
 /* -----------------------------------------------------

@@ -292,7 +292,7 @@ export function ReplaceDropZone() {
         <div ref={sourceRef} className="flex-1 min-w-0">
           <DropCard
             label={isCompose ? "原稿A" : isSwitch ? (isWhiteToBar ? "棒消しデータ" : "白消しデータ") : "植字データ"}
-            sublabel={isCompose ? "テキスト等を取り出すファイル" : isSwitch ? (isWhiteToBar ? "差し替え用の棒消しレイヤーを含むファイル" : "差し替え用の白消しレイヤーを含むファイル") : "テキスト等を取り出すファイル"}
+            sublabel={isCompose ? "合成元ファイル" : isSwitch ? (isWhiteToBar ? "差し替え用の棒消しレイヤーを含むファイル" : "差し替え用の白消しレイヤーを含むファイル") : "テキスト等を取り出すファイル"}
             icon={<TextIcon />}
             color={isSwitch ? "amber" : "pink"}
             folderPath={folders.sourceFolder}
@@ -377,7 +377,7 @@ export function ReplaceDropZone() {
           ) : (
             <DropCard
               label={isCompose ? "原稿B" : isSwitch ? "差替え対象PSD" : "画像データ"}
-              sublabel={isCompose ? "画像等を取り出すファイル" : isSwitch ? (isWhiteToBar ? "白消しレイヤーが非表示になります" : "棒消しグループが非表示になります") : "ベースとなる原稿ファイル"}
+              sublabel={isCompose ? "合成元ファイル" : isSwitch ? (isWhiteToBar ? "白消しレイヤーが非表示になります" : "棒消しグループが非表示になります") : "ベースとなる原稿ファイル"}
               icon={<ImageIcon />}
               color="purple"
               folderPath={folders.targetFolder}

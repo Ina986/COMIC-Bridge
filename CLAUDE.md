@@ -88,13 +88,15 @@
 - 処理完了後にアプリウィンドウを前面に復帰（`window.set_focus()`）
 
 ### 6. レイヤー制御（Photoshop JSX経由）
-- **4つのアクションモード**: hide（非表示）/ show（復元）/ organize（フォルダ格納）/ layerMove（レイヤー整理）
+- **5つのアクションモード**: hide（非表示）/ show（復元）/ custom（カスタム）/ organize（フォルダ格納）/ layerMove（レイヤー整理）
 - レイヤー表示/非表示の一括切り替え（`hide_layers.jsx`）
 - 条件指定: テキストレイヤー、テキストフォルダ、レイヤー名、フォルダ名、カスタム条件
 - 部分一致/完全一致、大文字小文字の区別オプション
 - 非表示→表示（復元）モード: `doc.info.caption`にメタデータ保存、親グループの可視性も自動復元
 - **organizeモード（フォルダ格納）**: 指定名のグループ（デフォルト: "#原稿#"）にレイヤーを再グルーピング（`organize_layers.jsx`）。`organizeTargetName`でグループ名指定、`organizeIncludeSpecial`で特殊レイヤー（白消し・棒消し等）も含めるか選択。`run_photoshop_layer_organize` Rustコマンド経由
 - **layerMoveモード（レイヤー整理）**: 条件ベースでレイヤーを指定グループに移動（`move_layers.jsx`）。4条件のAND判定: テキストレイヤー / サブグループ最上位 / サブグループ最下位 / レイヤー名一致（部分一致/完全一致）。検索範囲: ドキュメント全体 or 特定グループ内。移動先グループが存在しない場合は新規作成オプション。`run_photoshop_layer_move` Rustコマンド経由
+- **customモード（カスタム操作）**: 右プレビューでレイヤーの目アイコンをクリックして個別に表示/非表示設定、レイヤー移動操作を登録。`custom_operations.jsx`で一括適用。`run_photoshop_custom_operations` Rustコマンド経由。Undo対応（`_customOpsHistory`スタック）
+- **非表示テキストレイヤー削除**: hide/customモードで使用可能。非表示のテキストレイヤーをすべて削除（不可逆操作）。hideモードは`hide_layers.jsx`内で処理、customモードは`custom_operations.jsx`内の`deleteHiddenTextLayers()`で処理
 - 選択ファイルのみ / 全ファイル処理対応
 - **保存先選択**: 上書き保存 or 別フォルダに保存（`Desktop/Script_Output/レイヤー制御/{元フォルダ名}/`）。layerStoreの`saveMode`で管理、Rust側で出力先算出→JSXの`saveFolder`パラメータで`saveAs`先を切替
 - **詳細レポートダイアログ**: 処理完了後に中央モーダル（createPortal）でファイル別ツリー表示。親フォルダ∈情報付きでグループ/レイヤーの階層関係を表示（F/G/T/L種別バッジ）
@@ -111,7 +113,7 @@
 - **ドロップゾーン中央インジケータ**: 準備完了バッジ + モード連動方向矢印（text=→、image/batch=←）。divベースの円形矢印（Tailwindクラスで描画、SVG inline strokeにはCSS変数が効かないためcurrentColorパターンを使用）
 - バッチモード: 親フォルダ⇔個別指定の排他制御、サブフォルダ自動検出
 - ファイル数カウント（再帰対応）、0件時の警告表示
-- **設定の再配置**: 全般設定セクションを廃止。フォントサイズを丸める→テキストモード内、サイズ変更を行わない→画像モード内、サブフォルダ対応→フォルダ選択セクション内に配置。バッチモードは両設定を表示
+- **設定の再配置**: 全般設定セクションを廃止。フォントサイズを丸める→テキストモード内（デフォルトOFF）、サイズ変更を行わない→画像モード内、サブフォルダ対応→フォルダ選択セクション内に配置。バッチモードは両設定を表示
 - **ペアリング確認ダイアログ**: 自動ペアリング/手動マッチのタブ切替（ReplacePairingModal）
   - **自動タブ（PairingAutoTab）**: チェックボックス付きペアテーブル、行ごとの鉛筆アイコン（編集）/×ボタン（解除）、ヘッダーに「編集」「解除」明記。未マッチファイル折りたたみセクション（クリックでペア作成）。モード切替時はopacity transitionでスムーズ遷移。マッチキーバッジ（ファイル順=#N、数字キー=pN、リンク文字=キー文字）。マッチ進捗バー（分母は左列=差し替え元ファイル数）
   - **手動タブ（PairingManualTab）**: 2カラムファイルリスト + クリック/ドラッグでペア作成
@@ -186,15 +188,16 @@
 - **RenameResultDialog**: 処理完了ダイアログ（成功/失敗一覧 + 出力フォルダを開くボタン）
 
 ### 11. 合成（Compose / Photoshop JSX経由）
-- **概要**: 2つのPSDファイル（Source A / Source B）を1つの合成ファイルに統合
-- **5つのデフォルト要素**: テキストフォルダ、背景、#原稿#、白消し、棒消し — 各要素をどちらのソースから取るか選択可能
+- **概要**: 2つのPSDファイル（原稿A / 原稿B）を1つの合成ファイルに統合
+- **5つのデフォルト要素**: テキストフォルダ(A)、背景(B)、#背景#(除外)、白消し(除外)、棒消し(除外) — 各要素をどちらのソースから取るか(A/B/除外)選択可能
+- **要素ルーティング**: restSourceで指定した側がbaseDoc（保存対象）、もう片方がotherDoc（コピー元）。要素のsourceとbaseLabel(A/B)を**文字列比較**してルーティング（ExtendScriptのDocumentオブジェクト比較は不安定なため）
 - **ペアリング**: ファイル順/数字キー/リンク文字（手動・自動検出）の4方式。Replaceと同じペアリングUIを流用
-- **出力先**: `Desktop/Script_Output/合成ファイル_出力/{timestamp}/`
+- **出力先**: `Desktop/Script_Output/合成ファイル_出力/{timestamp}/` または差替えタブ内合成は `差替えファイル_出力/{timestamp}/`
 - **サブフォルダ対応**: ソースファイルをサブフォルダに整理してから合成可能
 - **コンポーネント**: ComposeView, ComposePanel, ComposeDropZone, ComposePairingModal（Auto/Manualタブ）, ComposePairingOutputSettings, ComposeToast
-- **ストア**: `composeStore.ts` — folders, settings, pairingJobs, scannedFileGroups, excludedPairIndices, manualPairs, phase/progress/results管理
+- **ストア**: `composeStore.ts` — folders, composeSettings(elements/restSource/skipResize/roundFontSize), pairingJobs, scannedFileGroups, excludedPairIndices, manualPairs, phase/progress/results管理
 - **フック**: `useComposeProcessor.ts` — スキャン＆ペアリング、Photoshop実行
-- Photoshop JSX経由で合成実行（`replace_layers.jsx`のcompose設定で処理）
+- Photoshop JSX経由で合成実行（`replace_layers.jsx`のcompose設定で処理）。合成ヘルパー: `composeCopyElement()`, `composeRemoveElement()`
 
 ### 12. Scan PSD（フォントプリセット管理）
 - **元スクリプト**: `je-nsonman_ver2.86.jsx`（約11,000行）からの移植
@@ -464,7 +467,7 @@ src/
 │   ├── usePhotoshopConverter.ts  # Photoshop経由仕様変換（DPI/カラー/ビット深度）
 │   ├── usePreparePsd.ts          # PSD準備（仕様修正+ガイド適用の統合処理）
 │   ├── useHighResPreview.ts      # 高解像度プレビュー（3層キャッシュ）
-│   ├── useLayerControl.ts        # レイヤー制御（hide/show/organize/layerMove）
+│   ├── useLayerControl.ts        # レイヤー制御（hide/show/custom/organize/layerMove）
 │   ├── useSplitProcessor.ts      # 見開き分割処理
 │   ├── useRenameProcessor.ts     # リネーム処理（ファイル/レイヤー）
 │   ├── useReplaceProcessor.ts    # レイヤー差替え処理
@@ -488,7 +491,7 @@ src/
 │   ├── psdStore.ts        # ファイル一覧・選択状態（files, selectedFileIds, activeFileId, viewMode）
 │   ├── specStore.ts       # 仕様・チェック結果（specifications, checkResults, autoCheckEnabled）。localStorage永続化
 │   ├── guideStore.ts      # ガイド線状態（guides, history/future, selectedGuideIndex）
-│   ├── layerStore.ts      # レイヤー制御: actionMode(hide/show/organize/layerMove), saveMode, selectedConditions, customConditions, organizeTargetName, layerMove条件（targetName/searchScope/conditions）
+│   ├── layerStore.ts      # レイヤー制御: actionMode(hide/show/custom/organize/layerMove), saveMode, selectedConditions, customConditions, organizeTargetName, layerMove条件, deleteHiddenText, customVisibilityOps/customMoveOps（カスタム操作Map）
 │   ├── viewStore.ts       # ビュー切替状態（activeView: AppView）
 │   ├── splitStore.ts      # 分割設定（settings, selectionHistory/Future）
 │   ├── replaceStore.ts    # 差替え設定（folders, batchFolders, settings, pairingJobs, manualPairs, excludedPairIndices）
@@ -513,6 +516,7 @@ src-tauri/
 │   ├── hide_layers.jsx        # レイヤー表示/非表示
 │   ├── organize_layers.jsx    # フォルダ格納（グループ再構成）
 │   ├── move_layers.jsx        # レイヤー整理（条件ベースのレイヤー移動）
+│   ├── custom_operations.jsx  # カスタム操作（個別表示/非表示・移動・非表示テキスト削除）
 │   ├── split_psd.jsx          # 見開き分割
 │   ├── replace_layers.jsx     # レイヤー差替え＋合成処理
 │   ├── rename_psd.jsx         # レイヤーリネーム
@@ -528,7 +532,7 @@ src-tauri/
 └── src/
     ├── main.rs            # Tauriエントリポイント
     ├── lib.rs             # コマンド登録（invoke_handler）
-    ├── commands.rs        # 全Tauriコマンド（37コマンド）
+    ├── commands.rs        # 全Tauriコマンド（38コマンド）
     └── pdf.rs             # PDFレンダリング内部ヘルパー（pdfium-render）
 ```
 
@@ -649,6 +653,7 @@ useEffect(() => {
 14. **非PSDファイルの読み込み**: `isPsdFile()`で判定し、PSD以外は`stat()`でファイルサイズのみ取得。ag-psdパースはスキップ。Photoshopが開ける前提でファイル一覧に表示
 15. **ExtendScript `File.name` のURI符号化**: `File.name`は非ASCII文字をURIエンコードして返す（例: `校正_堀川` → `%E6%A0%A1%E6%AD%A3_%E5%A0%80%E5%B7%9D`）。`decodeURI(file.name)`で正しいファイル名を取得すること
 16. **PDF分割処理**: JSX側で`pdfPageIndex >= 0`の場合、`PDFOpenOptions`（`page`, `resolution: 600`, `mode: OpenDocumentMode.RGB`）でページ指定オープン。`fileInfos`は`{ path, pdfPageIndex }`形式で渡す（`pdfPageIndex: -1`は通常ファイル）
+17. **ExtendScript Document比較**: `sourceDoc === targetDoc` は異なるDocumentオブジェクトでも`true`を返すことがある。**Documentオブジェクトの`===`比較は使わず、文字列ラベル（"A"/"B"）で比較すること**（合成モードの要素ルーティングで発生したバグ）
 
 ## フォント名解決（Rust側）
 
@@ -687,7 +692,7 @@ pdfium-renderによるPDFプレビュー/サムネイル生成:
 5. **キャッシュ**: ディスクキャッシュ `manga_pdf_preview_{name}_{mtime}_{page}_{size}.jpg`（既存PSDキャッシュと同一パターン）
 6. **pdfium-render API注意**: ページインデックスは`u16`型（`PdfPageIndex`）、`PdfPoints`は`.value: f32`、`as_image()`は`DynamicImage`を直接返す
 
-## Rustコマンド一覧（commands.rs — 37コマンド）
+## Rustコマンド一覧（commands.rs — 38コマンド）
 
 ### Photoshop連携
 | コマンド | 引数 | 戻り値 | 用途 |
@@ -699,6 +704,7 @@ pdfium-renderによるPDFプレビュー/サムネイル生成:
 | `run_photoshop_layer_visibility` | `file_paths, conditions, mode, save_mode` | `Vec<PhotoshopResult>` | レイヤー表示/非表示 |
 | `run_photoshop_layer_organize` | `file_paths, target_group_name, include_special, save_mode` | `Vec<PhotoshopResult>` | フォルダ格納 |
 | `run_photoshop_layer_move` | `file_paths, target_group_name, create_if_missing, search_scope, search_group_name, conditions, save_mode` | `Vec<PhotoshopResult>` | レイヤー整理（条件ベース移動） |
+| `run_photoshop_custom_operations` | `file_paths, file_ops, save_mode, delete_hidden_text?` | `Vec<PhotoshopResult>` | カスタム操作（個別表示/非表示・移動・テキスト削除） |
 | `run_photoshop_split` | 多数パラメータ（mode, format, quality, selection等） | `SplitResponse` | 見開き分割 |
 | `run_photoshop_replace` | `jobs: ReplaceJobSettings` | `Vec<PhotoshopResult>` | レイヤー差替え/合成 |
 | `run_photoshop_rename` | `settings: RenameJobSettings` | `Vec<PhotoshopResult>` | レイヤーリネーム |
