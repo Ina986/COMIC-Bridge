@@ -115,6 +115,31 @@ function convertStrokeSizesForExport(
 }
 
 /**
+ * プリセットを je-nsonman 互換のエクスポート形式に変換
+ * - subName が空なら省略
+ * - description に「使用回数:」を含む場合は省略
+ */
+function convertPresetsForExport(
+  presetSets: Record<string, FontPreset[]>
+): Record<string, { name: string; font: string; subName?: string; description?: string }[]> {
+  const result: Record<string, { name: string; font: string; subName?: string; description?: string }[]> = {};
+  for (const [setName, presets] of Object.entries(presetSets)) {
+    result[setName] = presets.map((p) => {
+      const entry: { name: string; font: string; subName?: string; description?: string } = {
+        name: p.name,
+        font: p.font,
+      };
+      if (p.subName) entry.subName = p.subName;
+      if (p.description && !p.description.includes("使用回数:")) {
+        entry.description = p.description;
+      }
+      return entry;
+    });
+  }
+  return result;
+}
+
+/**
  * プリセットJSON保存の実処理（スタンドアロン関数）
  * startScan完了後の自動保存からも呼ばれる
  */
@@ -162,7 +187,7 @@ async function performPresetJsonSave(): Promise<boolean> {
   const presetData = {
     ...existingData.presetData,
     workInfo: store.workInfo,
-    presets: store.presetSets,
+    presets: convertPresetsForExport(store.presetSets),
     fontSizeStats: convertSizeStatsForExport(store.scanData?.sizeStats),
     strokeSizes: convertStrokeSizesForExport(store.scanData?.strokeStats.sizes),
     guides: selectedGuide
@@ -173,6 +198,7 @@ async function performPresetJsonSave(): Promise<boolean> {
     excludedGuideIndices: undefined,
     rubyList: store.rubyList.length > 0 ? store.rubyList : undefined,
     selectionRanges: store.selectionRanges.length > 0 ? store.selectionRanges : undefined,
+    saveLocation: store.workInfo.label || undefined,
   };
 
   // presetData の fontSizeStats/strokeSizes はエクスポート形式（je-nsonman互換）のため
