@@ -228,8 +228,8 @@ async function performPresetJsonSave(): Promise<boolean> {
     guideSets: undefined,
     selectedGuideSetIndex: store.selectedGuideIndex ?? undefined,
     excludedGuideIndices: undefined,
-    rubyList: store.rubyList.length > 0 ? store.rubyList : undefined,
-    selectionRanges: store.selectionRanges.length > 0 ? store.selectionRanges : undefined,
+    rubyList: undefined,
+    selectionRanges: undefined,
     saveLocation: store.workInfo.label || undefined,
   };
 
@@ -273,7 +273,7 @@ async function performPresetJsonSave(): Promise<boolean> {
         ...store.scanData,
         workInfo: store.workInfo,
         presets: store.presetSets,
-        editedRubyList: store.rubyList.length > 0 ? store.rubyList : undefined,
+        editedRubyList: undefined,
         selectedGuideSetIndex: store.selectedGuideIndex,
         excludedGuideIndices: store.excludedGuideIndices.size > 0
           ? Array.from(store.excludedGuideIndices)
@@ -300,7 +300,7 @@ async function performPresetJsonSave(): Promise<boolean> {
  * 元スクリプトの saveScanDataWithInfo と同じパス規則
  */
 async function saveScandataLinked(store: ReturnType<typeof useScanPsdStore.getState>) {
-  const { workInfo, scanData, presetSets, rubyList, saveDataBasePath } = store;
+  const { workInfo, scanData, presetSets, saveDataBasePath } = store;
   if (!scanData || !workInfo.title || !workInfo.label) return;
 
   const safeLabel = workInfo.label.replace(/[\\/:*?"<>|]/g, "_");
@@ -324,7 +324,7 @@ async function saveScandataLinked(store: ReturnType<typeof useScanPsdStore.getSt
     ...scanData,
     workInfo,
     presets: presetSets,
-    editedRubyList: rubyList.length > 0 ? rubyList : undefined,
+    editedRubyList: undefined,
     // ガイド選択・除外状態もscandataに保存
     selectedGuideSetIndex: store.selectedGuideIndex,
     excludedGuideIndices: store.excludedGuideIndices.size > 0
