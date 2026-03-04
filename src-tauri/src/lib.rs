@@ -68,6 +68,12 @@ pub fn run() {
             }
             Ok(())
         })
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // Clean up temp files on app exit (max_age = 0 removes all matching files)
+                let _ = commands::cleanup_temp_files(0);
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

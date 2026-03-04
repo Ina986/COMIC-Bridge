@@ -2140,9 +2140,15 @@ fn get_high_res_preview_sync(file_path: &str, max_size: u32) -> Result<HighResPr
     Ok(result)
 }
 
-/// Clean up old preview files from temp directory
+/// Clean up old temporary files from temp directory
 #[tauri::command]
 pub async fn cleanup_preview_files() -> Result<u32, String> {
+    cleanup_temp_files(86400)
+}
+
+/// Internal cleanup logic. Removes temp files older than `max_age_secs`.
+/// Called from the periodic command and from the app exit handler.
+pub fn cleanup_temp_files(max_age_secs: u64) -> Result<u32, String> {
     let temp_dir = std::env::temp_dir();
     let mut cleaned_count = 0u32;
 
@@ -2150,12 +2156,20 @@ pub async fn cleanup_preview_files() -> Result<u32, String> {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                if filename.starts_with("manga_psd_preview_") && filename.ends_with(".jpg") {
-                    // Check if file is older than 1 hour
+                let should_clean =
+                    // Preview cache files (PSD + PDF)
+                    (filename.starts_with("manga_psd_preview_") && filename.ends_with(".jpg"))
+                    || (filename.starts_with("manga_pdf_preview_") && filename.ends_with(".jpg"))
+                    // Orphaned Photoshop communication files
+                    || (filename.starts_with("psd_") && filename.ends_with(".json"))
+                    // Orphaned temp script copies
+                    || (filename.ends_with("_temp.jsx"));
+
+                if should_clean {
                     if let Ok(metadata) = fs::metadata(&path) {
                         if let Ok(modified) = metadata.modified() {
                             if let Ok(age) = SystemTime::now().duration_since(modified) {
-                                if age.as_secs() > 86400 {
+                                if age.as_secs() > max_age_secs {
                                     if fs::remove_file(&path).is_ok() {
                                         cleaned_count += 1;
                                     }
