@@ -18,8 +18,12 @@ function getItemKey(item: ProofreadingCheckItem): string {
 /** ページ文字列を "NP" 形式にフォーマット */
 function formatPage(page: string): string {
   if (!page) return "";
-  const match = String(page).match(/^(\d+)/);
-  return match ? `${match[1]}P` : page;
+  // "3巻 6ページ" → 6, "3巻1P" → 1, "6ページ" → 6 のように最後の数字を取得
+  const match = String(page).match(/(\d+)\s*(?:ページ|ぺーじ|P|p)\s*$/i);
+  if (match) return `${match[1]}P`;
+  // フォールバック: 最後の連続数字
+  const lastNum = String(page).match(/(\d+)(?=[^\d]*$)/);
+  return lastNum ? `${lastNum[1]}P` : page;
 }
 
 /** テキストのハイライト (検索クエリ一致部分を強調) */
@@ -120,10 +124,6 @@ export function CheckCategoryGroup({ category, items, onPageClick, searchQuery }
                     <td className={`px-2 py-1.5 font-medium align-top ${isChecked ? "text-text-muted line-through" : "text-error"}`}>
                       {searchQuery ? highlightText(item.content || "", searchQuery) : item.content}
                     </td>
-                    {/* Copy */}
-                    <td className="px-1 py-1.5 w-[28px] align-top">
-                      <CopyButton content={item.content || ""} />
-                    </td>
                   </tr>
                 );
               })}
@@ -135,39 +135,3 @@ export function CheckCategoryGroup({ category, items, onPageClick, searchQuery }
   );
 }
 
-function CopyButton({ content }: { content: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1000);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  return (
-    <button
-      onClick={handleCopy}
-      className={`w-5 h-5 flex items-center justify-center rounded transition-all ${
-        copied
-          ? "text-success"
-          : "text-text-muted hover:text-text-primary hover:bg-bg-tertiary"
-      }`}
-      title="コピー"
-    >
-      {copied ? (
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-        </svg>
-      )}
-    </button>
-  );
-}

@@ -72,9 +72,11 @@ export const useTypesettingCheckStore = create<TypesettingCheckState>((set) => (
   setSearchQuery: (searchQuery) => set({ searchQuery }),
 
   navigateToPage: (pageStr) => {
-    const match = pageStr.match(/(\d+)/);
-    if (!match) return;
-    const pageNum = parseInt(match[1], 10);
+    // "3巻 6ページ" → 6, "3巻1P" → 1 のように最後の数字を取得
+    const pageMatch = pageStr.match(/(\d+)\s*(?:ページ|ぺーじ|P|p)\s*$/i);
+    const lastNum = pageMatch ? pageMatch[1] : pageStr.match(/(\d+)(?=[^\d]*$)/)?.[1];
+    if (!lastNum) return;
+    const pageNum = parseInt(lastNum, 10);
 
     const files = usePsdStore.getState().files;
     // ファイル名の最後の連続数字とページ番号を照合（usePageNumberCheck と同じロジック）
