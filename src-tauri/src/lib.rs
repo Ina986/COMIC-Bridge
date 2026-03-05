@@ -1,4 +1,4 @@
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 mod commands;
 pub mod pdf;
@@ -61,6 +61,20 @@ pub fn run() {
             commands::invalidate_file_cache,
         ])
         .setup(|app| {
+            // CLI引数から校正データJSONパスを検出してフロントエンドに通知
+            let args: Vec<String> = std::env::args().collect();
+            if let Some(pos) = args.iter().position(|a| a == "--proofreading-json") {
+                if let Some(json_path) = args.get(pos + 1) {
+                    let window = app.get_webview_window("main").unwrap();
+                    let path = json_path.clone();
+                    std::thread::spawn(move || {
+                        // フロントエンドの初期化完了を待つ
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        let _ = window.emit("open-proofreading-json", &path);
+                    });
+                }
+            }
+
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();
