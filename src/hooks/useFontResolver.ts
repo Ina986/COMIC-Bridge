@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { LayerNode, LayerBounds, TextInfo, PsdFile } from "../types";
 
@@ -159,11 +159,26 @@ export function useFontResolver(files: PsdFile[]) {
     allFontNames: postScriptNames,
   }), [fontResolveMap, fontColorMap, missingFonts, fontNamesResolved, postScriptNames]);
 
+  // フォント解決を再実行（インストール後に呼ぶ）
+  const refreshFonts = useCallback(() => {
+    if (postScriptNames.length === 0) return;
+    setFontNamesResolved(false);
+    invoke<Record<string, FontResolveInfo>>("resolve_font_names", {
+      postscriptNames: postScriptNames,
+    })
+      .then((result) => {
+        setFontResolveMap(result);
+        setFontNamesResolved(true);
+      })
+      .catch(console.error);
+  }, [postScriptNames]);
+
   return {
     fontInfo,
     allFonts,
     totalTextLayers,
     missingFonts,
     fontNamesResolved,
+    refreshFonts,
   };
 }

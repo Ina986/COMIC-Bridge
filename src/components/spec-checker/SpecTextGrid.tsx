@@ -7,6 +7,9 @@ import {
   type FontHelpers,
   type TextLayerEntry,
 } from "../../hooks/useFontResolver";
+import { FontBrowserDialog } from "./FontBrowserDialog";
+
+const FONT_SHARE_PATH = "\\\\haku\\CLLENN\\■アシスタント\\★フォント\\★全フォント";
 
 const AA_LABELS: Record<string, string> = {
   antiAliasSharp: "シャープ",
@@ -37,10 +40,11 @@ export function SpecTextGrid({ onFilterFont }: SpecTextGridProps = {}) {
   const activeFileId = usePsdStore((s) => s.activeFileId);
   const selectFile = usePsdStore((s) => s.selectFile);
 
-  const { fontInfo, allFonts, totalTextLayers, missingFonts } = useFontResolver(files);
+  const { fontInfo, allFonts, totalTextLayers, missingFonts, refreshFonts } = useFontResolver(files);
 
   const [useActualFont, setUseActualFont] = useState(false);
   const [sortDesc, setSortDesc] = useState(false);
+  const [showFontBrowser, setShowFontBrowser] = useState(false);
 
   // サイズ統計の集計（頻度順）
   const sizeStats = useMemo(() => {
@@ -258,13 +262,39 @@ export function SpecTextGrid({ onFilterFont }: SpecTextGridProps = {}) {
           <svg className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="text-[11px] font-medium text-red-400">
               未インストールフォント ({missingFonts.size}件)
             </div>
             <div className="text-[10px] text-red-400/70 mt-0.5">
               {[...missingFonts].join("、")}
             </div>
+          </div>
+          <button
+            onClick={() => setShowFontBrowser(true)}
+            className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md border border-blue-400/30 bg-blue-400/10 text-blue-400 hover:bg-blue-400/20 transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            共有フォルダから探す
+          </button>
+        </div>
+      )}
+
+      {/* Font browser dialog */}
+      {showFontBrowser && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowFontBrowser(false); }}
+        >
+          <div className="w-[480px]" onMouseDown={(e) => e.stopPropagation()}>
+            <FontBrowserDialog
+              basePath={FONT_SHARE_PATH}
+              missingFontNames={[...missingFonts]}
+              onInstalled={refreshFonts}
+              onClose={() => setShowFontBrowser(false)}
+            />
           </div>
         </div>
       )}

@@ -11,6 +11,8 @@ use std::sync::{Mutex, OnceLock};
 use tauri::Manager;
 use thiserror::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 // ============================================
 // Natural sort comparison (1, 2, 10, 11...)
@@ -3830,15 +3832,22 @@ fn generate_thumbnail_from_composite(path: &std::path::Path) -> Option<String> {
 // Font Name Resolution
 // ============================================
 
-/// システムフォントDBのキャッシュ（初回ロード後に再利用）
-static FONT_DB: OnceLock<Database> = OnceLock::new();
+/// システムフォントDBのキャッシュ（フォントインストール後にリフレッシュ可能）
+static FONT_DB: OnceLock<Mutex<Database>> = OnceLock::new();
 
-fn get_font_db() -> &'static Database {
+fn get_font_db_lock() -> &'static Mutex<Database> {
     FONT_DB.get_or_init(|| {
         let mut db = Database::new();
         db.load_system_fonts();
-        db
+        Mutex::new(db)
     })
+}
+
+fn refresh_font_db() {
+    let lock = get_font_db_lock();
+    let mut db = lock.lock().unwrap();
+    *db = Database::new();
+    db.load_system_fonts();
 }
 
 /// フォント解決結果
@@ -4188,20 +4197,18 @@ pub async fn detect_psd_folders(folder_path: String) -> Result<serde_json::Value
 /// PostScript名から表示用フォント名（和名優先）・スタイル名を解決する
 #[tauri::command]
 pub fn resolve_font_names(postscript_names: Vec<String>) -> HashMap<String, FontResolveInfo> {
-    let db = get_font_db();
+    let db = get_font_db_lock().lock().unwrap();
     let mut result = HashMap::new();
 
     for face in db.faces() {
         if postscript_names.contains(&face.post_script_name) {
-            // 日本語名を優先、なければ最初のファミリー名、それもなければPS名
             let display_name = face.families.iter()
                 .find(|(_, lang)| *lang == Language::Japanese_Japan)
                 .or_else(|| face.families.first())
                 .map(|(name, _)| name.clone())
                 .unwrap_or_else(|| face.post_script_name.clone());
 
-            // OpenType name table からサブファミリー名を取得
-            let style_name = extract_subfamily_name(db, face.id)
+            let style_name = extract_subfamily_name(&db, face.id)
                 .unwrap_or_else(|| "Regular".to_string());
 
             result.insert(face.post_script_name.clone(), FontResolveInfo {
@@ -4212,6 +4219,321 @@ pub fn resolve_font_names(postscript_names: Vec<String>) -> HashMap<String, Font
     }
 
     result
+}
+
+// ============================================
+// Font Folder Browser & Installation
+// ============================================
+
+/// フォントフォルダの内容を一覧する（フォント拡張子のみ、キャッシュ付き）
+#[derive(Serialize, Clone)]
+pub struct FontFolderContents {
+    pub folders: Vec<String>,
+    pub font_files: Vec<String>,
+}
+
+/// フォルダ一覧キャッシュ（ネットワーク共有の繰り返しアクセスを高速化）
+static FONT_FOLDER_CACHE: OnceLock<Mutex<HashMap<String, FontFolderContents>>> = OnceLock::new();
+
+fn get_font_folder_cache() -> &'static Mutex<HashMap<String, FontFolderContents>> {
+    FONT_FOLDER_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[tauri::command]
+pub async fn list_font_folder_contents(
+    folder_path: String,
+    no_cache: Option<bool>,
+) -> Result<FontFolderContents, String> {
+    // キャッシュ確認（no_cache=trueでスキップ）
+    if !no_cache.unwrap_or(false) {
+        let cache = get_font_folder_cache().lock().unwrap();
+        if let Some(cached) = cache.get(&folder_path) {
+            return Ok(cached.clone());
+        }
+    }
+
+    let path_clone = folder_path.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let folder = Path::new(&path_clone);
+        if !folder.exists() || !folder.is_dir() {
+            return Err(format!("フォルダが見つかりません: {}", path_clone));
+        }
+
+        let font_exts = ["otf", "ttf", "ttc"];
+        let mut folders = Vec::new();
+        let mut font_files = Vec::new();
+
+        let entries = fs::read_dir(folder)
+            .map_err(|e| format!("フォルダ読み込みエラー: {}", e))?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // is_dir()/is_file() はネットワーク共有で遅いのでfile_type()を使う
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if ft.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    folders.push(name.to_string());
+                }
+            } else if ft.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if font_exts.contains(&ext.to_lowercase().as_str()) {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            font_files.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        folders.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+        font_files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+
+        Ok(FontFolderContents { folders, font_files })
+    })
+    .await
+    .map_err(|e| format!("タスクエラー: {}", e))??;
+
+    // キャッシュに保存
+    {
+        let mut cache = get_font_folder_cache().lock().unwrap();
+        cache.insert(folder_path, result.clone());
+    }
+
+    Ok(result)
+}
+
+/// フォントフォルダ内をファイル名で再帰検索
+#[derive(Serialize, Clone)]
+pub struct FontSearchResult {
+    pub file_name: String,
+    pub relative_path: String,
+    pub full_path: String,
+}
+
+/// フォント検索用インメモリインデックス（初回スキャン後はメモリ内フィルタリングで即座に結果返却）
+struct FontFileIndex {
+    base_path: String,
+    entries: Vec<FontSearchResult>,
+}
+
+static FONT_FILE_INDEX: OnceLock<Mutex<Option<FontFileIndex>>> = OnceLock::new();
+
+fn get_font_file_index() -> &'static Mutex<Option<FontFileIndex>> {
+    FONT_FILE_INDEX.get_or_init(|| Mutex::new(None))
+}
+
+/// インデックスを構築（walkdirで全フォントファイルを列挙）
+fn build_font_file_index(base_path: &str) -> Result<Vec<FontSearchResult>, String> {
+    let base = Path::new(base_path);
+    if !base.exists() {
+        return Err(format!("フォルダが見つかりません: {}", base_path));
+    }
+
+    let font_exts: std::collections::HashSet<&str> =
+        ["otf", "ttf", "ttc"].into_iter().collect();
+    let mut entries = Vec::new();
+
+    for entry in walkdir::WalkDir::new(base)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_dir() { continue; }
+        let path = entry.path();
+
+        let ext_match = path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| font_exts.contains(e.to_lowercase().as_str()))
+            .unwrap_or(false);
+        if !ext_match { continue; }
+
+        let file_name = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        let relative = path.strip_prefix(base)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        entries.push(FontSearchResult {
+            file_name,
+            relative_path: relative,
+            full_path: path.to_string_lossy().to_string(),
+        });
+    }
+
+    entries.sort_by(|a, b| natural_sort_key(&a.file_name).cmp(&natural_sort_key(&b.file_name)));
+    Ok(entries)
+}
+
+#[tauri::command]
+pub async fn search_font_files(
+    base_path: String,
+    query: String,
+    no_cache: Option<bool>,
+) -> Result<Vec<FontSearchResult>, String> {
+    let base_path_clone = base_path.clone();
+    tokio::task::spawn_blocking(move || {
+        // キャッシュ確認（同じbase_pathのインデックスがあればメモリ内検索）
+        if !no_cache.unwrap_or(false) {
+            let index = get_font_file_index().lock().unwrap();
+            if let Some(ref idx) = *index {
+                if idx.base_path == base_path_clone {
+                    // インメモリフィルタリング（即座に結果返却）
+                    let query_lower = query.to_lowercase();
+                    let results: Vec<FontSearchResult> = idx.entries.iter()
+                        .filter(|e| e.file_name.to_lowercase().contains(&query_lower))
+                        .take(200)
+                        .cloned()
+                        .collect();
+                    return Ok(results);
+                }
+            }
+        }
+        // インデックス未構築 or base_path変更 or no_cache → フルスキャン
+        drop(get_font_file_index().lock()); // ロック解放
+        let entries = build_font_file_index(&base_path_clone)?;
+
+        // インデックスをキャッシュに保存
+        {
+            let mut index = get_font_file_index().lock().unwrap();
+            *index = Some(FontFileIndex {
+                base_path: base_path_clone.clone(),
+                entries: entries.clone(),
+            });
+        }
+
+        // クエリでフィルタリング
+        let query_lower = query.to_lowercase();
+        let results: Vec<FontSearchResult> = entries.into_iter()
+            .filter(|e| e.file_name.to_lowercase().contains(&query_lower))
+            .take(200)
+            .collect();
+        Ok(results)
+    })
+    .await
+    .map_err(|e| format!("タスクエラー: {}", e))?
+}
+
+/// フォントファイルをユーザーフォントディレクトリにインストール
+#[tauri::command]
+pub async fn install_font_from_path(font_path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        install_font_from_path_inner(&font_path)
+    })
+    .await
+    .map_err(|e| format!("タスクエラー: {}", e))?
+}
+
+fn install_font_from_path_inner(font_path: &str) -> Result<String, String> {
+    let src = Path::new(font_path);
+    if !src.exists() {
+        return Err(format!("フォントファイルが見つかりません: {}", font_path));
+    }
+
+    let file_name = src.file_name()
+        .ok_or_else(|| "ファイル名を取得できません".to_string())?
+        .to_string_lossy().to_string();
+
+    // フォントメタデータからフルネーム取得
+    let data = fs::read(src)
+        .map_err(|e| format!("フォントファイルの読み込みに失敗: {}", e))?;
+    let face = ttf_parser::Face::parse(&data, 0).ok();
+
+    let font_full_name = face.as_ref().and_then(|f| {
+        let mut ja = None;
+        let mut en = None;
+        let mut any = None;
+        for name in f.names() {
+            if name.name_id != name_id::FULL_NAME { continue; }
+            if let Some(s) = name.to_string() {
+                if name.platform_id == ttf_parser::PlatformId::Windows {
+                    if name.language_id == 0x0411 { ja = Some(s.clone()); }
+                    else if name.language_id == 0x0409 && en.is_none() { en = Some(s.clone()); }
+                }
+                if any.is_none() { any = Some(s); }
+            }
+        }
+        ja.or(en).or(any)
+    }).unwrap_or_else(|| {
+        file_name.rsplit('.').last().unwrap_or(&file_name).to_string()
+    });
+
+    // フォントタイプ判定
+    let ext_lower = src.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let font_type_label = if ext_lower == "otf" { "OpenType" } else { "TrueType" };
+
+    // ユーザーフォントディレクトリ
+    let local_app_data = std::env::var("LOCALAPPDATA")
+        .map_err(|_| "LOCALAPPDATA 環境変数が見つかりません".to_string())?;
+    let user_fonts_dir = Path::new(&local_app_data).join("Microsoft").join("Windows").join("Fonts");
+    let _ = fs::create_dir_all(&user_fonts_dir);
+
+    let dest = user_fonts_dir.join(&file_name);
+    fs::copy(src, &dest)
+        .map_err(|e| format!("フォントのコピーに失敗: {}", e))?;
+
+    let dest_str = dest.to_string_lossy().to_string();
+
+    // AddFontResourceExW で即座にシステムに登録
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+
+        #[link(name = "gdi32")]
+        extern "system" {
+            fn AddFontResourceExW(name: *const u16, fl: u32, res: *const std::ffi::c_void) -> i32;
+        }
+        #[link(name = "user32")]
+        extern "system" {
+            fn SendMessageTimeoutW(
+                hwnd: isize, msg: u32, wparam: usize, lparam: isize,
+                flags: u32, timeout: u32, result: *mut usize,
+            ) -> isize;
+        }
+
+        const HWND_BROADCAST: isize = 0xFFFF;
+        const WM_FONTCHANGE: u32 = 0x001D;
+        const SMTO_ABORTIFHUNG: u32 = 0x0002;
+
+        let wide: Vec<u16> = OsStr::new(&dest_str).encode_wide().chain(std::iter::once(0)).collect();
+        unsafe {
+            let added = AddFontResourceExW(wide.as_ptr(), 0, std::ptr::null());
+            if added > 0 {
+                // SendMessageTimeoutW: 応答しないウィンドウでブロックしない（1秒タイムアウト）
+                let mut _result: usize = 0;
+                SendMessageTimeoutW(
+                    HWND_BROADCAST, WM_FONTCHANGE, 0, 0,
+                    SMTO_ABORTIFHUNG, 1000, &mut _result,
+                );
+                eprintln!("Font installed: {} ({} faces)", font_full_name, added);
+            }
+        }
+    }
+
+    // レジストリに登録
+    let reg_value_name = format!("{} ({})", font_full_name, font_type_label);
+    let _reg_result = std::process::Command::new("reg")
+        .args([
+            "add",
+            r"HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts",
+            "/v", &reg_value_name,
+            "/t", "REG_SZ",
+            "/d", &dest_str,
+            "/f",
+        ])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output();
+
+    // fontdb キャッシュをリフレッシュ
+    refresh_font_db();
+
+    Ok(dest_str)
 }
 
 // ============================================

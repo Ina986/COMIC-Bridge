@@ -34,10 +34,14 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
   // Text display options
   const [useActualFont, setUseActualFont] = useState(false);
   const [sortDesc, setSortDesc] = useState(false);
-  // Font filter
+  // Font filter (3-state: null → filterOnly → filterAndHighlight)
   const [filterFont, setFilterFont] = useState<string | null>(null);
+  const [filterHighlightAll, setFilterHighlightAll] = useState(false);
   // Text layer highlight (index in textLayers)
   const [highlightLayerIdx, setHighlightLayerIdx] = useState<number | null>(null);
+  // Layer tree highlight (by layer id)
+  const [highlightTreeLayerId, setHighlightTreeLayerId] = useState<string | null>(null);
+  const [highlightTreeBounds, setHighlightTreeBounds] = useState<import("../../types").LayerBounds | null>(null);
   // Category dropdown state
   const [categoryDropdownFont, setCategoryDropdownFont] = useState<string | null>(null);
   // JSON file browser modal
@@ -109,6 +113,7 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
   useEffect(() => {
     if (initialFilterFont) {
       setFilterFont(initialFilterFont);
+      setFilterHighlightAll(false);
       onFilterFontConsumed?.();
     }
   }, [initialFilterFont]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -223,15 +228,27 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
   const psdWidth = viewerFile?.metadata?.width ?? 0;
   const psdHeight = viewerFile?.metadata?.height ?? 0;
 
-  // Highlighted layer bounds
+  // Highlighted layer bounds (single selection from text tab or layer tree tab)
   const highlightBounds = useMemo(() => {
+    if (highlightTreeBounds) return highlightTreeBounds;
     if (highlightLayerIdx == null) return null;
     return textLayers[highlightLayerIdx]?.bounds ?? null;
-  }, [highlightLayerIdx, textLayers]);
+  }, [highlightLayerIdx, textLayers, highlightTreeBounds]);
+
+  // All matching bounds when filterHighlightAll is active
+  const filterHighlightBoundsList = useMemo(() => {
+    if (!filterHighlightAll || !filterFont) return [];
+    return textLayers
+      .filter((e) => e.textInfo?.fonts.includes(filterFont))
+      .map((e) => e.bounds)
+      .filter((b): b is import("../../types").LayerBounds => !!b);
+  }, [filterHighlightAll, filterFont, textLayers]);
 
   // Reset highlight when file changes
   useEffect(() => {
     setHighlightLayerIdx(null);
+    setHighlightTreeLayerId(null);
+    setHighlightTreeBounds(null);
   }, [viewerFileIndex]);
 
   // Per-file font summary
@@ -417,23 +434,39 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
           />
         ) : null}
 
-        {/* SVG highlight overlay for selected text layer — covers entire viewer, viewBox maps to PSD coords */}
-        {highlightBounds && psdWidth > 0 && (
+        {/* SVG highlight overlay — single selection or filter-all highlights */}
+        {psdWidth > 0 && (highlightBounds || filterHighlightBoundsList.length > 0) && (
           <svg
             className="absolute inset-0 w-full h-full pointer-events-none"
             viewBox={`0 0 ${psdWidth} ${psdHeight}`}
             preserveAspectRatio="xMidYMid meet"
           >
-            <rect
-              x={highlightBounds.left}
-              y={highlightBounds.top}
-              width={highlightBounds.right - highlightBounds.left}
-              height={highlightBounds.bottom - highlightBounds.top}
-              fill="rgba(194, 90, 90, 0.12)"
-              stroke="rgba(194, 90, 90, 0.45)"
-              strokeWidth={Math.max(3, psdWidth * 0.002)}
-              rx={4}
-            />
+            {filterHighlightBoundsList.length > 0
+              ? filterHighlightBoundsList.map((b, i) => (
+                  <rect
+                    key={i}
+                    x={b.left}
+                    y={b.top}
+                    width={b.right - b.left}
+                    height={b.bottom - b.top}
+                    fill={`${filterFont ? fontInfo.getFontColor(filterFont) : "rgba(194,90,90,1)"}18`}
+                    stroke={`${filterFont ? fontInfo.getFontColor(filterFont) : "rgba(194,90,90,1)"}70`}
+                    strokeWidth={Math.max(3, psdWidth * 0.002)}
+                    rx={4}
+                  />
+                ))
+              : highlightBounds && (
+                  <rect
+                    x={highlightBounds.left}
+                    y={highlightBounds.top}
+                    width={highlightBounds.right - highlightBounds.left}
+                    height={highlightBounds.bottom - highlightBounds.top}
+                    fill="rgba(194, 90, 90, 0.12)"
+                    stroke="rgba(194, 90, 90, 0.45)"
+                    strokeWidth={Math.max(3, psdWidth * 0.002)}
+                    rx={4}
+                  />
+                )}
           </svg>
         )}
 
@@ -606,7 +639,7 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
                     {filterFont && (
                       <button
                         className="ml-auto text-[9px] px-1.5 py-0.5 rounded text-accent hover:bg-accent/10 transition-all"
-                        onClick={() => setFilterFont(null)}
+                        onClick={() => { setFilterFont(null); setFilterHighlightAll(false); }}
                       >
                         解除
                       </button>
@@ -616,28 +649,38 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
                     {fontInfo.allFontNames.map((font) => {
                       const color = fontInfo.getFontColor(font);
                       const missing = fontInfo.isMissing(font);
-                      const isActive = filterFont === font;
+                      const isFiltered = filterFont === font;
+                      const isHighlightAll = isFiltered && filterHighlightAll;
                       const isOnCurrentPage = fileFonts.includes(font);
                       const catEntry = currentJsonFilePath ? fontCategoryMap.get(font) : undefined;
                       const catPalette = catEntry?.subName ? SUB_NAME_PALETTE[catEntry.subName] : undefined;
                       return (
-                        <span key={font} className={`inline-flex items-center gap-0.5 ${!isOnCurrentPage && !isActive ? "opacity-40" : ""}`}>
+                        <span key={font} className={`inline-flex items-center gap-0.5 ${!isOnCurrentPage && !isFiltered ? "opacity-40" : ""}`}>
                           <button
                             className={`text-[9px] px-1.5 py-0.5 rounded-l font-medium transition-all ${
-                              isActive
-                                ? "ring-1 ring-offset-1 ring-offset-bg-secondary"
+                              isFiltered
+                                ? `ring-1 ring-offset-1 ring-offset-bg-secondary${isHighlightAll ? " ring-2" : ""}`
                                 : "hover:brightness-125"
                             } ${!catEntry && !missing ? "rounded-r" : ""}`}
                             style={{
-                              backgroundColor: isActive ? `${color}30` : `${color}15`,
+                              backgroundColor: isHighlightAll ? `${color}45` : isFiltered ? `${color}30` : `${color}15`,
                               color,
-                              ...(isActive ? { "--tw-ring-color": color } as React.CSSProperties : {}),
+                              ...(isFiltered ? { "--tw-ring-color": color } as React.CSSProperties : {}),
                               ...(missing ? { textDecoration: "line-through" } : {}),
                             }}
-                            title={isActive ? "フィルター解除" : `${fontInfo.getFontLabel(font)} のページだけ表示`}
+                            title={isHighlightAll ? "フィルター解除" : isFiltered ? "全レイヤーをハイライト" : `${fontInfo.getFontLabel(font)} のページだけ表示`}
                             onClick={() => {
-                              if (isActive) setFilterFont(null);
-                              else setFilterFont(font);
+                              if (isHighlightAll) {
+                                // 3rd click: turn off highlight, keep filter
+                                setFilterHighlightAll(false);
+                              } else if (isFiltered) {
+                                // 2nd click: highlight all
+                                setFilterHighlightAll(true);
+                              } else {
+                                // 1st click: filter
+                                setFilterFont(font);
+                                setFilterHighlightAll(false);
+                              }
                             }}
                           >
                             {fontInfo.getFontLabel(font)}
@@ -780,7 +823,11 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
                     useActualFont={useActualFont}
                     highlightFont={filterFont}
                     isSelected={highlightLayerIdx === origIdx}
-                    onSelect={() => setHighlightLayerIdx(highlightLayerIdx === origIdx ? null : origIdx)}
+                    onSelect={() => {
+                      setHighlightLayerIdx(highlightLayerIdx === origIdx ? null : origIdx);
+                      setHighlightTreeLayerId(null);
+                      setHighlightTreeBounds(null);
+                    }}
                   />
                 ))
               )}
@@ -788,7 +835,15 @@ export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilter
           ) : (
             <div className="p-1.5">
               {viewerFile?.metadata?.layerTree?.length ? (
-                <LayerTree layers={viewerFile.metadata.layerTree} />
+                <LayerTree
+                  layers={viewerFile.metadata.layerTree}
+                  selectedLayerId={highlightTreeLayerId}
+                  onSelectLayer={(id, bounds) => {
+                    setHighlightTreeLayerId(id);
+                    setHighlightTreeBounds(bounds);
+                    setHighlightLayerIdx(null);
+                  }}
+                />
               ) : (
                 <div className="flex items-center justify-center py-8 text-[10px] text-text-muted">
                   レイヤー情報なし

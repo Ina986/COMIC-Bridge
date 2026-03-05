@@ -1,19 +1,21 @@
 import { useState, useMemo } from "react";
-import type { LayerNode } from "../../types";
+import type { LayerNode, LayerBounds } from "../../types";
 
 interface LayerTreeProps {
   layers: LayerNode[];
   depth?: number;
   parentVisible?: boolean;
+  selectedLayerId?: string | null;
+  onSelectLayer?: (layerId: string | null, bounds: LayerBounds | null) => void;
 }
 
-export function LayerTree({ layers, depth = 0, parentVisible = true }: LayerTreeProps) {
+export function LayerTree({ layers, depth = 0, parentVisible = true, selectedLayerId, onSelectLayer }: LayerTreeProps) {
   // ag-psdはbottom-to-top順で返すため、reverseしてPhotoshop表示順（上がforeground）に変換
   const reversed = useMemo(() => [...layers].reverse(), [layers]);
   return (
     <div className="text-xs space-y-0.5">
       {reversed.map((layer) => (
-        <LayerItem key={layer.id} layer={layer} depth={depth} parentVisible={parentVisible} />
+        <LayerItem key={layer.id} layer={layer} depth={depth} parentVisible={parentVisible} selectedLayerId={selectedLayerId} onSelectLayer={onSelectLayer} />
       ))}
     </div>
   );
@@ -23,9 +25,11 @@ interface LayerItemProps {
   layer: LayerNode;
   depth: number;
   parentVisible: boolean;
+  selectedLayerId?: string | null;
+  onSelectLayer?: (layerId: string | null, bounds: LayerBounds | null) => void;
 }
 
-function LayerItem({ layer, depth, parentVisible }: LayerItemProps) {
+function LayerItem({ layer, depth, parentVisible, selectedLayerId, onSelectLayer }: LayerItemProps) {
   const [isExpanded, setIsExpanded] = useState(depth < 2);
   const hasChildren = layer.children && layer.children.length > 0;
   const effectiveVisible = layer.visible && parentVisible;
@@ -88,9 +92,14 @@ function LayerItem({ layer, depth, parentVisible }: LayerItemProps) {
       <div
         className={`
           flex items-center gap-1.5 py-1 px-1.5 rounded-lg transition-all duration-150
-          hover:bg-white/5 cursor-default
+          ${onSelectLayer && layer.bounds ? "cursor-pointer hover:bg-white/8" : "cursor-default hover:bg-white/5"}
+          ${selectedLayerId === layer.id ? "bg-white/8 border-l-2 border-[rgba(194,90,90,0.5)]" : ""}
         `}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
+        onClick={onSelectLayer && layer.bounds ? (e) => {
+          e.stopPropagation();
+          onSelectLayer(selectedLayerId === layer.id ? null : layer.id, selectedLayerId === layer.id ? null : layer.bounds!);
+        } : undefined}
       >
         {/* Expand/Collapse Button */}
         {hasChildren ? (
@@ -200,7 +209,7 @@ function LayerItem({ layer, depth, parentVisible }: LayerItemProps) {
             className="absolute left-0 top-0 bottom-2 w-px bg-white/10"
             style={{ marginLeft: `${depth * 14 + 12}px` }}
           />
-          <LayerTree layers={layer.children!} depth={depth + 1} parentVisible={effectiveVisible} />
+          <LayerTree layers={layer.children!} depth={depth + 1} parentVisible={effectiveVisible} selectedLayerId={selectedLayerId} onSelectLayer={onSelectLayer} />
         </div>
       )}
     </div>

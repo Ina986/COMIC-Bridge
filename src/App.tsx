@@ -36,7 +36,7 @@ function App() {
           store.setCheckTabMode("proposal");
         }
 
-        useViewStore.getState().setActiveView("typesettingCheck");
+        useViewStore.getState().setActiveView("typesetting");
       } catch (e) {
         console.error("Failed to load proofreading JSON from CLI:", e);
       }

@@ -7,19 +7,10 @@ import { useAppUpdater } from "../../hooks/useAppUpdater";
 const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "specCheck",
-    label: "仕様チェック",
+    label: "完成原稿チェック",
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: "typesettingCheck",
-    label: "写植調整",
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
       </svg>
     ),
   },
@@ -33,15 +24,11 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
-    id: "split",
-    label: "見開き分割",
+    id: "typesetting",
+    label: "写植関連",
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <circle cx="6" cy="6" r="3" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.12 8.12L12 12" />
-        <circle cx="18" cy="6" r="3" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.88 8.12L12 12" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 12l-5 8M12 12l5 8" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
       </svg>
     ),
   },
@@ -64,15 +51,6 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
-    id: "rename",
-    label: "リネーム",
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-      </svg>
-    ),
-  },
-  {
     id: "tiff",
     label: "TIFF化",
     icon: (
@@ -87,6 +65,28 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    ),
+  },
+  {
+    id: "split",
+    label: "見開き分割",
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <circle cx="6" cy="6" r="3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.12 8.12L12 12" />
+        <circle cx="18" cy="6" r="3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.88 8.12L12 12" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 12l-5 8M12 12l5 8" />
+      </svg>
+    ),
+  },
+  {
+    id: "rename",
+    label: "リネーム",
+    icon: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
       </svg>
     ),
   },

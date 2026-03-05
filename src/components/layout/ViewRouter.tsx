@@ -7,7 +7,7 @@ import { ComposeView } from "../views/ComposeView";
 import { RenameView } from "../views/RenameView";
 import { TiffView } from "../views/TiffView";
 import { ScanPsdView } from "../views/ScanPsdView";
-import { TypesettingCheckView } from "../views/TypesettingCheckView";
+import { TypsettingView } from "../views/TypsettingView";
 
 export function ViewRouter() {
   const activeView = useViewStore((s) => s.activeView);
@@ -16,13 +16,13 @@ export function ViewRouter() {
     <div className="flex-1 overflow-hidden bg-bg-primary relative">
       {activeView === "specCheck" && <SpecCheckView />}
       {activeView === "layers" && <LayerControlView />}
+      {activeView === "typesetting" && <TypsettingView />}
       {activeView === "split" && <SplitView />}
       {activeView === "replace" && <ReplaceView />}
       {activeView === "compose" && <ComposeView />}
       {activeView === "rename" && <RenameView />}
       {activeView === "tiff" && <TiffView />}
       {activeView === "scanPsd" && <ScanPsdView />}
-      {activeView === "typesettingCheck" && <TypesettingCheckView />}
     </div>
   );
 }
