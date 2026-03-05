@@ -46,6 +46,14 @@ pub struct Guide {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct LayerBounds {
+    pub top: i32,
+    pub left: i32,
+    pub bottom: i32,
+    pub right: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct LayerNode {
     pub id: String,
     pub name: String,
@@ -64,6 +72,8 @@ pub struct LayerNode {
     pub text_info: Option<TextInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<LayerNode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<LayerBounds>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -100,6 +110,11 @@ struct RawLayer {
     tysh_data: Option<TyShData>,
     /// Stroke (border) size from lfx2 layer effects
     stroke_size: Option<f64>,
+    /// Bounding rect from layer record
+    top: i32,
+    left: i32,
+    bottom: i32,
+    right: i32,
 }
 
 #[derive(Debug)]
@@ -438,7 +453,10 @@ fn parse_layer_info<R: Read + Seek>(r: &mut R, version: u16) -> Result<Vec<RawLa
 
 fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLayer, String> {
     // Bounding rect: top(4), left(4), bottom(4), right(4) = 16 bytes
-    r.seek(SeekFrom::Current(16)).map_err(|e| format!("Seek error: {}", e))?;
+    let top = read_i32(r)?;
+    let left = read_i32(r)?;
+    let bottom = read_i32(r)?;
+    let right = read_i32(r)?;
 
     // Number of channels (2 bytes)
     let channel_count = read_u16(r)? as u64;
@@ -615,6 +633,10 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
         section_type,
         tysh_data,
         stroke_size,
+        top,
+        left,
+        bottom,
+        right,
     })
 }
 
@@ -679,6 +701,7 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                     clipping: raw.clipping,
                     text_info: None,
                     children: if children.is_empty() { None } else { Some(children) },
+                    bounds: None, // Groups don't have meaningful bounds
                 };
                 root.push(node);
             }
@@ -722,6 +745,17 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                     }
                 });
 
+                let bounds = if raw.right > raw.left && raw.bottom > raw.top {
+                    Some(LayerBounds {
+                        top: raw.top,
+                        left: raw.left,
+                        bottom: raw.bottom,
+                        right: raw.right,
+                    })
+                } else {
+                    None
+                };
+
                 let node = LayerNode {
                     id: format!("layer-{}", path),
                     name: raw.name.clone(),
@@ -734,6 +768,7 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                     clipping: raw.clipping,
                     text_info,
                     children: None,
+                    bounds,
                 };
                 root.push(node);
                 index_counter += 1;
@@ -1223,6 +1258,12 @@ fn read_i16<R: Read>(r: &mut R) -> Result<i16, String> {
     let mut buf = [0u8; 2];
     r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
     Ok(i16::from_be_bytes(buf))
+}
+
+fn read_i32<R: Read>(r: &mut R) -> Result<i32, String> {
+    let mut buf = [0u8; 4];
+    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    Ok(i32::from_be_bytes(buf))
 }
 
 fn read_u32<R: Read>(r: &mut R) -> Result<u32, String> {

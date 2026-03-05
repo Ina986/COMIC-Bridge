@@ -84,6 +84,13 @@ export interface TextInfo {
   strokeSize?: number;
 }
 
+export interface LayerBounds {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
 export interface LayerNode {
   id: string;
   name: string;
@@ -96,6 +103,7 @@ export interface LayerNode {
   clipping?: boolean;
   textInfo?: TextInfo;
   children?: LayerNode[];
+  bounds?: LayerBounds;
 }
 
 // Specification Types

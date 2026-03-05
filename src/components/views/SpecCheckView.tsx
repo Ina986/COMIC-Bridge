@@ -17,6 +17,7 @@ import { GuideSectionPanel } from "../spec-checker/GuideSectionPanel";
 import { SpecLayerGrid } from "../spec-checker/SpecLayerGrid";
 import { SpecTextGrid } from "../spec-checker/SpecTextGrid";
 import { SpecViewerPanel } from "../spec-checker/SpecViewerPanel";
+import { LayerSeparationPanel } from "../spec-checker/LayerSeparationPanel";
 import { DropZone } from "../file-browser/DropZone";
 import { THUMBNAIL_SIZES, type ThumbnailSize } from "../../types";
 import { invoke } from "@tauri-apps/api/core";
@@ -43,7 +44,7 @@ export function SpecCheckView() {
 
   const [showResults, setShowResults] = useState(false);
   const [showGuidePrompt, setShowGuidePrompt] = useState(false);
-  const [viewMode, setViewMode] = useState<"thumbnails" | "layers" | "text" | "viewer">("thumbnails");
+  const [viewMode, setViewMode] = useState<"thumbnails" | "layers" | "layerCheck" | "text" | "viewer">("thumbnails");
   const [tachimiError, setTachimiError] = useState<string | null>(null);
   const guidePromptRef = useRef<HTMLDivElement>(null);
 
@@ -320,6 +321,16 @@ export function SpecCheckView() {
             レイヤー構造
           </button>
           <button
+            onClick={() => setViewMode("layerCheck")}
+            className={`px-2 py-1 text-[10px] rounded transition-all ${
+              viewMode === "layerCheck"
+                ? "bg-bg-tertiary text-text-primary font-medium shadow-sm"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            レイヤー分離確認
+          </button>
+          <button
             onClick={() => setViewMode("text")}
             className={`px-2 py-1 text-[10px] rounded transition-all ${
               viewMode === "text"
@@ -440,7 +451,7 @@ export function SpecCheckView() {
         <CompactFileList className="w-52 flex-shrink-0 border-r border-border" />
 
         {/* Center: Spec Detail Panel (hidden in viewer mode) */}
-        {viewMode !== "viewer" && <div className="w-[320px] flex-shrink-0 border-r border-border overflow-hidden flex flex-col bg-bg-secondary">
+        {viewMode !== "viewer" && viewMode !== "layerCheck" && <div className="w-[320px] flex-shrink-0 border-r border-border overflow-hidden flex flex-col bg-bg-secondary">
           {activeFile ? (
             <>
               {/* Header */}
@@ -525,6 +536,7 @@ export function SpecCheckView() {
         <div className="flex-1 overflow-hidden relative" data-preview-grid>
           {viewMode === "thumbnails" && <PreviewGrid />}
           {viewMode === "layers" && <SpecLayerGrid />}
+          {viewMode === "layerCheck" && <LayerSeparationPanel onOpenInPhotoshop={openFileInPhotoshop} />}
           {viewMode === "text" && <SpecTextGrid />}
           {viewMode === "viewer" && <SpecViewerPanel onOpenInPhotoshop={openFileInPhotoshop} />}
 
