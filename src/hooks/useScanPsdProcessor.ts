@@ -175,7 +175,7 @@ function autoRegisterDetectedFonts(scanData: ScanData): void {
  * プリセットJSON保存の実処理（スタンドアロン関数）
  * startScan完了後の自動保存からも呼ばれる
  */
-async function performPresetJsonSave(): Promise<boolean> {
+export async function performPresetJsonSave(): Promise<boolean> {
   const store = useScanPsdStore.getState();
   const { workInfo, jsonFolderPath } = store;
 

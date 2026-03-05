@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { LayerNode, TextInfo, PsdFile } from "../types";
+import type { LayerNode, LayerBounds, TextInfo, PsdFile } from "../types";
 
 // フォント種類ごとの色パレット（視認性重視）
 export const FONT_COLORS = [
@@ -30,6 +30,7 @@ export interface TextLayerEntry {
   textInfo: TextInfo | undefined;
   visible: boolean;
   parentPath: string;
+  bounds?: LayerBounds;
 }
 
 export interface FontHelpers {
@@ -37,6 +38,7 @@ export interface FontHelpers {
   getFontColor: (ps: string) => string;
   getFontFamily: (ps: string) => string | undefined;
   isMissing: (ps: string) => boolean;
+  allFontNames: string[];
 }
 
 /** テキストレイヤーを再帰的に収集（Photoshop表示順、親グループ非表示なら除外） */
@@ -57,6 +59,7 @@ export function collectTextLayers(
         textInfo: layer.textInfo,
         visible: layer.visible,
         parentPath: path,
+        bounds: layer.bounds,
       });
     }
     if (layer.children) {
@@ -153,7 +156,8 @@ export function useFontResolver(files: PsdFile[]) {
       return info ? info.display_name : undefined;
     },
     isMissing: (ps: string) => fontNamesResolved && missingFonts.has(ps),
-  }), [fontResolveMap, fontColorMap, missingFonts, fontNamesResolved]);
+    allFontNames: postScriptNames,
+  }), [fontResolveMap, fontColorMap, missingFonts, fontNamesResolved, postScriptNames]);
 
   return {
     fontInfo,

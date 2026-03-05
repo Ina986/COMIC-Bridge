@@ -84,6 +84,8 @@ pub struct TextInfo {
     pub font_sizes: Vec<f64>,
     #[serde(rename = "strokeSize", skip_serializing_if = "Option::is_none")]
     pub stroke_size: Option<f64>,
+    #[serde(rename = "antiAlias", skip_serializing_if = "Option::is_none")]
+    pub anti_alias: Option<String>,
 }
 
 // ================================================================
@@ -122,6 +124,7 @@ struct TyShData {
     text: String,
     fonts: Vec<String>,
     font_sizes: Vec<f64>,
+    anti_alias: Option<String>,
 }
 
 // ================================================================
@@ -742,6 +745,7 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                         fonts: td.fonts.clone(),
                         font_sizes,
                         stroke_size: raw.stroke_size,
+                        anti_alias: td.anti_alias.clone(),
                     }
                 });
 
@@ -827,8 +831,8 @@ fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
     // Descriptor version (4 bytes)
     let _desc_version = read_u32(&mut r).ok()?;
 
-    // Parse text descriptor — extract "Txt " text and "EngineData" blob
-    let (text, engine_data) = parse_ps_descriptor_for_text(&mut r)?;
+    // Parse text descriptor — extract "Txt " text, "EngineData" blob, and "AntA" anti-alias
+    let (text, engine_data, anti_alias) = parse_ps_descriptor_for_text(&mut r)?;
 
     // Extract font names and sizes from EngineData
     // Note: font sizes are in document pixels; DPI conversion happens in build_layer_tree
@@ -837,12 +841,12 @@ fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
         None => (Vec::new(), Vec::new()),
     };
 
-    Some(TyShData { text, fonts, font_sizes })
+    Some(TyShData { text, fonts, font_sizes, anti_alias })
 }
 
-/// Parse a Photoshop descriptor, extracting only "Txt " (text content)
-/// and "EngineData" (raw blob for font extraction). Skips everything else.
-fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Option<Vec<u8>>)> {
+/// Parse a Photoshop descriptor, extracting "Txt " (text content),
+/// "EngineData" (raw blob for font extraction), and "AntA" (anti-aliasing enum).
+fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Option<Vec<u8>>, Option<String>)> {
     // Unicode class name (length-prefixed, UTF-16BE)
     let name_len = read_u32(r).ok()? as i64;
     r.seek(SeekFrom::Current(name_len * 2)).ok()?;
@@ -857,6 +861,7 @@ fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Op
 
     let mut text: Option<String> = None;
     let mut engine_data: Option<Vec<u8>> = None;
+    let mut anti_alias: Option<String> = None;
 
     for _ in 0..count {
         // Key
@@ -882,13 +887,24 @@ fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Op
                     r.seek(SeekFrom::Current(data_len as i64)).ok()?;
                 }
             }
+            b"enum" if key == b"AntA" => {
+                // Read enum type ID (skip)
+                let t = read_u32(r).ok()?;
+                r.seek(SeekFrom::Current(if t == 0 { 4 } else { t as i64 })).ok()?;
+                // Read enum value (4-byte OSType)
+                let v = read_u32(r).ok()?;
+                let actual = if v == 0 { 4 } else { v as usize };
+                let mut val_buf = vec![0u8; actual];
+                r.read_exact(&mut val_buf).ok()?;
+                anti_alias = Some(String::from_utf8_lossy(&val_buf).trim_end_matches('\0').to_string());
+            }
             _ => {
                 if skip_ps_value(r, &tt).is_none() { break; }
             }
         }
     }
 
-    Some((text.unwrap_or_default(), engine_data))
+    Some((text.unwrap_or_default(), engine_data, anti_alias))
 }
 
 /// Read a Photoshop descriptor key (4-byte length; if 0, key is 4 bytes)

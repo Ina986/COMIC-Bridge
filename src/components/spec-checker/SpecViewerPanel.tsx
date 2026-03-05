@@ -3,17 +3,24 @@ import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { usePsdStore } from "../../store/psdStore";
+import { useScanPsdStore } from "../../store/scanPsdStore";
 import { useHighResPreview, prefetchPreview, invalidateUrlCache } from "../../hooks/useHighResPreview";
 import { useOpenFolder } from "../../hooks/useOpenFolder";
+import { performPresetJsonSave } from "../../hooks/useScanPsdProcessor";
 import { useFontResolver, collectTextLayers } from "../../hooks/useFontResolver";
+import { SUB_NAME_PALETTE, ALL_SUB_NAMES } from "../../types/scanPsd";
+import type { PresetJsonData } from "../../types/scanPsd";
 import { TextLayerRow } from "./SpecTextGrid";
 import { LayerTree } from "../metadata/LayerTree";
+import { JsonFileBrowser } from "../scanPsd/JsonFileBrowser";
 
 interface SpecViewerPanelProps {
   onOpenInPhotoshop?: (filePath: string) => void;
+  initialFilterFont?: string | null;
+  onFilterFontConsumed?: () => void;
 }
 
-export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
+export function SpecViewerPanel({ onOpenInPhotoshop, initialFilterFont, onFilterFontConsumed }: SpecViewerPanelProps) {
   const files = usePsdStore((s) => s.files);
   const selectedFileIds = usePsdStore((s) => s.selectedFileIds);
   const { openFolderForFile } = useOpenFolder();
@@ -27,6 +34,84 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
   // Text display options
   const [useActualFont, setUseActualFont] = useState(false);
   const [sortDesc, setSortDesc] = useState(false);
+  // Font filter
+  const [filterFont, setFilterFont] = useState<string | null>(null);
+  // Text layer highlight (index in textLayers)
+  const [highlightLayerIdx, setHighlightLayerIdx] = useState<number | null>(null);
+  // Category dropdown state
+  const [categoryDropdownFont, setCategoryDropdownFont] = useState<string | null>(null);
+  // JSON file browser modal
+  const [showJsonBrowser, setShowJsonBrowser] = useState(false);
+
+  // scanPsdStore — font category editing
+  const currentJsonFilePath = useScanPsdStore((s) => s.currentJsonFilePath);
+  const jsonFolderPath = useScanPsdStore((s) => s.jsonFolderPath);
+  const presetSets = useScanPsdStore((s) => s.presetSets);
+  const currentSetName = useScanPsdStore((s) => s.currentSetName);
+
+  // Lookup: PostScript name → { index, subName } in current preset set
+  const fontCategoryMap = useMemo(() => {
+    const map = new Map<string, { index: number; subName: string }>();
+    const presets = presetSets[currentSetName];
+    if (!presets) return map;
+    for (let i = 0; i < presets.length; i++) {
+      const p = presets[i];
+      if (p.font) map.set(p.font, { index: i, subName: p.subName || "" });
+    }
+    return map;
+  }, [presetSets, currentSetName]);
+
+  // JSON loading from viewer (via JsonFileBrowser)
+  const handleJsonFileSelect = useCallback(async (filePath: string) => {
+    setShowJsonBrowser(false);
+    try {
+      const content = await invoke<string>("read_text_file", { filePath });
+      const data = JSON.parse(content) as PresetJsonData;
+      const store = useScanPsdStore.getState();
+      store.loadFromPresetJson(data);
+      store.setCurrentJsonFilePath(filePath);
+      // Try auto-linking scandata
+      const pd = data.presetData;
+      if (pd?.workInfo?.label && pd?.workInfo?.title) {
+        const safeLabel = pd.workInfo.label.replace(/[\\/:*?"<>|]/g, "_");
+        const safeTitle = pd.workInfo.title.replace(/[\\/:*?"<>|]/g, "_");
+        const scandataPath = `${store.saveDataBasePath}/${safeLabel}/${safeTitle}_scandata.json`.replace(/\\/g, "/");
+        try {
+          const sc = await invoke<string>("read_text_file", { filePath: scandataPath });
+          store.setScanData(JSON.parse(sc));
+          store.setCurrentScandataFilePath(scandataPath);
+        } catch { /* scandata not found, ok */ }
+      }
+    } catch (e) {
+      console.error("Failed to load JSON:", e);
+    }
+  }, []);
+
+  // Update font category
+  const updateFontCategory = useCallback(async (font: string, subName: string) => {
+    const entry = fontCategoryMap.get(font);
+    if (!entry) return;
+    useScanPsdStore.getState().updateFontInPreset(currentSetName, entry.index, { subName });
+    setCategoryDropdownFont(null);
+    // Auto-save JSON
+    try { await performPresetJsonSave(); } catch { /* ignore */ }
+  }, [fontCategoryMap, currentSetName]);
+
+  // Close category dropdown on outside click
+  useEffect(() => {
+    if (!categoryDropdownFont) return;
+    const handleClick = () => setCategoryDropdownFont(null);
+    window.addEventListener("mousedown", handleClick);
+    return () => window.removeEventListener("mousedown", handleClick);
+  }, [categoryDropdownFont]);
+
+  // Apply initial filter from parent (e.g. clicking font badge in SpecTextGrid)
+  useEffect(() => {
+    if (initialFilterFont) {
+      setFilterFont(initialFilterFont);
+      onFilterFontConsumed?.();
+    }
+  }, [initialFilterFont]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fullscreen mode (true OS fullscreen via Tauri)
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -82,6 +167,34 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
     };
   }, [isFullscreen]);
 
+  // Filtered file indices (when a font filter is active)
+  const filteredIndices = useMemo(() => {
+    if (!filterFont) return null;
+    return files
+      .map((f, i) => ({ f, i }))
+      .filter(({ f }) => {
+        if (!f.metadata?.layerTree) return false;
+        return collectTextLayers(f.metadata.layerTree).some(
+          (e) => e.textInfo?.fonts.includes(filterFont)
+        );
+      })
+      .map(({ i }) => i);
+  }, [files, filterFont]);
+
+  // Position within filtered list
+  const filteredPos = useMemo(() => {
+    if (!filteredIndices) return -1;
+    return filteredIndices.indexOf(viewerFileIndex);
+  }, [filteredIndices, viewerFileIndex]);
+
+  // Jump to first matching file when filter is activated
+  useEffect(() => {
+    if (!filteredIndices || filteredIndices.length === 0) return;
+    if (!filteredIndices.includes(viewerFileIndex)) {
+      setViewerFileIndex(filteredIndices[0]);
+    }
+  }, [filterFont]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const viewerFile = files[viewerFileIndex] ?? files[0] ?? null;
 
   // Font resolver (for all files, consistent colors)
@@ -105,6 +218,21 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
     if (!viewerFile?.metadata?.layerTree) return [];
     return collectTextLayers(viewerFile.metadata.layerTree);
   }, [viewerFile]);
+
+  // PSD dimensions for SVG overlay
+  const psdWidth = viewerFile?.metadata?.width ?? 0;
+  const psdHeight = viewerFile?.metadata?.height ?? 0;
+
+  // Highlighted layer bounds
+  const highlightBounds = useMemo(() => {
+    if (highlightLayerIdx == null) return null;
+    return textLayers[highlightLayerIdx]?.bounds ?? null;
+  }, [highlightLayerIdx, textLayers]);
+
+  // Reset highlight when file changes
+  useEffect(() => {
+    setHighlightLayerIdx(null);
+  }, [viewerFileIndex]);
 
   // Per-file font summary
   const fileFonts = useMemo(() => {
@@ -171,6 +299,34 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
     }
   }, [viewerFileIndex, files]);
 
+  // Navigate to next/prev, respecting font filter
+  const navigatePrev = useCallback(() => {
+    if (filteredIndices) {
+      const pos = filteredIndices.indexOf(viewerFileIndex);
+      if (pos > 0) setViewerFileIndex(filteredIndices[pos - 1]);
+    } else {
+      setViewerFileIndex((i) => Math.max(0, i - 1));
+    }
+  }, [filteredIndices, viewerFileIndex]);
+
+  const navigateNext = useCallback(() => {
+    if (filteredIndices) {
+      const pos = filteredIndices.indexOf(viewerFileIndex);
+      if (pos >= 0 && pos < filteredIndices.length - 1) setViewerFileIndex(filteredIndices[pos + 1]);
+    } else {
+      setViewerFileIndex((i) => Math.min(files.length - 1, i + 1));
+    }
+  }, [filteredIndices, viewerFileIndex, files.length]);
+
+  const canGoPrev = filteredIndices
+    ? filteredIndices.indexOf(viewerFileIndex) > 0
+    : viewerFileIndex > 0;
+  const canGoNext = filteredIndices
+    ? (() => { const p = filteredIndices.indexOf(viewerFileIndex); return p >= 0 && p < filteredIndices.length - 1; })()
+    : viewerFileIndex < files.length - 1;
+  const navTotal = filteredIndices ? filteredIndices.length : files.length;
+  const navPos = filteredIndices ? filteredPos + 1 : viewerFileIndex + 1;
+
   // Keyboard navigation + Escape for fullscreen
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -181,34 +337,30 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
         toggleFullscreen(false);
         return;
       }
-      if (files.length <= 1) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         e.preventDefault();
-        setViewerFileIndex((i) => Math.max(0, i - 1));
+        navigatePrev();
       } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
         e.preventDefault();
-        setViewerFileIndex((i) => Math.min(files.length - 1, i + 1));
+        navigateNext();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [files.length, isFullscreen, toggleFullscreen]);
+  }, [isFullscreen, toggleFullscreen, navigatePrev, navigateNext]);
 
   // Mouse wheel navigation
   useEffect(() => {
     const el = viewerRef.current;
-    if (!el || files.length <= 1) return;
+    if (!el) return;
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (e.deltaY > 0) {
-        setViewerFileIndex((i) => Math.min(files.length - 1, i + 1));
-      } else if (e.deltaY < 0) {
-        setViewerFileIndex((i) => Math.max(0, i - 1));
-      }
+      if (e.deltaY > 0) navigateNext();
+      else if (e.deltaY < 0) navigatePrev();
     };
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
-  }, [files.length, isFullscreen]);
+  }, [isFullscreen, navigateNext, navigatePrev]);
 
   // P/F shortcuts (capture phase)
   useEffect(() => {
@@ -265,6 +417,26 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
           />
         ) : null}
 
+        {/* SVG highlight overlay for selected text layer — covers entire viewer, viewBox maps to PSD coords */}
+        {highlightBounds && psdWidth > 0 && (
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            viewBox={`0 0 ${psdWidth} ${psdHeight}`}
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <rect
+              x={highlightBounds.left}
+              y={highlightBounds.top}
+              width={highlightBounds.right - highlightBounds.left}
+              height={highlightBounds.bottom - highlightBounds.top}
+              fill="rgba(194, 90, 90, 0.12)"
+              stroke="rgba(194, 90, 90, 0.45)"
+              strokeWidth={Math.max(3, psdWidth * 0.002)}
+              rx={4}
+            />
+          </svg>
+        )}
+
         {/* Loading spinner */}
         {isLoading && (
           <div className="absolute top-3 right-3 z-10">
@@ -316,11 +488,11 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
         )}
 
         {/* Navigation arrows */}
-        {files.length > 1 && (
+        {navTotal > 1 && (
           <>
-            {viewerFileIndex > 0 && (
+            {canGoPrev && (
               <button
-                onClick={() => setViewerFileIndex((i) => i - 1)}
+                onClick={navigatePrev}
                 className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white/70 hover:text-white transition-all backdrop-blur-sm"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -328,9 +500,9 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
                 </svg>
               </button>
             )}
-            {viewerFileIndex < files.length - 1 && (
+            {canGoNext && (
               <button
-                onClick={() => setViewerFileIndex((i) => i + 1)}
+                onClick={navigateNext}
                 className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white/70 hover:text-white transition-all backdrop-blur-sm"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -352,7 +524,8 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
             </span>
             {files.length > 1 && (
               <span className="text-[10px] text-text-muted flex-shrink-0">
-                {viewerFileIndex + 1} / {files.length}
+                {navPos} / {navTotal}
+                {filterFont && <span className="text-accent"> (絞込)</span>}
               </span>
             )}
             {viewerFile && (
@@ -422,28 +595,124 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
         <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
           {sidebarTab === "text" ? (
             <div className="p-2 space-y-1.5">
-              {/* Per-file font badges */}
-              {fileFonts.length > 0 && (
-                <div className="flex flex-wrap gap-1 px-1 pb-1.5 border-b border-border/30 mb-1.5">
-                  {fileFonts.map((font) => {
-                    const color = fontInfo.getFontColor(font);
-                    const missing = fontInfo.isMissing(font);
-                    return (
-                      <span
-                        key={font}
-                        className="text-[9px] px-1.5 py-0.5 rounded font-medium"
-                        style={{
-                          backgroundColor: `${color}15`,
-                          color,
-                          ...(missing ? { textDecoration: "line-through" } : {}),
-                        }}
-                        title={missing ? `${font} (未インストール)` : font}
+              {/* Font filter bar — always shows all fonts */}
+              {fontInfo.allFontNames.length > 0 && (
+                <div className="px-1 pb-1.5 border-b border-border/30 mb-1.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <svg className="w-3 h-3 text-text-muted flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    <span className="text-[9px] text-text-muted">フォント絞り込み</span>
+                    {filterFont && (
+                      <button
+                        className="ml-auto text-[9px] px-1.5 py-0.5 rounded text-accent hover:bg-accent/10 transition-all"
+                        onClick={() => setFilterFont(null)}
                       >
-                        {fontInfo.getFontLabel(font)}
-                        {missing && " !"}
-                      </span>
-                    );
-                  })}
+                        解除
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-1">
+                    {fontInfo.allFontNames.map((font) => {
+                      const color = fontInfo.getFontColor(font);
+                      const missing = fontInfo.isMissing(font);
+                      const isActive = filterFont === font;
+                      const isOnCurrentPage = fileFonts.includes(font);
+                      const catEntry = currentJsonFilePath ? fontCategoryMap.get(font) : undefined;
+                      const catPalette = catEntry?.subName ? SUB_NAME_PALETTE[catEntry.subName] : undefined;
+                      return (
+                        <span key={font} className={`inline-flex items-center gap-0.5 ${!isOnCurrentPage && !isActive ? "opacity-40" : ""}`}>
+                          <button
+                            className={`text-[9px] px-1.5 py-0.5 rounded-l font-medium transition-all ${
+                              isActive
+                                ? "ring-1 ring-offset-1 ring-offset-bg-secondary"
+                                : "hover:brightness-125"
+                            } ${!catEntry && !missing ? "rounded-r" : ""}`}
+                            style={{
+                              backgroundColor: isActive ? `${color}30` : `${color}15`,
+                              color,
+                              ...(isActive ? { "--tw-ring-color": color } as React.CSSProperties : {}),
+                              ...(missing ? { textDecoration: "line-through" } : {}),
+                            }}
+                            title={isActive ? "フィルター解除" : `${fontInfo.getFontLabel(font)} のページだけ表示`}
+                            onClick={() => {
+                              if (isActive) setFilterFont(null);
+                              else setFilterFont(font);
+                            }}
+                          >
+                            {fontInfo.getFontLabel(font)}
+                            {missing && " !"}
+                          </button>
+                          {catEntry && (
+                            <div className="relative">
+                              <button
+                                className="text-[8px] px-1 py-0.5 rounded-r transition-all hover:brightness-125"
+                                style={{
+                                  backgroundColor: catPalette ? `${catPalette.color}18` : "rgba(255,255,255,0.05)",
+                                  color: catPalette?.color || "#888",
+                                }}
+                                title="カテゴリ変更"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCategoryDropdownFont(categoryDropdownFont === font ? null : font);
+                                }}
+                              >
+                                {catEntry.subName || "—"}
+                                <span className="ml-0.5 opacity-50">▾</span>
+                              </button>
+                              {categoryDropdownFont === font && (
+                                <div
+                                  className="absolute top-full right-0 mt-1 z-50 py-1 rounded-lg bg-bg-secondary border border-border shadow-xl min-w-[120px]"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                  {ALL_SUB_NAMES.map((name) => {
+                                    const p = SUB_NAME_PALETTE[name];
+                                    return (
+                                      <button
+                                        key={name}
+                                        className={`block w-full text-left text-[9px] px-2.5 py-1 transition-colors ${
+                                          catEntry.subName === name ? "font-bold" : ""
+                                        }`}
+                                        style={{ color: p?.color || "#888" }}
+                                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.05)")}
+                                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                                        onClick={() => updateFontCategory(font, name)}
+                                      >
+                                        {name}
+                                      </button>
+                                    );
+                                  })}
+                                  {catEntry.subName && (
+                                    <>
+                                      <div className="border-t border-border/30 my-0.5" />
+                                      <button
+                                        className="block w-full text-left text-[9px] px-2.5 py-1 text-text-muted hover:bg-white/5 transition-colors"
+                                        onClick={() => updateFontCategory(font, "")}
+                                      >
+                                        カテゴリなし
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {/* JSON load button when not loaded */}
+                  {!currentJsonFilePath && (
+                    <button
+                      className="mt-1.5 flex items-center gap-1 text-[9px] text-text-muted hover:text-text-secondary transition-colors"
+                      onClick={() => setShowJsonBrowser(true)}
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      JSON読込でカテゴリ編集
+                    </button>
+                  )}
                 </div>
               )}
               {/* Toggle controls */}
@@ -500,8 +769,19 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
                   テキストレイヤーなし
                 </div>
               ) : (
-                (sortDesc ? [...textLayers].reverse() : textLayers).map((entry, i) => (
-                  <TextLayerRow key={i} entry={entry} fontInfo={fontInfo} useActualFont={useActualFont} />
+                (sortDesc
+                  ? textLayers.map((e, i) => ({ e, i })).reverse()
+                  : textLayers.map((e, i) => ({ e, i }))
+                ).map(({ e: entry, i: origIdx }) => (
+                  <TextLayerRow
+                    key={origIdx}
+                    entry={entry}
+                    fontInfo={fontInfo}
+                    useActualFont={useActualFont}
+                    highlightFont={filterFont}
+                    isSelected={highlightLayerIdx === origIdx}
+                    onSelect={() => setHighlightLayerIdx(highlightLayerIdx === origIdx ? null : origIdx)}
+                  />
                 ))
               )}
             </div>
@@ -518,6 +798,23 @@ export function SpecViewerPanel({ onOpenInPhotoshop }: SpecViewerPanelProps) {
           )}
         </div>
       </div>
+
+      {/* JSON file browser modal */}
+      {showJsonBrowser && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowJsonBrowser(false); }}
+        >
+          <div className="w-[420px]" onMouseDown={(e) => e.stopPropagation()}>
+            <JsonFileBrowser
+              basePath={jsonFolderPath}
+              onSelect={handleJsonFileSelect}
+              onCancel={() => setShowJsonBrowser(false)}
+              mode="open"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 

@@ -45,6 +45,7 @@ export function SpecCheckView() {
   const [showResults, setShowResults] = useState(false);
   const [showGuidePrompt, setShowGuidePrompt] = useState(false);
   const [viewMode, setViewMode] = useState<"thumbnails" | "layers" | "layerCheck" | "text" | "viewer">("thumbnails");
+  const [viewerFilterFont, setViewerFilterFont] = useState<string | null>(null);
   const [tachimiError, setTachimiError] = useState<string | null>(null);
   const guidePromptRef = useRef<HTMLDivElement>(null);
 
@@ -537,8 +538,8 @@ export function SpecCheckView() {
           {viewMode === "thumbnails" && <PreviewGrid />}
           {viewMode === "layers" && <SpecLayerGrid />}
           {viewMode === "layerCheck" && <LayerSeparationPanel onOpenInPhotoshop={openFileInPhotoshop} />}
-          {viewMode === "text" && <SpecTextGrid />}
-          {viewMode === "viewer" && <SpecViewerPanel onOpenInPhotoshop={openFileInPhotoshop} />}
+          {viewMode === "text" && <SpecTextGrid onFilterFont={(font) => { setViewerFilterFont(font); setViewMode("viewer"); }} />}
+          {viewMode === "viewer" && <SpecViewerPanel onOpenInPhotoshop={openFileInPhotoshop} initialFilterFont={viewerFilterFont} onFilterFontConsumed={() => setViewerFilterFont(null)} />}
 
           {/* Floating Action Buttons (thumbnails mode only) */}
           {viewMode === "thumbnails" && (

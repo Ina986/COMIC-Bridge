@@ -82,6 +82,7 @@ export interface TextInfo {
   fonts: string[];
   fontSizes: number[];
   strokeSize?: number;
+  antiAlias?: string; // "Shrp" | "Crsp" | "Strg" | "Smth" | "Anno"
 }
 
 export interface LayerBounds {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useScanPsdStore } from "../../../store/scanPsdStore";
-import { getAutoSubName, FONT_SUB_NAME_MAP } from "../../../types/scanPsd";
+import { getAutoSubName, FONT_SUB_NAME_MAP, SUB_NAME_PALETTE } from "../../../types/scanPsd";
 import type { FontPreset } from "../../../types/scanPsd";
 import { MISSING_FONT_COLOR } from "../../../hooks/useFontResolver";
 import type { FontResolveInfo } from "../../../hooks/useFontResolver";
@@ -16,19 +16,7 @@ FONT_SUB_NAME_MAP.forEach((entry, i) => {
   }
 });
 
-const SUB_NAME_PALETTE: Record<string, { color: string; bg: string; border: string }> = {
-  "セリフ":         { color: "#3b7dd8", bg: "#eaf2fc", border: "#c4daF2" },
-  "モノローグ":     { color: "#8b5cf6", bg: "#f0ebff", border: "#d4c4f8" },
-  "回想内ネーム":   { color: "#10a37f", bg: "#e6f8f3", border: "#b4e8d8" },
-  "怒鳴り（シリアス）": { color: "#e04060", bg: "#fdedf0", border: "#f4c0cc" },
-  "語気強く（通常）":   { color: "#e08830", bg: "#fef4e8", border: "#f4d8b0" },
-  "ナレーション":   { color: "#0ea5a5", bg: "#e6f7f7", border: "#b0e4e4" },
-  "悲鳴":           { color: "#d946a8", bg: "#fdeef8", border: "#f0c0e0" },
-  "SNSなど":        { color: "#2d8cc9", bg: "#e8f3fb", border: "#b8d8f0" },
-  "電話・テレビ":   { color: "#6366f1", bg: "#ededfe", border: "#c8c8f8" },
-  "おどろ":         { color: "#c87030", bg: "#fdf0e4", border: "#f0d0a8" },
-  "ギャグテイスト": { color: "#59a829", bg: "#eef6e8", border: "#c4e4a8" },
-};
+// SUB_NAME_PALETTE is imported from scanPsd.ts
 
 function getSubNameStyle(subName: string): React.CSSProperties {
   const p = SUB_NAME_PALETTE[subName];
