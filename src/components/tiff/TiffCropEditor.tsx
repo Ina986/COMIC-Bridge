@@ -634,6 +634,19 @@ export function TiffCropEditor({ onSwitchToQueue }: TiffCropEditorProps) {
     return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
   }, [localBounds, imageLayout, docToScreen]);
 
+  // 個別クロップがある場合は表示用にそちらを優先
+  const isIndividualBoundsActive = refFilePerFileBounds !== undefined && refFilePerFileBounds !== null;
+
+  const displayScreenRect = useMemo(() => {
+    if (!imageLayout) return cropScreenRect;
+    if (refFilePerFileBounds !== undefined && refFilePerFileBounds !== null) {
+      const tl = docToScreen(refFilePerFileBounds.left, refFilePerFileBounds.top);
+      const br = docToScreen(refFilePerFileBounds.right, refFilePerFileBounds.bottom);
+      return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
+    }
+    return cropScreenRect;
+  }, [refFilePerFileBounds, cropScreenRect, imageLayout, docToScreen]);
+
   // カーソルスタイル
   const cursorClass = isSpacePressed
     ? isPanning ? "cursor-grabbing" : "cursor-grab"
@@ -1051,38 +1064,76 @@ export function TiffCropEditor({ onSwitchToQueue }: TiffCropEditorProps) {
           </>
         )}
 
-        {/* Crop Overlay (only when crop is enabled) */}
-        {cropEnabled && cropScreenRect && imageLayout && (
+        {/* Crop Overlay (only when crop is enabled, or individual bounds active) */}
+        {imageLayout && (isIndividualBoundsActive ? displayScreenRect : cropEnabled && cropScreenRect) && (
           <>
-            {/* Dark overlay outside crop */}
-            <div className="absolute inset-0 pointer-events-none z-10">
-              <div className="absolute bg-black/40" style={{ left: imageLayout.offsetX, top: imageLayout.offsetY, width: imageLayout.displayW, height: cropScreenRect.y - imageLayout.offsetY }} />
-              <div className="absolute bg-black/40" style={{ left: imageLayout.offsetX, top: cropScreenRect.y + cropScreenRect.h, width: imageLayout.displayW, height: (imageLayout.offsetY + imageLayout.displayH) - (cropScreenRect.y + cropScreenRect.h) }} />
-              <div className="absolute bg-black/40" style={{ left: imageLayout.offsetX, top: cropScreenRect.y, width: cropScreenRect.x - imageLayout.offsetX, height: cropScreenRect.h }} />
-              <div className="absolute bg-black/40" style={{ left: cropScreenRect.x + cropScreenRect.w, top: cropScreenRect.y, width: (imageLayout.offsetX + imageLayout.displayW) - (cropScreenRect.x + cropScreenRect.w), height: cropScreenRect.h }} />
-            </div>
-
-            {/* Crop border */}
-            <div
-              className="absolute border-2 border-accent-warm cursor-move z-10"
-              style={{ left: cropScreenRect.x, top: cropScreenRect.y, width: cropScreenRect.w, height: cropScreenRect.h }}
-              onMouseDown={(e) => handleCropMouseDown(e, "move")}
-            >
-              <div className="absolute inset-0 pointer-events-none">
-                <div className="absolute left-1/3 top-0 bottom-0 w-px bg-accent-warm/30" />
-                <div className="absolute left-2/3 top-0 bottom-0 w-px bg-accent-warm/30" />
-                <div className="absolute top-1/3 left-0 right-0 h-px bg-accent-warm/30" />
-                <div className="absolute top-2/3 left-0 right-0 h-px bg-accent-warm/30" />
+            {/* Dark overlay outside crop – uses effective (individual or global) rect */}
+            {displayScreenRect && (
+              <div className="absolute inset-0 pointer-events-none z-10">
+                <div className="absolute bg-black/40" style={{ left: imageLayout.offsetX, top: imageLayout.offsetY, width: imageLayout.displayW, height: displayScreenRect.y - imageLayout.offsetY }} />
+                <div className="absolute bg-black/40" style={{ left: imageLayout.offsetX, top: displayScreenRect.y + displayScreenRect.h, width: imageLayout.displayW, height: (imageLayout.offsetY + imageLayout.displayH) - (displayScreenRect.y + displayScreenRect.h) }} />
+                <div className="absolute bg-black/40" style={{ left: imageLayout.offsetX, top: displayScreenRect.y, width: displayScreenRect.x - imageLayout.offsetX, height: displayScreenRect.h }} />
+                <div className="absolute bg-black/40" style={{ left: displayScreenRect.x + displayScreenRect.w, top: displayScreenRect.y, width: (imageLayout.offsetX + imageLayout.displayW) - (displayScreenRect.x + displayScreenRect.w), height: displayScreenRect.h }} />
               </div>
-              {localBounds && (
-                <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-accent-warm text-white text-[10px] font-mono rounded whitespace-nowrap">
-                  {localBounds.right - localBounds.left} x {localBounds.bottom - localBounds.top}
-                </div>
-              )}
-            </div>
+            )}
 
-            {/* Resize handles */}
-            {(["nw", "ne", "sw", "se", "n", "s", "w", "e"] as DragMode[]).map((handle) => {
+            {/* Individual crop border (solid amber, read-only) – shown when individual bounds active */}
+            {isIndividualBoundsActive && displayScreenRect && refFilePerFileBounds && (
+              <div
+                className="absolute border-2 pointer-events-none z-10"
+                style={{ left: displayScreenRect.x, top: displayScreenRect.y, width: displayScreenRect.w, height: displayScreenRect.h, borderColor: "rgba(245,158,11,0.9)" }}
+              >
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute left-1/3 top-0 bottom-0 w-px" style={{ background: "rgba(245,158,11,0.3)" }} />
+                  <div className="absolute left-2/3 top-0 bottom-0 w-px" style={{ background: "rgba(245,158,11,0.3)" }} />
+                  <div className="absolute top-1/3 left-0 right-0 h-px" style={{ background: "rgba(245,158,11,0.3)" }} />
+                  <div className="absolute top-2/3 left-0 right-0 h-px" style={{ background: "rgba(245,158,11,0.3)" }} />
+                </div>
+                <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 text-white text-[10px] font-mono rounded whitespace-nowrap" style={{ background: "rgba(245,158,11,0.9)" }}>
+                  個別: {refFilePerFileBounds.right - refFilePerFileBounds.left} x {refFilePerFileBounds.bottom - refFilePerFileBounds.top}
+                </div>
+              </div>
+            )}
+
+            {/* Global crop border (solid pink, editable) – shown when individual NOT active */}
+            {!isIndividualBoundsActive && cropScreenRect && (
+              <div
+                className="absolute border-2 border-accent-warm cursor-move z-10"
+                style={{ left: cropScreenRect.x, top: cropScreenRect.y, width: cropScreenRect.w, height: cropScreenRect.h }}
+                onMouseDown={(e) => handleCropMouseDown(e, "move")}
+              >
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute left-1/3 top-0 bottom-0 w-px bg-accent-warm/30" />
+                  <div className="absolute left-2/3 top-0 bottom-0 w-px bg-accent-warm/30" />
+                  <div className="absolute top-1/3 left-0 right-0 h-px bg-accent-warm/30" />
+                  <div className="absolute top-2/3 left-0 right-0 h-px bg-accent-warm/30" />
+                </div>
+                {localBounds && (
+                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-accent-warm text-white text-[10px] font-mono rounded whitespace-nowrap">
+                    {localBounds.right - localBounds.left} x {localBounds.bottom - localBounds.top}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Global crop dashed overlay (editable) – shown when individual is active */}
+            {isIndividualBoundsActive && cropEnabled && cropScreenRect && (
+              <div
+                className="absolute cursor-move z-[8]"
+                style={{ left: cropScreenRect.x, top: cropScreenRect.y, width: cropScreenRect.w, height: cropScreenRect.h,
+                  border: "2px dashed rgba(255,90,138,0.6)" }}
+                onMouseDown={(e) => handleCropMouseDown(e, "move")}
+              >
+                {localBounds && (
+                  <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-accent-warm/80 text-white text-[9px] font-mono rounded whitespace-nowrap">
+                    グローバル: {localBounds.right - localBounds.left}×{localBounds.bottom - localBounds.top}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Resize handles – always at global cropScreenRect */}
+            {cropEnabled && cropScreenRect && (["nw", "ne", "sw", "se", "n", "s", "w", "e"] as DragMode[]).map((handle) => {
               if (!handle) return null;
               const size = 8;
               const half = size / 2;
@@ -1113,30 +1164,13 @@ export function TiffCropEditor({ onSwitchToQueue }: TiffCropEditorProps) {
           </>
         )}
 
-        {/* 参照ファイルの個別クロップ範囲プレビュー（2次オーバーレイ・読み取り専用） */}
-        {refFilePerFileBounds !== undefined && imageLayout && (
-          refFilePerFileBounds === null ? (
-            /* クロップスキップ表示 */
-            <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-              <div className="px-3 py-1.5 bg-error/75 text-white text-xs rounded-lg font-medium backdrop-blur-sm">
-                このファイルはクロップをスキップ
-              </div>
+        {/* 参照ファイルのクロップスキップ表示 */}
+        {refFilePerFileBounds === null && imageLayout && (
+          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+            <div className="px-3 py-1.5 bg-error/75 text-white text-xs rounded-lg font-medium backdrop-blur-sm">
+              このファイルはクロップをスキップ
             </div>
-          ) : (() => {
-            const tl = docToScreen(refFilePerFileBounds.left, refFilePerFileBounds.top);
-            const br = docToScreen(refFilePerFileBounds.right, refFilePerFileBounds.bottom);
-            const rx = tl.x, ry = tl.y, rw = br.x - tl.x, rh = br.y - tl.y;
-            return (
-              <div className="absolute pointer-events-none z-[9]"
-                style={{ left: rx, top: ry, width: rw, height: rh,
-                  border: "2px dashed rgba(245,158,11,0.75)",
-                  boxShadow: "0 0 8px rgba(245,158,11,0.25)" }}>
-                <div className="absolute -top-5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-warning text-white text-[9px] font-mono rounded whitespace-nowrap">
-                  個別: {refFilePerFileBounds.right - refFilePerFileBounds.left}×{refFilePerFileBounds.bottom - refFilePerFileBounds.top}
-                </div>
-              </div>
-            );
-          })()
+          </div>
         )}
 
         {/* Empty state (only when crop is enabled) */}

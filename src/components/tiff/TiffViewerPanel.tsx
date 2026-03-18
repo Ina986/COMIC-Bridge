@@ -12,11 +12,27 @@ export function TiffViewerPanel() {
   const files = usePsdStore((s) => s.files);
   const cropBounds = useTiffStore((s) => s.settings.crop.bounds);
   const cropEnabled = useTiffStore((s) => s.settings.crop.enabled);
+  const fileOverrides = useTiffStore((s) => s.fileOverrides);
 
   const [fileIndex, setFileIndex] = useState(0);
+  const [reverseHorizontal, setReverseHorizontal] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const reverseHorizontalRef = useRef(false);
+
+  // reverseHorizontal をキーボードハンドラ内で参照するためにrefに同期
+  useEffect(() => {
+    reverseHorizontalRef.current = reverseHorizontal;
+  }, [reverseHorizontal]);
 
   const currentFile = files[fileIndex] ?? null;
+
+  // 個別クロップ優先: override.cropBoundsがundefinedでなければ個別設定を使用
+  const override = currentFile ? fileOverrides.get(currentFile.id) : undefined;
+  const effectiveCropBounds = override?.cropBounds !== undefined ? override.cropBounds : cropBounds;
+  const effectiveCropEnabled = override?.cropBounds !== undefined
+    ? override.cropBounds !== null
+    : cropEnabled;
+  const hasIndividualCrop = override?.cropBounds !== undefined;
 
   const { imageUrl, originalSize, isLoading } = useHighResPreview(
     currentFile?.filePath ?? null,
@@ -28,27 +44,22 @@ export function TiffViewerPanel() {
     }
   );
 
-  // プリフェッチ（±2ページ）
-  const prefetchRange = [fileIndex - 2, fileIndex - 1, fileIndex + 1, fileIndex + 2];
-  for (const idx of prefetchRange) {
-    if (idx >= 0 && idx < files.length) {
-      // useHighResPreview はフックなのでここでは呼べない。代わりにinvoke直接は避け、
-      // 既存のキャッシュに頼る（高速な2回目アクセス）
-    }
-  }
+  // マウント時にフォーカスしてキーボード操作を即時有効化
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
 
   // テキストはみ出し検知
   const textOverflowLayers = useMemo(() => {
-    if (!currentFile?.metadata?.layerTree || !cropBounds || !cropEnabled) return [];
+    if (!currentFile?.metadata?.layerTree || !effectiveCropBounds || !effectiveCropEnabled) return [];
     const overflows: { name: string; bounds: { left: number; top: number; right: number; bottom: number } }[] = [];
 
     const walk = (nodes: LayerNode[]) => {
       for (const node of nodes) {
         if (node.type === "text" && node.visible && node.bounds) {
           const b = node.bounds;
-          // テキストがクロップ範囲からはみ出しているか判定
-          if (b.left < cropBounds.left || b.top < cropBounds.top ||
-              b.right > cropBounds.right || b.bottom > cropBounds.bottom) {
+          if (b.left < effectiveCropBounds.left || b.top < effectiveCropBounds.top ||
+              b.right > effectiveCropBounds.right || b.bottom > effectiveCropBounds.bottom) {
             overflows.push({ name: node.name, bounds: b });
           }
         }
@@ -57,7 +68,7 @@ export function TiffViewerPanel() {
     };
     walk(currentFile.metadata.layerTree);
     return overflows;
-  }, [currentFile, cropBounds, cropEnabled]);
+  }, [currentFile, effectiveCropBounds, effectiveCropEnabled]);
 
   // キーボード操作
   useEffect(() => {
@@ -68,12 +79,18 @@ export function TiffViewerPanel() {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setFileIndex((i) => Math.max(0, i - 1));
-      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-        e.preventDefault();
+      let goNext: boolean | null = null;
+      if (e.key === "ArrowUp") goNext = false;
+      else if (e.key === "ArrowDown") goNext = true;
+      else if (e.key === "ArrowLeft") goNext = reverseHorizontalRef.current ? true : false;
+      else if (e.key === "ArrowRight") goNext = reverseHorizontalRef.current ? false : true;
+
+      if (goNext === null) return;
+      e.preventDefault();
+      if (goNext) {
         setFileIndex((i) => Math.min(files.length - 1, i + 1));
+      } else {
+        setFileIndex((i) => Math.max(0, i - 1));
       }
     };
 
@@ -114,8 +131,7 @@ export function TiffViewerPanel() {
     );
   }
 
-  // クロップ範囲のオーバーレイ計算
-  const showCropOverlay = cropEnabled && cropBounds && originalSize;
+  const showCropOverlay = effectiveCropEnabled && effectiveCropBounds && originalSize;
 
   return (
     <div
@@ -155,15 +171,33 @@ export function TiffViewerPanel() {
           <span className="text-[10px] text-text-muted truncate block">{currentFile.fileName}</span>
         </div>
 
+        {/* 個別クロップ使用中バッジ */}
+        {hasIndividualCrop && (
+          <span className="px-1.5 py-0.5 text-[10px] rounded font-medium bg-accent-warm/15 text-accent-warm flex-shrink-0">
+            個別範囲
+          </span>
+        )}
+
         {/* テキストはみ出し警告 */}
         {textOverflowLayers.length > 0 && (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning text-[10px] font-medium">
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-warning text-[10px] font-medium flex-shrink-0">
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
             テキストはみ出し {textOverflowLayers.length}件
           </div>
         )}
+
+        {/* 左右反転チェックボックス */}
+        <label className="flex items-center gap-1 cursor-pointer flex-shrink-0 select-none">
+          <input
+            type="checkbox"
+            checked={reverseHorizontal}
+            onChange={(e) => setReverseHorizontal(e.target.checked)}
+            className="rounded accent-accent-warm"
+          />
+          <span className="text-[10px] text-text-muted">左右反転</span>
+        </label>
       </div>
 
       {/* 画像エリア */}
@@ -186,7 +220,7 @@ export function TiffViewerPanel() {
             {/* クロップ範囲オーバーレイ */}
             {showCropOverlay && (
               <CropOverlay
-                cropBounds={cropBounds}
+                cropBounds={effectiveCropBounds}
                 imageWidth={originalSize.width}
                 imageHeight={originalSize.height}
                 textOverflowLayers={textOverflowLayers}
@@ -215,7 +249,6 @@ function CropOverlay({
   imageHeight: number;
   textOverflowLayers: { name: string; bounds: { left: number; top: number; right: number; bottom: number } }[];
 }) {
-  // SVGで暗転マスク + クロップ範囲を表示
   const { left, top, right, bottom } = cropBounds;
 
   return (
@@ -224,7 +257,6 @@ function CropOverlay({
       viewBox={`0 0 ${imageWidth} ${imageHeight}`}
       preserveAspectRatio="xMidYMid meet"
     >
-      {/* 暗転マスク */}
       <defs>
         <mask id="cropMask">
           <rect x="0" y="0" width={imageWidth} height={imageHeight} fill="white" />
@@ -236,8 +268,6 @@ function CropOverlay({
         fill="rgba(0,0,0,0.5)"
         mask="url(#cropMask)"
       />
-
-      {/* クロップ範囲の枠線 */}
       <rect
         x={left} y={top}
         width={right - left} height={bottom - top}
@@ -246,8 +276,6 @@ function CropOverlay({
         strokeWidth={2}
         vectorEffect="non-scaling-stroke"
       />
-
-      {/* テキストはみ出しハイライト */}
       {textOverflowLayers.map((layer, i) => (
         <rect
           key={i}
