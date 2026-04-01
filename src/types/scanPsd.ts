@@ -276,6 +276,104 @@ export function normalizeRubyEntries(raw: unknown[]): RubyEntry[] {
   });
 }
 
+/**
+ * 作品情報の未記入フィールドを検出して返す。
+ * 必須: ジャンル, レーベル, タイトル, 著者情報（authorTypeに応じて）, 編集者
+ */
+export function getEmptyWorkInfoFields(info: ScanWorkInfo): string[] {
+  const missing: string[] = [];
+  if (!info.genre) missing.push("ジャンル");
+  if (!info.label) missing.push("レーベル");
+  if (!info.title) missing.push("タイトル");
+  if (info.authorType === "single" && !info.author) missing.push("著者名");
+  if (info.authorType === "dual") {
+    if (!info.original) missing.push("原作");
+    if (!info.artist) missing.push("作画");
+  }
+  if (!info.editor) missing.push("編集者");
+  return missing;
+}
+
+/** 未記入項目（タブ番号付き） */
+export interface MissingField {
+  tab: ScanPsdTab;
+  label: string;
+}
+
+/**
+ * 全タブの未記入・未設定項目を検出して返す。
+ * スキャナー内に記入される全ての項目を対象とする。
+ */
+export function getAllMissingFields(opts: {
+  workInfo: ScanWorkInfo;
+  presetSets: Record<string, FontPreset[]>;
+  scanData: ScanData | null;
+  selectedGuideIndex: number | null;
+  selectionRanges: SelectionRange[];
+  rubyList: RubyEntry[];
+}): MissingField[] {
+  const missing: MissingField[] = [];
+
+  // --- タブ0: 作品情報 ---
+  if (!opts.workInfo.genre) missing.push({ tab: 0, label: "ジャンル" });
+  if (!opts.workInfo.label) missing.push({ tab: 0, label: "レーベル" });
+  if (!opts.workInfo.title) missing.push({ tab: 0, label: "タイトル" });
+  if (opts.workInfo.authorType === "single" && !opts.workInfo.author)
+    missing.push({ tab: 0, label: "著者名" });
+  if (opts.workInfo.authorType === "dual") {
+    if (!opts.workInfo.original) missing.push({ tab: 0, label: "原作" });
+    if (!opts.workInfo.artist) missing.push({ tab: 0, label: "作画" });
+  }
+  if (!opts.workInfo.editor) missing.push({ tab: 0, label: "編集者" });
+
+  // --- タブ1: フォント種類 ---
+  const allPresets = Object.values(opts.presetSets).flat();
+  if (allPresets.length === 0) {
+    missing.push({ tab: 1, label: "フォントプリセット" });
+  } else {
+    // 未登録フォント
+    if (opts.scanData?.fonts) {
+      const registered = new Set(allPresets.map((p) => p.font));
+      const unregCount = opts.scanData.fonts.filter((f) => !registered.has(f.name)).length;
+      if (unregCount > 0) missing.push({ tab: 1, label: `未登録フォント(${unregCount}件)` });
+    }
+    // カテゴリ未設定
+    const noCat = allPresets.filter((p) => !p.subName).length;
+    if (noCat > 0) missing.push({ tab: 1, label: `カテゴリ未設定(${noCat}件)` });
+  }
+
+  // --- タブ2: フォントサイズ ---
+  if (opts.scanData) {
+    if (!opts.scanData.sizeStats?.mostFrequent)
+      missing.push({ tab: 2, label: "基本フォントサイズ" });
+    if ((opts.scanData.sizeStats?.sizes ?? []).length === 0)
+      missing.push({ tab: 2, label: "サイズ一覧" });
+    if ((opts.scanData.strokeStats?.sizes ?? []).length === 0)
+      missing.push({ tab: 2, label: "ストロークサイズ" });
+  }
+
+  // --- タブ3: タチキリ枠 ---
+  if (opts.scanData) {
+    const guideSets = opts.scanData.guideSets ?? [];
+    if (guideSets.length === 0) {
+      missing.push({ tab: 3, label: "ガイド線（データなし）" });
+    } else if (opts.selectedGuideIndex == null) {
+      missing.push({ tab: 3, label: "ガイド線（未選択）" });
+    }
+  }
+  if (opts.selectionRanges.length === 0) missing.push({ tab: 3, label: "選択範囲" });
+
+  // --- タブ4: テキスト ---
+  if (opts.scanData) {
+    const textLogEntries = opts.scanData.textLogByFolder ?? {};
+    if (Object.keys(textLogEntries).length === 0)
+      missing.push({ tab: 4, label: "テキストログ" });
+  }
+  if (opts.rubyList.length === 0) missing.push({ tab: 4, label: "ルビ一覧" });
+
+  return missing;
+}
+
 export function getAutoSubName(fontName: string): string {
   if (!fontName) return "";
   const lower = fontName.toLowerCase();

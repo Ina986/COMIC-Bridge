@@ -235,6 +235,13 @@
 - `isValidTachikiriGuideSet()`: ドキュメント中心±1pxのガイドを除外、上下左右各1本以上で有効判定
 - `autoSelectGuideSet()`: 有効タチキリ優先 → 使用回数降順でソート → インデックス0を自動選択
 
+**未記入・未設定チェック（`getAllMissingFields()`）:**
+- 全5タブの項目を横断チェックし、未記入・未設定を`MissingField[]`（タブ番号+ラベル）で返す
+- **チェック対象**: 作品情報（ジャンル/レーベル/タイトル/著者/編集者）、フォントプリセット（未登録/カテゴリ未設定）、基本フォントサイズ/サイズ一覧/ストロークサイズ、ガイド線選択/選択範囲、テキストログ/ルビ一覧
+- **バナー表示**: ScanPsdPanel・ScanPsdEditViewのヘッダー下に警告バナー。各タグバッジをクリックで該当タブに遷移
+- **保存時ダイアログ**: 未設定項目がある場合、保存ボタン押下時に確認ダイアログ（「戻って入力」/「そのまま保存」）
+- ScanPsdViewのサブタブバッジにも未設定項目数を表示
+
 **保存ルール:**
 - ファイル名: `{title}.json` / `{title}_scandata.json`
 - 保存先: `{basePath}/{label}/`
@@ -262,7 +269,7 @@
 - `src/store/scanPsdStore.ts` — Zustandストア（persist未使用）
 - `src/types/scanPsd.ts` — ScanData, PresetJsonData, ScanGuideSet, ScanWorkInfo, FontPreset等の型定義
 - `src/components/scanPsd/ScanPsdContent.tsx` — 右パネル（モード選択、スキャンUI、サマリー、ファイルブラウザ）
-- `src/components/scanPsd/ScanPsdPanel.tsx` — 左パネル（5タブ + 保存ボタン）
+- `src/components/scanPsd/ScanPsdPanel.tsx` — 左パネル（5タブ + 保存ボタン + 未記入チェックバナー）
 - `src/components/scanPsd/JsonFileBrowser.tsx` — basePath以下のJSON専用ファイルブラウザ
 - `src/components/scanPsd/tabs/` — 各タブコンポーネント
 - `src/components/ErrorBoundary.tsx` — React エラーバウンダリ
@@ -371,14 +378,14 @@
   - viewMode切替: サムネイル（PreviewGrid）、レイヤー構造（SpecLayerGrid）、写植仕様（SpecTextGrid）
   - SpecTextGrid: 使用フォントサマリー（種類数・レイヤー数）、サイズ統計（頻度順・基本ポイント数）、ファイル別テキストレイヤー一覧。フォント切替（デフォルト/プレビュー）、ソート切替（昇順/降順）
   - SpecLayerGrid: 全ファイルのレイヤー構造をグリッド表示
-- **TypsettingView**: 写植関連（写植チェック・写植確認を統合）。MojiQ校正JSONの読み込み・カテゴリ別表示・ページ遷移連動
+- **TypsettingView**: 写植関連（写植仕様・DTPビューアー・写植調整・写植確認）。MojiQ校正JSONの読み込み・カテゴリ別表示・ページ遷移連動。フォント帳はScanPsdViewに移動済み
 - **ViewerView**: 独立ビューアー（SpecViewerPanelを再利用）。画像+サイドバー（写植仕様/レイヤー構造タブ）。OS全画面（Tauri setFullscreen）、スプラッシュトランジション、矢印キー/ホイールナビ、P/Fショートカット
 - **ReplaceView**: レイヤー差替え
 - **ComposeView**: 合成（2カラム: ComposePanel | ComposeDropZone）。Replace機能と類似のペアリングUI
 - **SplitView**: 見開き分割
 - **RenameView**: リネーム（レイヤーリネーム / ファイルリネーム）
 - **TiffView**: TIFF化（3カラム: TiffSettingsPanel | TiffFileList | Center(プレビュー/一覧/ビューアータブ切替)）。TiffFileListヘッダーとTiffBatchQueueヘッダーにサブフォルダチェックを配置
-- **ScanPsdView**: Scan PSD（2カラム: ScanPsdPanel(5タブ) | ScanPsdContent(モード選択/スキャン/サマリー)）
+- **ScanPsdView**: Scan PSD（サブタブ: スキャナー / フォント帳）。スキャナーモードは2カラム: ScanPsdPanel(5タブ) | ScanPsdContent(モード選択/スキャン/サマリー)。フォント帳タブはFontBookViewを表示。未記入・未設定項目数をサブタブバッジで表示
 
 ### レイヤーツリー (LayerPreviewPanel)
 - **タブ切替**: 「レイヤー構造」（デフォルト）/ 「ビューアー」のセグメントボタン
@@ -438,14 +445,14 @@ src/
 │   │   ├── FontBookView.tsx      # フォント帳ビュー
 │   │   ├── LayerControlView.tsx  # レイヤー制御ビュー
 │   │   ├── SpecCheckView.tsx     # 仕様チェックビュー（サムネイル/レイヤー/写植タブ切替）
-│   │   ├── TypsettingView.tsx    # 写植関連ビュー（写植チェック・確認を統合）
+│   │   ├── TypsettingView.tsx    # 写植関連ビュー（写植仕様・DTPビューアー・写植調整・写植確認）
 │   │   ├── ViewerView.tsx        # ビューアービュー（SpecViewerPanel再利用）
 │   │   ├── ReplaceView.tsx       # レイヤー差替えビュー
 │   │   ├── ComposeView.tsx      # 合成ビュー（ComposePanel + ComposeDropZone）
 │   │   ├── SplitView.tsx         # 見開き分割ビュー
 │   │   ├── RenameView.tsx        # リネームビュー（fileEntries→psdStore自動同期）
 │   │   ├── TiffView.tsx          # TIFF化ビュー（3カラム: FileList|Center|Settings）
-│   │   └── ScanPsdView.tsx      # Scan PSDビュー（ScanPsdPanel + ScanPsdContent）
+│   │   └── ScanPsdView.tsx      # Scan PSDビュー（サブタブ: スキャナー/フォント帳）
 │   ├── metadata/          # メタデータ表示
 │   │   ├── MetadataPanel.tsx
 │   │   └── LayerTree.tsx
@@ -515,9 +522,9 @@ src/
 │   │   ├── TiffSettingsPanel.tsx        # 左パネル設定UI（折りたたみセクション: 出力形式/カラーぼかし/クロップ・リサイズ/リネーム・出力先）
 │   │   └── TiffViewerPanel.tsx          # TIFF化ビューアーパネル（プレビュー表示）
 │   ├── scanPsd/           # Scan PSD（フォントプリセット管理）
-│   │   ├── ScanPsdPanel.tsx          # 左パネル（5タブ + 保存ボタン）
+│   │   ├── ScanPsdPanel.tsx          # 左パネル（5タブ + 保存ボタン + 未記入チェックバナー + 保存時警告ダイアログ）
 │   │   ├── ScanPsdContent.tsx        # 右パネル（モード選択/スキャンUI/サマリー/ファイルブラウザ）
-│   │   ├── ScanPsdEditView.tsx       # JSON編集ビュー
+│   │   ├── ScanPsdEditView.tsx       # JSON編集ビュー（未記入チェックバナー + 保存時警告ダイアログ）
 │   │   ├── ScanPsdModeSelector.tsx   # モード選択カード（新規/編集）
 │   │   ├── JsonFileBrowser.tsx       # basePath以下のJSON専用ファイルブラウザ
 │   │   └── tabs/
@@ -593,7 +600,7 @@ src/
     ├── replace.ts         # ReplaceSettings, PairingJob, FolderSelection, BatchFolder等
     ├── rename.ts          # RenameSubMode, RenameRule, FileRenameEntry等
     ├── tiff.ts            # TiffSettings, TiffCropBounds, TiffCropPreset, TiffScandataFile等
-    ├── scanPsd.ts         # ScanData, PresetJsonData, ScanGuideSet, ScanWorkInfo, FontPreset, GENRE_LABELS, FONT_SUB_NAME_MAP等
+    ├── scanPsd.ts         # ScanData, PresetJsonData, ScanGuideSet, ScanWorkInfo, FontPreset, MissingField, getAllMissingFields, GENRE_LABELS, FONT_SUB_NAME_MAP等
     └── typesettingCheck.ts # ProofreadingCheckData, CheckItem, CheckKind等
 
 src-tauri/
