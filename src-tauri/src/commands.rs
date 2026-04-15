@@ -5,7 +5,7 @@ use psd::Psd;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use tauri::Manager;
@@ -13,6 +13,9 @@ use thiserror::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+const JSON_FOLDER_BASE_PATH: &str = r"G:\共有ドライブ\CLLENN\編集部フォルダ\編集企画部\編集企画_C班(AT業務推進)\DTP制作部\JSONフォルダ";
+const JSON_ACCESS_LOG_BASE_PATH: &str = r"G:\共有ドライブ\CLLENN\編集部フォルダ\編集企画部\編集企画_C班(AT業務推進)\DTP制作部\JSON_Log";
 
 // ============================================
 // Natural sort comparison (1, 2, 10, 11...)
@@ -71,6 +74,138 @@ const MAX_PSD_CACHE_ENTRIES: usize = 10;
 /// PSDキャッシュのハンドルを取得
 fn get_psd_cache() -> &'static Mutex<HashMap<String, (Vec<u8>, u32, u32)>> {
     PSD_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn unix_now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+fn utc_now_parts() -> (i64, usize, i64, u64, u64, u64) {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let time_of_day = secs % 86400;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+
+    let mut y = 1970i64;
+    let mut remaining_days = (secs / 86400) as i64;
+    loop {
+        let days_in_year = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        y += 1;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    ];
+    let mut m = 0usize;
+    for (i, &d) in month_days.iter().enumerate() {
+        if remaining_days < d as i64 {
+            m = i;
+            break;
+        }
+        remaining_days -= d as i64;
+    }
+    (y, m + 1, remaining_days + 1, hours, minutes, seconds)
+}
+
+fn utc_now_iso() -> String {
+    let (y, m, d, h, min, s) = utc_now_parts();
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.000Z", y, m, d, h, min, s)
+}
+
+fn utc_today() -> String {
+    let (y, m, d, _, _, _) = utc_now_parts();
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+fn normalize_path_text(path: &str) -> String {
+    path.replace('/', "\\")
+}
+
+fn json_label_and_work(file_path: &str, data: Option<&serde_json::Value>) -> Option<(String, String)> {
+    let path = Path::new(file_path);
+    if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("json")) != Some(true) {
+        return None;
+    }
+
+    let normalized_path = normalize_path_text(file_path);
+    let normalized_base = normalize_path_text(JSON_FOLDER_BASE_PATH);
+    if !normalized_path.to_lowercase().starts_with(&normalized_base.to_lowercase()) {
+        return None;
+    }
+
+    let relative = normalized_path
+        .trim_start_matches(&normalized_base)
+        .trim_start_matches('\\');
+    let mut parts = relative.split('\\').filter(|part| !part.is_empty());
+    let label = parts.next()?.to_string();
+    let fallback_work = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let work = data
+        .and_then(|value| {
+            value
+                .get("presetData")
+                .and_then(|pd| pd.get("workInfo"))
+                .and_then(|info| info.get("title"))
+                .and_then(|title| title.as_str())
+        })
+        .filter(|title| !title.trim().is_empty())
+        .map(|title| title.to_string())
+        .unwrap_or(fallback_work);
+
+    Some((label, work))
+}
+
+fn write_json_access_log(action: &str, file_path: &str, data: Option<&serde_json::Value>) {
+    let Some((label_name, work_title)) = json_label_and_work(file_path, data) else {
+        return;
+    };
+
+    let log_dir = Path::new(JSON_ACCESS_LOG_BASE_PATH);
+    if let Err(e) = fs::create_dir_all(log_dir) {
+        eprintln!("JSON access log folder create failed: {e}");
+        return;
+    }
+
+    let log_path = log_dir.join(format!("json_access_{}.jsonl", utc_today()));
+    let payload = serde_json::json!({
+        "schemaVersion": 1,
+        "occurredAt": utc_now_iso(),
+        "occurredAtMs": unix_now_ms(),
+        "appName": "COMIC-Bridge",
+        "appVersion": env!("CARGO_PKG_VERSION"),
+        "action": action,
+        "labelName": label_name,
+        "workTitle": work_title,
+        "path": file_path,
+        "userName": std::env::var("USERNAME").unwrap_or_default(),
+        "userDomain": std::env::var("USERDOMAIN").unwrap_or_default(),
+        "computerName": std::env::var("COMPUTERNAME").unwrap_or_default(),
+    });
+
+    let Ok(line) = serde_json::to_string(&payload) else {
+        return;
+    };
+    match fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(mut file) => {
+            let _ = writeln!(file, "{line}");
+        }
+        Err(e) => eprintln!("JSON access log write failed: {e}"),
+    }
 }
 
 // ============================================
@@ -2832,8 +2967,11 @@ pub async fn read_text_file(file_path: String) -> Result<String, String> {
     if !path.exists() || !path.is_file() {
         return Err(format!("File not found: {}", file_path));
     }
-    fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read file: {}", e))
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&content).ok();
+    write_json_access_log("read", &file_path, parsed.as_ref());
+    Ok(content)
 }
 
 /// Write a text file
@@ -2847,8 +2985,11 @@ pub async fn write_text_file(file_path: String, content: String) -> Result<(), S
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
     }
-    fs::write(path, content)
-        .map_err(|e| format!("Failed to write file: {}", e))
+    fs::write(path, &content)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&content).ok();
+    write_json_access_log("write", &file_path, parsed.as_ref());
+    Ok(())
 }
 
 /// Write binary data to a file (creates parent directories if needed)
