@@ -35,6 +35,9 @@ pub struct PsdMetadata {
     pub alpha_channel_count: u32,
     #[serde(rename = "alphaChannelNames")]
     pub alpha_channel_names: Vec<String>,
+    /// 全αが「透明部分/Transparency」のみならtrue。ユーザー由来の実αチャンネルと区別するため
+    #[serde(rename = "hasOnlyTransparency")]
+    pub has_only_transparency: bool,
     #[serde(rename = "hasTombo")]
     pub has_tombo: bool,
 }
@@ -133,6 +136,14 @@ struct TyShData {
     font_sizes: Vec<f64>,
     anti_alias: Option<String>,
     tracking: Vec<f64>,
+    /// TySh transform matrix の Y スケール (transform[3]).
+    /// Photoshop は通常 dpi/72 を入れる。0 未満や 0 なら 1.0 で安全側に倒す。
+    y_scale: f64,
+    /// テキスト原点のピクセル座標 (transform[4], transform[5])
+    tx: f64,
+    ty: f64,
+    /// テキスト bounds (Points, 原点からの相対値). transform スケール dpi/72 の前提で px オフセット相当
+    bounding_box: Option<(f64, f64, f64, f64)>, // (left, top, right, bottom)
 }
 
 // ================================================================
@@ -146,7 +157,7 @@ pub fn parse_psd_file(file_path: &str) -> Result<(PsdMetadata, Option<String>), 
     let mut r = BufReader::with_capacity(256 * 1024, file);
 
     // ---- Section 1: Header (26 bytes) ----
-    let (version, _channels, height, width, depth, color_mode_num) = read_header(&mut r)?;
+    let (version, total_channels, height, width, depth, color_mode_num) = read_header(&mut r)?;
 
     // ---- Section 2: Color Mode Data ----
     skip_section_u32(&mut r)?;
@@ -185,6 +196,34 @@ pub fn parse_psd_file(file_path: &str) -> Result<(PsdMetadata, Option<String>), 
     // Thumbnail: encode JFIF as base64 (no temp file / asset protocol needed)
     let thumb_base64 = resources.thumbnail_jfif.as_ref().map(|jfif| base64_encode(jfif));
 
+    // αチャンネル判定（参考リポ準拠）:
+    //   - カラーモード別の標準チャンネル数を差し引いた extra_channels と
+    //     alphaChannelNames の長さの大きい方を採用
+    //   - 全αが「透明部分/Transparency」のみなら has_only_transparency=true
+    let std_channels: u32 = match color_mode_num {
+        0 | 1 | 2 | 8 => 1, // Bitmap / Grayscale / Indexed / Duotone
+        3 | 7 | 9 => 3,     // RGB / Multichannel / Lab
+        4 => 4,             // CMYK
+        _ => 3,
+    };
+    let extra_channels = (total_channels as u32).saturating_sub(std_channels);
+    let alpha_count = (resources.alpha_channel_names.len() as u32).max(extra_channels);
+    let alpha_names_final: Vec<String> = if (resources.alpha_channel_names.len() as u32) >= alpha_count {
+        resources.alpha_channel_names.clone()
+    } else {
+        // 名前リストが不足している分は "Alpha N" で補完
+        let mut names = resources.alpha_channel_names.clone();
+        for i in (names.len() as u32)..alpha_count {
+            names.push(format!("Alpha {}", i + 1));
+        }
+        names
+    };
+    let has_only_transparency = alpha_count > 0
+        && alpha_names_final.iter().all(|n| {
+            let t = n.trim();
+            t.eq_ignore_ascii_case("Transparency") || t == "透明部分"
+        });
+
     let metadata = PsdMetadata {
         width,
         height,
@@ -195,9 +234,10 @@ pub fn parse_psd_file(file_path: &str) -> Result<(PsdMetadata, Option<String>), 
         guides: resources.guides,
         layer_count,
         layer_tree,
-        has_alpha_channels: !resources.alpha_channel_names.is_empty(),
-        alpha_channel_count: resources.alpha_channel_names.len() as u32,
-        alpha_channel_names: resources.alpha_channel_names,
+        has_alpha_channels: alpha_count > 0,
+        alpha_channel_count: alpha_count,
+        alpha_channel_names: alpha_names_final,
+        has_only_transparency,
         has_tombo,
     };
 
@@ -740,17 +780,19 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                 };
 
                 let text_info = raw.tysh_data.as_ref().map(|td| {
-                    // EngineData stores font sizes in document pixels;
-                    // convert to points: pt = px * 72 / dpi
+                    // 参考リポ準拠: pt = fontSize * transform[3](Yスケール) * 72 / dpi
+                    // - 600dpi で transform[3]=8.333 が通常セットされる → 結果は EngineData 値と同じ
+                    // - transform 欠落時は y_scale=1 のフォールバックで従来どおり 72/dpi のみ適用
                     let dpi_f = dpi as f64;
-                    let font_sizes: Vec<f64> = if dpi > 72 {
-                        td.font_sizes.iter().map(|&s| {
-                            let pt = s * 72.0 / dpi_f;
+                    let pt_scale = (td.y_scale * 72.0) / dpi_f;
+                    let font_sizes: Vec<f64> = td
+                        .font_sizes
+                        .iter()
+                        .map(|&s| {
+                            let pt = s * pt_scale;
                             (pt * 10.0).round() / 10.0
-                        }).collect()
-                    } else {
-                        td.font_sizes.clone()
-                    };
+                        })
+                        .collect();
                     TextInfo {
                         text: td.text.clone(),
                         fonts: td.fonts.clone(),
@@ -761,7 +803,7 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                     }
                 });
 
-                let bounds = if raw.right > raw.left && raw.bottom > raw.top {
+                let mut bounds = if raw.right > raw.left && raw.bottom > raw.top {
                     Some(LayerBounds {
                         top: raw.top,
                         left: raw.left,
@@ -771,6 +813,22 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                 } else {
                     None
                 };
+
+                // テキストレイヤーは boundingBox + transform のほうが正確
+                // (ラスター bounds は描画ピクセル範囲。テキスト枠が大きい場合にはみ出し検知が取りこぼす)
+                if let Some(td) = raw.tysh_data.as_ref() {
+                    if let Some((bb_l, bb_t, bb_r, bb_b)) = td.bounding_box {
+                        // 参考リポ準拠: tx + bb.left.value (transform[0/3] = dpi/72 を前提にPoints値を
+                        // 直接pxオフセットとして加算できる)
+                        let left = (td.tx + bb_l).round() as i32;
+                        let top = (td.ty + bb_t).round() as i32;
+                        let right = (td.tx + bb_r).round() as i32;
+                        let bottom = (td.ty + bb_b).round() as i32;
+                        if right > left && bottom > top {
+                            bounds = Some(LayerBounds { top, left, bottom, right });
+                        }
+                    }
+                }
 
                 let node = LayerNode {
                     id: format!("layer-{}", path),
@@ -835,8 +893,15 @@ fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
     // Version (2 bytes) — expect 1
     let _version = read_u16(&mut r).ok()?;
 
-    // Transform matrix: 6 doubles (48 bytes) — skip for now
-    r.seek(SeekFrom::Current(48)).ok()?;
+    // Transform matrix: 6 doubles (48 bytes) — [a, b, c, d, tx, ty]
+    // 参考リポ準拠: Yスケール transform[3] = d をフォントサイズ変換に使う。
+    let _m_a = read_f64(&mut r).ok()?;
+    let _m_b = read_f64(&mut r).ok()?;
+    let _m_c = read_f64(&mut r).ok()?;
+    let m_d = read_f64(&mut r).ok()?;
+    let m_tx = read_f64(&mut r).ok()?;
+    let m_ty = read_f64(&mut r).ok()?;
+    let y_scale = if m_d.is_finite() && m_d > 0.0 { m_d } else { 1.0 };
 
     // Text data version (2 bytes)
     let _text_version = read_u16(&mut r).ok()?;
@@ -844,8 +909,8 @@ fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
     // Descriptor version (4 bytes)
     let _desc_version = read_u32(&mut r).ok()?;
 
-    // Parse text descriptor — extract "Txt " text, "EngineData" blob, and "AntA" anti-alias
-    let (text, engine_data, anti_alias) = parse_ps_descriptor_for_text(&mut r)?;
+    // Parse text descriptor — extract "Txt " text, "EngineData" blob, "AntA" anti-alias, bounds
+    let (text, engine_data, anti_alias, bounding_box) = parse_ps_descriptor_for_text(&mut r)?;
 
     // Extract font names and sizes from EngineData
     // Note: font sizes are in document pixels; DPI conversion happens in build_layer_tree
@@ -854,12 +919,23 @@ fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
         None => (Vec::new(), Vec::new(), Vec::new()),
     };
 
-    Some(TyShData { text, fonts, font_sizes, anti_alias, tracking })
+    Some(TyShData {
+        text,
+        fonts,
+        font_sizes,
+        anti_alias,
+        tracking,
+        y_scale,
+        tx: m_tx,
+        ty: m_ty,
+        bounding_box,
+    })
 }
 
 /// Parse a Photoshop descriptor, extracting "Txt " (text content),
-/// "EngineData" (raw blob for font extraction), and "AntA" (anti-aliasing enum).
-fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Option<Vec<u8>>, Option<String>)> {
+/// "EngineData" (raw blob for font extraction), "AntA" (anti-aliasing enum),
+/// and "bounds"/"boundingBox" (text frame bounds for overflow detection).
+fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Option<Vec<u8>>, Option<String>, Option<(f64, f64, f64, f64)>)> {
     // Unicode class name (length-prefixed, UTF-16BE)
     let name_len = read_u32(r).ok()? as i64;
     r.seek(SeekFrom::Current(name_len * 2)).ok()?;
@@ -875,6 +951,7 @@ fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Op
     let mut text: Option<String> = None;
     let mut engine_data: Option<Vec<u8>> = None;
     let mut anti_alias: Option<String> = None;
+    let mut bounding_box: Option<(f64, f64, f64, f64)> = None;
 
     for _ in 0..count {
         // Key
@@ -911,13 +988,64 @@ fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Op
                 r.read_exact(&mut val_buf).ok()?;
                 anti_alias = Some(String::from_utf8_lossy(&val_buf).trim_end_matches('\0').to_string());
             }
+            b"Objc" if key == b"bounds" || key == b"boundingBox" => {
+                // bounds/boundingBox は Objc で内側に Left/Top/Rght/Btom (UntF) を持つ
+                if let Some(bb) = read_bounds_objc(r) {
+                    bounding_box = Some(bb);
+                } else {
+                    // フォールバック: parsing 失敗したら Objc を読み飛ばす代替手段は無いので bail
+                    break;
+                }
+            }
             _ => {
                 if skip_ps_value(r, &tt).is_none() { break; }
             }
         }
     }
 
-    Some((text.unwrap_or_default(), engine_data, anti_alias))
+    Some((text.unwrap_or_default(), engine_data, anti_alias, bounding_box))
+}
+
+/// "bounds"/"boundingBox" Objc descriptor: Left/Top/Rght/Btom(UntF) の値だけを取り出す
+fn read_bounds_objc<R: Read + Seek>(r: &mut R) -> Option<(f64, f64, f64, f64)> {
+    // Unicode class name (length-prefixed, UTF-16BE)
+    let name_len = read_u32(r).ok()? as i64;
+    r.seek(SeekFrom::Current(name_len * 2)).ok()?;
+
+    // Class ID (length-prefixed; if length=0, read 4 bytes)
+    let class_id_len = read_u32(r).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+
+    // Item count
+    let count = read_u32(r).ok()?;
+    if count > 50 { return None; }
+
+    let mut left: Option<f64> = None;
+    let mut top: Option<f64> = None;
+    let mut right: Option<f64> = None;
+    let mut bottom: Option<f64> = None;
+
+    for _ in 0..count {
+        let k = read_ps_key(r)?;
+        let mut tt = [0u8; 4];
+        r.read_exact(&mut tt).ok()?;
+        if &tt == b"UntF" {
+            // UntF = unit(4 bytes) + double(8 bytes)
+            r.seek(SeekFrom::Current(4)).ok()?;
+            let v = read_f64(r).ok()?;
+            if k == b"Left" { left = Some(v); }
+            else if k == b"Top " { top = Some(v); }
+            else if k == b"Rght" { right = Some(v); }
+            else if k == b"Btom" { bottom = Some(v); }
+        } else {
+            skip_ps_value(r, &tt)?;
+        }
+    }
+
+    match (left, top, right, bottom) {
+        (Some(l), Some(t), Some(r_), Some(b)) => Some((l, t, r_, b)),
+        _ => None,
+    }
 }
 
 /// Read a Photoshop descriptor key (4-byte length; if 0, key is 4 bytes)

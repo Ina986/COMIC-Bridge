@@ -665,6 +665,7 @@ interface PsdMetadata {
   hasAlphaChannels: boolean;
   alphaChannelCount: number;
   alphaChannelNames: string[];
+  hasOnlyTransparency: boolean;  // 全αが「透明部分/Transparency」ならtrue
 }
 
 // レイヤーノード
@@ -682,11 +683,14 @@ interface LayerNode {
   children?: LayerNode[];
 }
 
-// テキスト情報（parser.tsで抽出、ag-psd text.style/styleRunsから）
+// テキスト情報（Rust側 psd_metadata.rs の TySh パーサーで抽出）
+// ※ JS parser.ts にも同じロジックを保持しているが、実行時のメタデータ抽出は
+//   invoke("parse_psd_metadata_batch") 経由で Rust 実装が使われる。
+//   JS parser.ts は現状「参照実装」として維持。直す時は両方合わせること。
 interface TextInfo {
   text: string;
   fonts: string[];       // PostScript名（例: "KozMinPr6N-Regular"）
-  fontSizes: number[];   // ポイント数（DPI正規化済み: fontSize * 72/dpi）
+  fontSizes: number[];   // ポイント数。fontSize * transform[3] * 72 / dpi で算出
 }
 
 // 仕様定義
@@ -784,6 +788,28 @@ load_psd_fast(path)
   → load_psd_composite(path)  // 直接Image Dataセクション読み込み
   → 失敗時: psd crateにフォールバック
 ```
+
+## PSDメタデータ抽出（Rust側 `psd_metadata.rs`）
+
+**重要**: フロントエンドのPSDパースは **すべて `invoke("parse_psd_metadata_batch")`（= Rust実装）** を経由する。`src/lib/psd/parser.ts` は現状ほぼ参照実装扱いで、直接呼ばれていない。**修正時は必ずRust側 (`src-tauri/src/psd_metadata.rs`) を直すこと。** JS parser は同じロジックを保つのが望ましいが、実挙動はRustが決める。
+
+### TySh (テキストレイヤー) パーサー
+
+1. **Transform matrix (6 double, 先頭48バイト)** を必ず読む（`[a, b, c, d, tx, ty]`）。skipすると後段の bounds / font size が全部ズレる
+2. **fontSize 変換式**: `pt = fontSize * transform[3](Yスケール) * 72 / dpi`
+   - Photoshop は 600dpi PSD で `transform[3] = 600/72 = 8.333` を通常セット → EngineData の /FontSize 値そのままがpt値
+   - transform欠落時は y_scale=1 にフォールバック（この場合のみ `72/dpi` のみ適用される）
+3. **テキスト bounds**: レイヤーの raster bounds (`raw.top/left/right/bottom`) ではなく、`text.boundingBox + transform[4,5]` を優先
+   - ラスター範囲はテキストの **描画ピクセル** 範囲。テキスト枠がラスターより大きいケースではみ出し検知が取りこぼす
+   - 計算: `left = tx + bb.Left.value`, `top = ty + bb.Top.value`, etc.（transformスケール `dpi/72` 前提で Points値がそのままpxオフセットになる）
+   - `bounds`/`boundingBox` の Objc は `read_bounds_objc()` で `Left/Top/Rght/Btom (UntF)` を抽出
+
+### αチャンネル判定
+
+- **チャンネル差分**: `psd.channels - 標準チャンネル数(カラーモード別)` と `alphaChannelNames.length` の大きい方を件数とする（名前リスト欠落PSDも拾える）
+- **`hasOnlyTransparency`**: 全αが「透明部分」/「Transparency」なら true
+  - Photoshopが自動管理するレイヤー透明度由来で、ユーザー実データのαではない
+  - UI上「α1(透明)」と表示して区別（SpecCardList, ThumbnailCard）
 
 ## PDFレンダリング（Rust側）
 

@@ -153,7 +153,13 @@ function SpecCard({
           {/* Alpha */}
           {(meta.hasAlphaChannels || ngMap.alpha) && (
             <SpecChip
-              value={meta.hasAlphaChannels ? `α${meta.alphaChannelCount}` : "αなし"}
+              value={
+                meta.hasAlphaChannels
+                  ? meta.hasOnlyTransparency
+                    ? `α${meta.alphaChannelCount}(透明)`
+                    : `α${meta.alphaChannelCount}`
+                  : "αなし"
+              }
               failed={ngMap.alpha}
             />
           )}

@@ -150,6 +150,7 @@ export function ThumbnailCard({
             </span>
             {file.metadata.hasAlphaChannels ? (
               <span
+                title={file.metadata.alphaChannelNames.join(", ")}
                 className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${
                   failedRuleTypes.includes("hasAlphaChannels")
                     ? "bg-error/30 text-error"
@@ -157,6 +158,7 @@ export function ThumbnailCard({
                 }`}
               >
                 α{file.metadata.alphaChannelCount}
+                {file.metadata.hasOnlyTransparency ? "(透明)" : ""}
               </span>
             ) : null}
             {file.metadata.hasGuides && (

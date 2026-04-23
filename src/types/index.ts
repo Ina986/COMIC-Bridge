@@ -62,6 +62,7 @@ export interface PsdMetadata {
   hasAlphaChannels: boolean;
   alphaChannelCount: number;
   alphaChannelNames: string[];
+  hasOnlyTransparency: boolean;
   hasTombo: boolean;
 }
 

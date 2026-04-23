@@ -274,6 +274,7 @@ export function usePsdLoader() {
                       hasAlphaChannels: false,
                       alphaChannelCount: 0,
                       alphaChannelNames: [],
+                      hasOnlyTransparency: false,
                       hasTombo: false,
                     },
                     thumbnailStatus: "pending",

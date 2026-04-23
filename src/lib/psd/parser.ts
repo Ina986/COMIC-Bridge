@@ -105,6 +105,7 @@ export function extractMetadata(psd: Psd): PsdMetadata {
     hasAlphaChannels: alphaChannelInfo.count > 0,
     alphaChannelCount: alphaChannelInfo.count,
     alphaChannelNames: alphaChannelInfo.names,
+    hasOnlyTransparency: alphaChannelInfo.onlyTransparency,
     hasTombo: detectTombo(layerTree),
   };
 }
@@ -122,21 +123,47 @@ function detectTombo(layers: LayerNode[]): boolean {
 
 /**
  * αチャンネル情報を抽出
- * カラーモードに応じた標準チャンネル数を超えるチャンネルがαチャンネル
+ * - alphaChannelNames と「総チャンネル数 − カラーモード標準チャンネル数」の大きい方を件数とする
+ *   （名前リストが欠落しているPSDでもチャンネル差分で拾える）
+ * - 全αが「透明部分 / Transparency」なら onlyTransparency=true
+ *   （レイヤーの透明度を自動生成した選択範囲で、実データ由来のαではない）
  */
-function extractAlphaChannelInfo(psd: Psd): { count: number; names: string[] } {
-  // αチャンネル名はimageResourcesに格納されている
+function extractAlphaChannelInfo(psd: Psd): {
+  count: number;
+  names: string[];
+  onlyTransparency: boolean;
+} {
   const alphaNames = psd.imageResources?.alphaChannelNames || [];
 
-  // チャンネル数から計算（psd.channelsがある場合）
-  // ag-psdでは、channelsの長さがチャンネル総数
-  // または、alphaChannelNamesの長さがαチャンネル数
-  const alphaCount = alphaNames.length;
-
-  return {
-    count: alphaCount,
-    names: alphaNames,
+  // カラーモード別の標準チャンネル数（colorMode id → 標準本数）
+  const standardChannels: Record<number, number> = {
+    0: 1, // Bitmap
+    1: 1, // Grayscale
+    2: 1, // Indexed
+    3: 3, // RGB
+    4: 4, // CMYK
+    7: 3, // Multichannel
+    8: 1, // Duotone
+    9: 3, // Lab
   };
+  const std = standardChannels[psd.colorMode ?? 3] ?? 3;
+  const totalChannels = (psd as any).channels ?? std;
+  const extraChannels = Math.max(0, totalChannels - std);
+
+  const alphaCount = Math.max(alphaNames.length, extraChannels);
+  if (alphaCount <= 0) {
+    return { count: 0, names: [], onlyTransparency: false };
+  }
+
+  const names: string[] = [];
+  for (let i = 0; i < alphaCount; i++) {
+    names.push(alphaNames[i] ?? `Alpha ${i + 1}`);
+  }
+
+  const transparencyPattern = /^(透明部分|Transparency)$/i;
+  const onlyTransparency = names.every((n) => transparencyPattern.test(n.trim()));
+
+  return { count: alphaCount, names, onlyTransparency };
 }
 
 function extractDpi(psd: Psd): number {
@@ -182,14 +209,50 @@ function extractLayerTree(children: Psd["children"], parentPath = "", dpi = 72):
         undefined,
     };
 
+    // バウンディングボックス抽出（ag-psd が top/left/right/bottom を直接保持）
+    if (
+      typeof childAny.top === "number" &&
+      typeof childAny.left === "number" &&
+      typeof childAny.right === "number" &&
+      typeof childAny.bottom === "number"
+    ) {
+      node.bounds = {
+        top: childAny.top,
+        left: childAny.left,
+        right: childAny.right,
+        bottom: childAny.bottom,
+      };
+    }
+
+    // テキストレイヤーの場合: text.boundingBox + transform で実際の描画範囲を計算
+    // boundingBox はテキスト原点からの相対座標(Points単位)、transform[4,5] が原点のピクセル座標
+    // transform の scale(a,d) が dpi/72 のとき、Points値はそのままピクセルオフセットとして加算できる
+    if (childAny.text) {
+      const textBB = childAny.text.boundingBox ?? childAny.text.bounds;
+      const tf = childAny.text.transform as number[] | undefined;
+      if (textBB && tf && tf.length >= 6) {
+        const tx = tf[4];
+        const ty = tf[5];
+        node.bounds = {
+          top: Math.round(ty + textBB.top.value),
+          left: Math.round(tx + textBB.left.value),
+          right: Math.round(tx + textBB.right.value),
+          bottom: Math.round(ty + textBB.bottom.value),
+        };
+      }
+    }
+
     // テキストレイヤーのフォント情報を抽出
     if (child.text) {
       const fonts = new Set<string>();
       const fontSizes = new Set<number>();
 
-      // ag-psd の fontSize はドキュメント解像度に応じたピクセル相当値のため
-      // 72 / DPI でタイポグラフィポイントに正規化する
-      const ptScale = 72 / dpi;
+      // ag-psd の fontSize は変形前のサイズ。transform行列のスケールとDPIを適用して
+      // Photoshopが表示するポイント値に変換する:
+      //   pt = fontSize * transform[3](Yスケール) * 72 / DPI
+      const txf = (child.text as any).transform as number[] | undefined;
+      const yScale = txf && typeof txf[3] === "number" && txf[3] > 0 ? txf[3] : 1;
+      const ptScale = (yScale * 72) / dpi;
 
       // デフォルトスタイル
       if (child.text.style?.font?.name) {
