@@ -32,6 +32,9 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
   // Guide drag state
   const [draggingGuideIndex, setDraggingGuideIndex] = useState<number | null>(null);
   const justClickedGuideRef = useRef(false);
+  // React の onMouseUp と window の mouseup が同じリリースで両方発火することによる
+  // ガイド二重追加を防ぐためのワンショットガード（リリース毎に false に戻す）
+  const mouseUpHandledRef = useRef(false);
 
   const guides = useGuideStore((state) => state.guides);
   const addGuide = useGuideStore((state) => state.addGuide);
@@ -177,44 +180,102 @@ export function GuideCanvas({ imageUrl, imageSize, isLoading }: GuideCanvasProps
   );
 
   // Mouse up - add guide / end guide drag / end pan
-  const handleMouseUp = useCallback(() => {
-    // End guide drag
-    if (draggingGuideIndex !== null) {
-      setDraggingGuideIndex(null);
-      return;
-    }
-
-    if (isPanning) {
-      setIsPanning(false);
-      return;
-    }
-
-    // End ruler drag → add new guide and auto-select
-    if (isDragging && dragDirection && previewPosition !== null) {
-      const newIndex = guides.length;
-      addGuide({
-        direction: dragDirection,
-        position: previewPosition,
+  const handleMouseUp = useCallback(
+    (e?: React.MouseEvent | MouseEvent) => {
+      // 同一リリースの React event と window event の両方で呼ばれた場合、
+      // 2 回目以降は無視する（state 更新が非同期で反映前に重複呼び出しされ得る）
+      if (mouseUpHandledRef.current) return;
+      mouseUpHandledRef.current = true;
+      // 次のリリースに備えてマイクロタスクで解除
+      queueMicrotask(() => {
+        mouseUpHandledRef.current = false;
       });
-      setSelectedGuideIndex(newIndex);
-    }
-    setIsDragging(false);
-    setDragDirection(null);
-    setPreviewPosition(null);
-  }, [
-    isDragging,
-    isPanning,
-    dragDirection,
-    previewPosition,
-    addGuide,
-    guides.length,
-    draggingGuideIndex,
-    setSelectedGuideIndex,
-  ]);
+
+      // End guide drag
+      if (draggingGuideIndex !== null) {
+        setDraggingGuideIndex(null);
+        return;
+      }
+
+      if (isPanning) {
+        setIsPanning(false);
+        return;
+      }
+
+      // End ruler drag → add new guide and auto-select
+      if (isDragging && dragDirection) {
+        // previewPosition が未設定（プレビュー領域に一度もmousemoveが入らずに離した、
+        // またはルーラー外で離した）場合は、リリース座標から計算して救済する。
+        // これがないと「ルーラーから素早く引いた」「プレビュー外で離した」ケースで
+        // ガイドが追加されず、ユーザーには反映されないように見える。
+        let finalPosition = previewPosition;
+        if (finalPosition === null && e && previewContainerRef.current) {
+          const rect = previewContainerRef.current.getBoundingClientRect();
+          const scrollLeft = previewContainerRef.current.scrollLeft;
+          const scrollTop = previewContainerRef.current.scrollTop;
+          const pos = screenToImage(
+            e.clientX - rect.left + scrollLeft,
+            e.clientY - rect.top + scrollTop,
+          );
+          const candidate = dragDirection === "horizontal" ? pos.y : pos.x;
+          const max = dragDirection === "horizontal" ? imageSize.height : imageSize.width;
+          if (candidate >= 0 && candidate <= max) {
+            finalPosition = candidate;
+          }
+        }
+
+        if (finalPosition !== null) {
+          const newIndex = guides.length;
+          addGuide({
+            direction: dragDirection,
+            position: finalPosition,
+          });
+          setSelectedGuideIndex(newIndex);
+        }
+      }
+      setIsDragging(false);
+      setDragDirection(null);
+      setPreviewPosition(null);
+    },
+    [
+      isDragging,
+      isPanning,
+      dragDirection,
+      previewPosition,
+      addGuide,
+      guides.length,
+      draggingGuideIndex,
+      setSelectedGuideIndex,
+      screenToImage,
+      imageSize,
+    ],
+  );
+
+  // ルーラーから始まったドラッグ中は window レベルで mouseup を捕捉する。
+  // プレビュー領域外（ルーラー上、スクロールバー、モーダル背景、画面外）で
+  // 離されても確実にガイド追加またはドラッグ状態リセットを行うため。
+  useEffect(() => {
+    if (!isDragging && draggingGuideIndex === null && !isPanning) return;
+
+    const onWindowMouseUp = (e: MouseEvent) => handleMouseUp(e);
+    window.addEventListener("mouseup", onWindowMouseUp);
+    return () => window.removeEventListener("mouseup", onWindowMouseUp);
+  }, [isDragging, draggingGuideIndex, isPanning, handleMouseUp]);
 
   // Keyboard events
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // テキスト入力中（GuideListの位置編集 input 等）はガイド操作を無効化。
+      // ここを抜かすと Backspace/矢印キーが選択中ガイドの削除・移動として吸われ、
+      // ユーザーには「ガイドが消えた / 反映されない」ように見える。
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
+          return;
+        }
+      }
+
       // Delete selected guide (Backspace only)
       if (e.key === "Backspace" && selectedGuideIndex !== null) {
         removeGuide(selectedGuideIndex);
