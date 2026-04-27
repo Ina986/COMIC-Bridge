@@ -12,6 +12,54 @@ import type {
 } from "../types/scanPsd";
 import { normalizeRubyEntries, getAutoSubName } from "../types/scanPsd";
 
+/**
+ * 「同じファイルを指しているか」を判定するためにパスを正規化する。
+ *
+ * Windowsではバックスラッシュとフォワードスラッシュが混在しうる
+ * （ファイルブラウザ経由は backslash、コード内構築は forward に強制）。
+ * 単純な文字列一致だと **同じ実ファイルなのに別物と判定して削除** してしまう。
+ *
+ * 正規化:
+ *   - すべて forward slash に統一
+ *   - 連続スラッシュを1つに圧縮
+ *   - 末尾スラッシュを除去
+ *   - Windowsはケース非依存なので小文字化して比較
+ *   - NFC正規化（合成文字の差異吸収）
+ */
+function normalizePath(p: string): string {
+  return p
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "")
+    .normalize("NFC")
+    .toLowerCase();
+}
+
+function isSameFilePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return normalizePath(a) === normalizePath(b);
+}
+
+/**
+ * 「ユーザー本来のJSONを誤って削除しないか」を防ぐ安全ガード。
+ * 削除対象は **正規化後にfilePathと別物** かつ **既知のJSON/scandataフォルダ配下** であること。
+ * jsonFolderPath/saveDataBasePathは本ツールが管理するフォルダなので、
+ * その配下に限定すれば外部参照JSONを誤削除しない。
+ */
+function shouldSafelyDeleteOldFile(
+  oldPath: string | null | undefined,
+  newPath: string,
+  managedRoots: string[],
+): boolean {
+  if (!oldPath) return false;
+  if (isSameFilePath(oldPath, newPath)) return false;
+  const normalizedOld = normalizePath(oldPath);
+  return managedRoots.some((root) => {
+    const normalizedRoot = normalizePath(root);
+    return normalizedOld.startsWith(normalizedRoot + "/");
+  });
+}
+
 export type ScanResult =
   | { success: true; processedFiles: number; newFolders: string[]; rubyCount: number }
   | { success: false; error: string };
@@ -196,8 +244,12 @@ export async function performPresetJsonSave(): Promise<boolean> {
   }
 
   // 旧ファイルを削除（タイトル/レーベル変更でパスが変わった場合）
+  // 安全ガード:
+  //   1) パスを正規化して同一ファイルなら削除しない（slash揺れの誤判定対策）
+  //   2) 削除対象はjsonFolderPath/saveDataBasePath配下に限定（外部参照JSON保護）
+  const managedRoots = [jsonFolderPath, store.saveDataBasePath];
   const oldPath = store.currentJsonFilePath;
-  if (oldPath && oldPath !== filePath) {
+  if (shouldSafelyDeleteOldFile(oldPath, filePath, managedRoots)) {
     try {
       await invoke("delete_file", { filePath: oldPath });
     } catch {
@@ -205,7 +257,7 @@ export async function performPresetJsonSave(): Promise<boolean> {
     }
   }
   const oldTempPath = store.tempJsonFilePath;
-  if (oldTempPath && oldTempPath !== filePath) {
+  if (shouldSafelyDeleteOldFile(oldTempPath, filePath, managedRoots)) {
     try {
       await invoke("delete_file", { filePath: oldTempPath });
     } catch {
@@ -271,14 +323,18 @@ export async function performPresetJsonSave(): Promise<boolean> {
       }
     }
     const oldTempScandata = store.tempScandataFilePath;
-    if (oldTempScandata) {
+    if (
+      shouldSafelyDeleteOldFile(oldTempScandata, store.currentScandataFilePath ?? "", [
+        store.saveDataBasePath,
+      ])
+    ) {
       try {
         await invoke("delete_file", { filePath: oldTempScandata });
       } catch {
         /* ignore */
       }
-      store.setTempScandataFilePath(null);
     }
+    store.setTempScandataFilePath(null);
   } else {
     store.setTempJsonFilePath(filePath);
     store.setCurrentJsonFilePath(null);
@@ -299,7 +355,7 @@ export async function performPresetJsonSave(): Promise<boolean> {
           store.excludedGuideIndices.size > 0 ? Array.from(store.excludedGuideIndices) : undefined,
       };
       const oldTempSd = store.tempScandataFilePath;
-      if (oldTempSd && oldTempSd !== tempScandataPath) {
+      if (shouldSafelyDeleteOldFile(oldTempSd, tempScandataPath, [store.saveDataBasePath])) {
         try {
           await invoke("delete_file", { filePath: oldTempSd });
         } catch {
@@ -334,8 +390,9 @@ async function saveScandataLinked(store: ReturnType<typeof useScanPsdStore.getSt
   const scandataPath = `${labelFolderPath}/${fileName}`;
 
   // 旧scandataを削除（タイトル/レーベル変更でパスが変わった場合）
+  // 安全ガード: 正規化後同一なら削除しない、saveDataBasePath配下のみに限定
   const oldPath = store.currentScandataFilePath;
-  if (oldPath && oldPath !== scandataPath) {
+  if (shouldSafelyDeleteOldFile(oldPath, scandataPath, [saveDataBasePath])) {
     try {
       await invoke("delete_file", { filePath: oldPath });
     } catch {
