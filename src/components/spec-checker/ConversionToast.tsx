@@ -40,7 +40,11 @@ export function ConversionToast() {
         });
       }
 
-      toastTimerRef.current = setTimeout(() => setToast(null), 6000);
+      // 成功は6秒で自動消滅。エラーはユーザーが内容を読めるよう自動消滅させない
+      // （手動クローズのみ）。短時間で消えると原因特定ができないため。
+      if (errorCount === 0) {
+        toastTimerRef.current = setTimeout(() => setToast(null), 6000);
+      }
     }
     prevIsConvertingRef.current = isConverting;
   }, [isConverting, conversionResults]);
@@ -136,13 +140,15 @@ export function ConversionToast() {
         </svg>
       </button>
 
-      {/* Progress bar (auto-dismiss) */}
-      <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl overflow-hidden">
-        <div
-          className={`h-full ${toast.type === "success" ? "bg-success/40" : "bg-error/40"}`}
-          style={{ animation: "toast-progress 6s linear forwards" }}
-        />
-      </div>
+      {/* Progress bar (auto-dismiss) — 成功時のみ。エラーは自動消滅させない */}
+      {toast.type === "success" && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl overflow-hidden">
+          <div
+            className="h-full bg-success/40"
+            style={{ animation: "toast-progress 6s linear forwards" }}
+          />
+        </div>
+      )}
     </div>
   );
 }

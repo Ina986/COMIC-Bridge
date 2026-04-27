@@ -727,9 +727,9 @@ pub struct PhotoshopResult {
 
 /// Find Photoshop executable path on Windows
 fn find_photoshop_path() -> Option<String> {
-    // Common Photoshop installation paths on Windows
+    // 1. ハードコード候補: 標準インストール先（年代降順、CC旧バージョン・x86 も網羅）
     let possible_paths = vec![
-        // CC versions (newest first)
+        // 2024-2026 (newest first)
         r"C:\Program Files\Adobe\Adobe Photoshop 2026\Photoshop.exe",
         r"C:\Program Files\Adobe\Adobe Photoshop 2025\Photoshop.exe",
         r"C:\Program Files\Adobe\Adobe Photoshop 2024\Photoshop.exe",
@@ -737,19 +737,119 @@ fn find_photoshop_path() -> Option<String> {
         r"C:\Program Files\Adobe\Adobe Photoshop 2022\Photoshop.exe",
         r"C:\Program Files\Adobe\Adobe Photoshop 2021\Photoshop.exe",
         r"C:\Program Files\Adobe\Adobe Photoshop 2020\Photoshop.exe",
+        // CC 2015-2019
         r"C:\Program Files\Adobe\Adobe Photoshop CC 2019\Photoshop.exe",
         r"C:\Program Files\Adobe\Adobe Photoshop CC 2018\Photoshop.exe",
+        r"C:\Program Files\Adobe\Adobe Photoshop CC 2017\Photoshop.exe",
+        r"C:\Program Files\Adobe\Adobe Photoshop CC 2015.5\Photoshop.exe",
+        r"C:\Program Files\Adobe\Adobe Photoshop CC 2015\Photoshop.exe",
+        r"C:\Program Files\Adobe\Adobe Photoshop CC 2014\Photoshop.exe",
+        r"C:\Program Files\Adobe\Adobe Photoshop CC\Photoshop.exe",
+        // x86 / WOW6432Node
+        r"C:\Program Files (x86)\Adobe\Adobe Photoshop CC 2019\Photoshop.exe",
+        r"C:\Program Files (x86)\Adobe\Adobe Photoshop CC 2018\Photoshop.exe",
+        r"C:\Program Files (x86)\Adobe\Adobe Photoshop CC 2017\Photoshop.exe",
+        r"C:\Program Files (x86)\Adobe\Adobe Photoshop CC 2015\Photoshop.exe",
+        r"C:\Program Files (x86)\Adobe\Adobe Photoshop CC\Photoshop.exe",
         // CS versions
         r"C:\Program Files\Adobe\Adobe Photoshop CS6 (64 Bit)\Photoshop.exe",
+        r"C:\Program Files\Adobe\Adobe Photoshop CS6\Photoshop.exe",
         r"C:\Program Files (x86)\Adobe\Adobe Photoshop CS6\Photoshop.exe",
+        r"C:\Program Files (x86)\Adobe\Adobe Photoshop CS5.1\Photoshop.exe",
+        r"C:\Program Files (x86)\Adobe\Adobe Photoshop CS5\Photoshop.exe",
     ];
 
-    for path in possible_paths {
+    for path in &possible_paths {
         if Path::new(path).exists() {
             return Some(path.to_string());
         }
     }
 
+    // 2. Windows レジストリから ApplicationPath を取得（カスタムインストール対応）
+    //    HKLM\SOFTWARE\Adobe\Photoshop\<バージョン>\ApplicationPath
+    //    HKLM\SOFTWARE\WOW6432Node\Adobe\Photoshop\<バージョン>\ApplicationPath
+    if let Some(path) = find_photoshop_via_registry() {
+        return Some(path);
+    }
+
+    None
+}
+
+/// Windows レジストリから Photoshop の ApplicationPath を検索する fallback。
+/// Photoshop が D: ドライブやカスタムフォルダにインストールされている場合に使用。
+#[cfg(target_os = "windows")]
+fn find_photoshop_via_registry() -> Option<String> {
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let registry_roots = [
+        r"HKLM\SOFTWARE\Adobe\Photoshop",
+        r"HKLM\SOFTWARE\WOW6432Node\Adobe\Photoshop",
+    ];
+
+    let mut candidates: Vec<(String, String)> = Vec::new(); // (version_key, application_path)
+
+    for root in &registry_roots {
+        // バージョン subkey を列挙
+        let output = Command::new("reg")
+            .args(["query", root])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let line = line.trim();
+            if !line.starts_with(root) {
+                continue;
+            }
+            // ApplicationPath 値を取得
+            let value_output = Command::new("reg")
+                .args(["query", line, "/v", "ApplicationPath"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .ok()?;
+
+            if !value_output.status.success() {
+                continue;
+            }
+
+            let value_stdout = String::from_utf8_lossy(&value_output.stdout);
+            for vline in value_stdout.lines() {
+                let vline = vline.trim();
+                if vline.starts_with("ApplicationPath") {
+                    // "ApplicationPath    REG_SZ    C:\Program Files\Adobe\Adobe Photoshop 2024\"
+                    if let Some(idx) = vline.find("REG_SZ") {
+                        let path_part = vline[idx + 6..].trim();
+                        let exe_path = Path::new(path_part).join("Photoshop.exe");
+                        if exe_path.exists() {
+                            // 末尾のバージョンキー名（例: "150.0", "2024", "26.0"）を取得
+                            let version_key = line.rsplit('\\').next().unwrap_or("").to_string();
+                            candidates
+                                .push((version_key, exe_path.to_string_lossy().to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 数値として降順ソート → 最新バージョンを返す
+    candidates.sort_by(|a, b| {
+        let av: f64 = a.0.parse().unwrap_or(0.0);
+        let bv: f64 = b.0.parse().unwrap_or(0.0);
+        bv.partial_cmp(&av).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    candidates.into_iter().next().map(|(_, p)| p)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn find_photoshop_via_registry() -> Option<String> {
     None
 }
 
