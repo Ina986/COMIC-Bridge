@@ -28,5 +28,6 @@ npm-debug.log*
 src-tauri/target/
 src-tauri/.tauri/
 
-# PDFium binary (downloaded separately)
-src-tauri/resources/pdfium/
+# PDFium binary is bundled in the repository so it ships with the app and survives updates.
+# Tauri bundles it via src-tauri/tauri.conf.json -> bundle.resources, so the installer/updater
+# always reinstalls it alongside the executable.

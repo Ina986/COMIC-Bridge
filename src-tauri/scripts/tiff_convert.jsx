@@ -223,6 +223,13 @@ function processFile(fileConfig, globalSettings) {
             currentPartialBlurSettings = fileConfig.partialBlur;
         }
 
+        // Fallback: when the source PSD has no text (single-layer flat files,
+        // or any layout where the bg-SO pipeline didn't run / produce a layer),
+        // pick the existing non-text top-level layer so blur still applies.
+        if (!backgroundLayer) {
+            backgroundLayer = pickBlurFallbackLayer(doc, textSOFinal, textGroup);
+        }
+
         if (backgroundLayer && fileConfig.applyBlur && fileConfig.blurRadius > 0) {
             doc.activeLayer = backgroundLayer;
             try {
@@ -496,6 +503,24 @@ function collectNonTextLayers(doc, textGroup) {
         }
     }
     return layers;
+}
+
+// Pick a top-level non-text layer to receive gaussian blur when the bg-SO
+// pipeline didn't produce one (e.g., single-layer flat PSD, no text).
+// LayerSet candidates are merged to a single raster so applyGaussianBlur works.
+function pickBlurFallbackLayer(doc, textSOFinal, textGroup) {
+    for (var i = 0; i < doc.layers.length; i++) {
+        var layer = doc.layers[i];
+        if (textSOFinal && layer.id === textSOFinal.id) continue;
+        if (textGroup && layer.id === textGroup.id) continue;
+        if (layer.kind === LayerKind.TEXT) continue;
+        if (layer.typename === "LayerSet") {
+            try { layer = layer.merge(); } catch (e) { continue; }
+        }
+        try { if (layer.allLocked) layer.allLocked = false; } catch (e) {}
+        return layer;
+    }
+    return null;
 }
 
 function selectLayerWithChildren(layer) {
