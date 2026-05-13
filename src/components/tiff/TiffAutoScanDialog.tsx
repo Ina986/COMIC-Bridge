@@ -121,8 +121,13 @@ export function TiffAutoScanDialog({
       await performLoadPresetJson(jsonPath);
       setJsonLoaded(true);
     } catch {
-      // JSONが存在しない場合は新規作成扱い
+      // JSONが存在しない/読み込み失敗 → 新規作成扱い
       setJsonLoaded(false);
+      // v1.9.15: 古いcurrentJsonFilePath参照を必ず解除する。
+      // これを残したまま performPresetJsonSave が走ると、新ラベル/新タイトルの
+      // パスと不一致になり、ユーザーの本物JSONを誤って削除してしまう。
+      useScanPsdStore.getState().setCurrentJsonFilePath(null);
+      useScanPsdStore.getState().setCurrentScandataFilePath(null);
     } finally {
       setJsonLoading(false);
     }
@@ -134,14 +139,13 @@ export function TiffAutoScanDialog({
       // scanPsdStore に workInfo を設定
       useScanPsdStore.getState().setWorkInfo({ label, title, volume });
 
-      // 既存JSONが読み込まれていない場合、読み込みを試行
-      if (!jsonLoaded) {
-        try {
-          await loadExistingJson(label, title);
-        } catch {
-          // 新規作成扱い
-        }
-      }
+      // v1.9.15: jsonLoadedフラグに関わらず必ず loadExistingJson を呼ぶ。
+      // useEffect/検索/手動編集など複数経路でlabel/titleが変わるため、
+      // jsonLoadedフラグと currentJsonFilePath が一致している保証がない。
+      // - 存在すれば現在のlabel/titleに対応するパスがcurrentJsonFilePathに設定される
+      // - 存在しなければ loadExistingJson の catch で currentJsonFilePath が
+      //   クリアされ、後続の performPresetJsonSave で旧パスを誤削除しない
+      await loadExistingJson(label, title);
 
       // tiffStore に自動スキャン設定
       const tiffState = useTiffStore.getState();
@@ -160,7 +164,6 @@ export function TiffAutoScanDialog({
     title,
     volume,
     registerRange,
-    jsonLoaded,
     loadExistingJson,
     onExecute,
     onClose,

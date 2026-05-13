@@ -243,29 +243,7 @@ export async function performPresetJsonSave(): Promise<boolean> {
     filePath = `${jsonFolderPath}/_仮保存/temp.json`.replace(/\\/g, "/");
   }
 
-  // 旧ファイルを削除（タイトル/レーベル変更でパスが変わった場合）
-  // 安全ガード:
-  //   1) パスを正規化して同一ファイルなら削除しない（slash揺れの誤判定対策）
-  //   2) 削除対象はjsonFolderPath/saveDataBasePath配下に限定（外部参照JSON保護）
-  const managedRoots = [jsonFolderPath, store.saveDataBasePath];
-  const oldPath = store.currentJsonFilePath;
-  if (shouldSafelyDeleteOldFile(oldPath, filePath, managedRoots)) {
-    try {
-      await invoke("delete_file", { filePath: oldPath });
-    } catch {
-      /* ignore */
-    }
-  }
-  const oldTempPath = store.tempJsonFilePath;
-  if (shouldSafelyDeleteOldFile(oldTempPath, filePath, managedRoots)) {
-    try {
-      await invoke("delete_file", { filePath: oldTempPath });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // 既存ファイルを読み込んでマージ
+  // 既存ファイルを読み込んでマージ（新パスに既存があれば内容を引き継ぐ）
   let existingData: PresetJsonData = { presetData: {} };
   try {
     const existing = await invoke<string>("read_text_file", { filePath });
@@ -305,10 +283,40 @@ export async function performPresetJsonSave(): Promise<boolean> {
     presetData,
   };
 
-  await invoke("write_text_file", {
-    filePath,
-    content: JSON.stringify(outputData, null, 2),
-  });
+  // --- write-first / delete-after パターン（v1.9.15 ~) ---
+  // 旧バージョンは「delete旧 → write新」の順だったため、新書き込みに失敗すると
+  // ユーザーJSONが永久喪失した。新規パスへの書き込みが成功した後にのみ旧ファイルを
+  // 削除する。書き込み失敗時は旧ファイルは温存される。
+  const jsonContent = JSON.stringify(outputData, null, 2);
+  await invoke("write_text_file", { filePath, content: jsonContent });
+
+  // 書き込み確認: ファイル存在チェック（最低限の検証）
+  const writeOk = await invoke<boolean>("path_exists", { path: filePath }).catch(() => false);
+  if (!writeOk) {
+    throw new Error(`JSON write verification failed: ${filePath}`);
+  }
+
+  // 書き込み成功後にのみ旧ファイル群を削除
+  // 安全ガード:
+  //   1) パスを正規化して同一ファイルなら削除しない（slash揺れの誤判定対策）
+  //   2) 削除対象はjsonFolderPath/saveDataBasePath配下に限定（外部参照JSON保護）
+  const managedRoots = [jsonFolderPath, store.saveDataBasePath];
+  const oldPath = store.currentJsonFilePath;
+  if (shouldSafelyDeleteOldFile(oldPath, filePath, managedRoots)) {
+    try {
+      await invoke("delete_file", { filePath: oldPath });
+    } catch {
+      /* ignore */
+    }
+  }
+  const oldTempPath = store.tempJsonFilePath;
+  if (shouldSafelyDeleteOldFile(oldTempPath, filePath, managedRoots)) {
+    try {
+      await invoke("delete_file", { filePath: oldTempPath });
+    } catch {
+      /* ignore */
+    }
+  }
 
   if (hasRequiredInfo) {
     store.setCurrentJsonFilePath(filePath);
@@ -389,17 +397,6 @@ async function saveScandataLinked(store: ReturnType<typeof useScanPsdStore.getSt
   const fileName = `${safeTitle}_scandata.json`;
   const scandataPath = `${labelFolderPath}/${fileName}`;
 
-  // 旧scandataを削除（タイトル/レーベル変更でパスが変わった場合）
-  // 安全ガード: 正規化後同一なら削除しない、saveDataBasePath配下のみに限定
-  const oldPath = store.currentScandataFilePath;
-  if (shouldSafelyDeleteOldFile(oldPath, scandataPath, [saveDataBasePath])) {
-    try {
-      await invoke("delete_file", { filePath: oldPath });
-    } catch {
-      // 旧ファイル削除失敗は無視
-    }
-  }
-
   const data = {
     ...scanData,
     workInfo,
@@ -414,11 +411,29 @@ async function saveScandataLinked(store: ReturnType<typeof useScanPsdStore.getSt
     title: workInfo.title,
   };
 
+  // --- write-first / delete-after パターン（v1.9.15 ~） ---
   // write_text_file は親フォルダを自動作成する
   await invoke("write_text_file", {
     filePath: scandataPath,
     content: JSON.stringify(data),
   });
+
+  // 書き込み確認: ファイル存在チェック
+  const writeOk = await invoke<boolean>("path_exists", { path: scandataPath }).catch(() => false);
+  if (!writeOk) {
+    throw new Error(`Scandata write verification failed: ${scandataPath}`);
+  }
+
+  // 書き込み成功後にのみ旧scandataを削除
+  // 安全ガード: 正規化後同一なら削除しない、saveDataBasePath配下のみに限定
+  const oldPath = store.currentScandataFilePath;
+  if (shouldSafelyDeleteOldFile(oldPath, scandataPath, [saveDataBasePath])) {
+    try {
+      await invoke("delete_file", { filePath: oldPath });
+    } catch {
+      // 旧ファイル削除失敗は無視
+    }
+  }
 
   store.setCurrentScandataFilePath(scandataPath);
 }

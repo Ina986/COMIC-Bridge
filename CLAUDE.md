@@ -250,6 +250,12 @@
 - `autoRegisterDetectedFonts()`: `scanData.fonts` から全プリセットセット未登録のフォントを検出し、現在のセットに `getAutoSubName()` でカテゴリ名付きで自動追加（je-nsonman準拠）
 - スキャン開始にはレーベル・タイトルの事前入力が必須
 
+**JSON書き込みの順序保証（v1.9.15〜・データ損失防止）:**
+- `performPresetJsonSave` / `saveScandataLinked` は **write-first → verify → delete-old** の順で動作する
+- 旧バージョンは「delete旧 → write新」だったため、新書き込みが失敗するとユーザーの本物JSONが永久喪失していた
+- 修正後: (1) 新パスへ`write_text_file` → (2) `path_exists`で書き込み検証 → (3) 検証成功後にのみ旧ファイル削除。書き込み失敗時は旧ファイルが温存される
+- 併せて `TiffAutoScanDialog.handleExecute` は jsonLoadedフラグに関わらず必ず `loadExistingJson` を呼び、失敗時には `currentJsonFilePath` / `currentScandataFilePath` をnullクリア。これにより「ダイアログでlabel/title変更 → 新パスにJSONが存在しない → 旧パスのJSONが誤削除」の経路を遮断
+
 **元スクリプトJSON互換（エクスポート）:**
 - `convertSizeStatsForExport()`: 内部形式（`mostFrequent: {size,count}`, `sizes: [{size,count}]`）→ je-nsonman形式（`mostFrequent: number`, `sizes: number[]`, `top10Sizes: [{size,count}]`）に変換
 - `convertStrokeSizesForExport()`: 内部の `count` フィールドを除去、`size` + `fontSizes` のみ出力
