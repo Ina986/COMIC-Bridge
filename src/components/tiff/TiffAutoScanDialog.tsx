@@ -50,9 +50,10 @@ export function TiffAutoScanDialog({
     { label: string; title: string; path: string }[]
   >([]);
 
-  // JSON読み込み状態
+  // JSON読み込み状態（ローディングのみ）
+  // v1.9.15: jsonLoadedフラグは廃止。handleExecuteが必ずloadExistingJsonを呼ぶように
+  // なったため、フラグでスキップする経路がなくなり、整合性ズレが解消された。
   const [jsonLoading, setJsonLoading] = useState(false);
-  const [jsonLoaded, setJsonLoaded] = useState(false);
 
   // --- 初期値の推測 ---
   useEffect(() => {
@@ -63,7 +64,6 @@ export function TiffAutoScanDialog({
         setLabel(inferred.label);
         setTitle(inferred.title);
         setTitleSource("auto");
-        setJsonLoaded(true);
         return;
       }
     }
@@ -72,7 +72,6 @@ export function TiffAutoScanDialog({
       setLabel(scanWorkInfo.label);
       setTitle(scanWorkInfo.title);
       setTitleSource("auto");
-      setJsonLoaded(true);
       return;
     }
     // 3. どちらもなければ手動選択
@@ -119,13 +118,11 @@ export function TiffAutoScanDialog({
     setJsonLoading(true);
     try {
       await performLoadPresetJson(jsonPath);
-      setJsonLoaded(true);
     } catch {
-      // JSONが存在しない/読み込み失敗 → 新規作成扱い
-      setJsonLoaded(false);
-      // v1.9.15: 古いcurrentJsonFilePath参照を必ず解除する。
-      // これを残したまま performPresetJsonSave が走ると、新ラベル/新タイトルの
-      // パスと不一致になり、ユーザーの本物JSONを誤って削除してしまう。
+      // v1.9.15: JSONが存在しない/読み込み失敗 → 新規作成扱い。
+      // 古いcurrentJsonFilePath参照を必ず解除する。これを残したまま
+      // performPresetJsonSave が走ると、新ラベル/新タイトルのパスと不一致に
+      // なり、ユーザーの本物JSONを誤って削除してしまう。
       useScanPsdStore.getState().setCurrentJsonFilePath(null);
       useScanPsdStore.getState().setCurrentScandataFilePath(null);
     } finally {
@@ -331,7 +328,6 @@ export function TiffAutoScanDialog({
                           setLabel(e.target.value);
                           setTitle("");
                           setTitleSource("existing");
-                          setJsonLoaded(false);
                         }}
                         className="w-full px-3 py-1.5 text-xs bg-bg-elevated border border-border/50 rounded-lg text-text-primary focus:outline-none focus:border-accent-secondary/50"
                       >
@@ -364,8 +360,7 @@ export function TiffAutoScanDialog({
                               onClick={() => {
                                 setTitleSource("new");
                                 setTitle("");
-                                setJsonLoaded(false);
-                              }}
+                                    }}
                               className={`text-[9px] px-1.5 py-0.5 rounded ${titleSource === "new" ? "bg-accent-secondary/15 text-accent-secondary" : "text-text-muted hover:text-text-secondary"}`}
                             >
                               新規
