@@ -84,6 +84,18 @@ pub fn run() {
                 }
             }
 
+            // CLI引数から写植モード用PSDパスを検出してフロントエンドに通知（KENBAN等から起動された場合）
+            if let Some(pos) = args.iter().position(|a| a == "--shashoku") {
+                if let Some(psd_path) = args.get(pos + 1) {
+                    let window = app.get_webview_window("main").unwrap();
+                    let path = psd_path.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        let _ = window.emit("open-shashoku", &path);
+                    });
+                }
+            }
+
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();

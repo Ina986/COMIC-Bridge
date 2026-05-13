@@ -4,9 +4,31 @@ import { invoke } from "@tauri-apps/api/core";
 import { AppLayout } from "./components/layout/AppLayout";
 import { useViewStore } from "./store/viewStore";
 import { useTypesettingCheckStore } from "./store/typesettingCheckStore";
+import { usePsdLoader } from "./hooks/usePsdLoader";
 import type { ProofreadingCheckItem } from "./types/typesettingCheck";
 
 function App() {
+  const { loadFiles } = usePsdLoader();
+
+  // KENBAN等の外部アプリからの「COMIC-Bridge写植で開く」起動（--shashoku <path>）を処理
+  useEffect(() => {
+    const unlistenPromise = listen<string>("open-shashoku", async (event) => {
+      const filePath = event.payload;
+      try {
+        await loadFiles([filePath]);
+        // 読み込み完了を少し待ってから写植関連ビューに遷移
+        await new Promise((r) => setTimeout(r, 600));
+        useViewStore.getState().setActiveView("typesetting");
+      } catch (e) {
+        console.error("Failed to handle --shashoku launch:", e);
+      }
+    });
+
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, [loadFiles]);
+
   // ProGenからのCLI引数経由で校正データJSONを自動ロード
   useEffect(() => {
     const unlistenPromise = listen<string>("open-proofreading-json", async (event) => {
