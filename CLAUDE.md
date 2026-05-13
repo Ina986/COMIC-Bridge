@@ -980,6 +980,18 @@ warning: "#f59e0b"       // オレンジ
 - pdfium-render（PDF処理）、fontdb + ttf-parser（フォント解決）
 - image（画像処理）
 
+## CLI引数（外部アプリからの起動）
+
+`src-tauri/src/lib.rs` の `setup()` 内で `std::env::args()` をパースし、検出したフラグごとに Tauri イベントを emit する。フロント側は `App.tsx` の各 `listen<string>("…", …)` で受信して画面遷移＋データロードを行う。
+
+| フラグ | 引数 | emit するイベント | フロント側の動作 |
+|--------|------|------------------|------------------|
+| `--proofreading-json` | JSONパス | `open-proofreading-json` | 校正データJSON読込 → `typesetting` ビューに遷移（ProGen からの起動） |
+| `--shashoku` | PSDパス | `open-shashoku` | `usePsdLoader.loadFiles([path])` で PSD ロード → `typesetting` ビューに遷移（KENBAN の「CB写植」ボタンから起動） |
+
+- 共通: フロント初期化完了を待つため emit 前に 1500ms スリープ
+- 同じパターンで新規フラグを追加する場合は (1) `lib.rs` setup に `args.iter().position(…)` ブロック追加 (2) `App.tsx` に対応する `listen` を追加
+
 ## 開発コマンド
 
 ```bash
