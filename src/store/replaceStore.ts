@@ -24,12 +24,21 @@ export interface BatchFolder {
   path: string;
 }
 
+export interface OrganizePreSettings {
+  enabled: boolean;
+  targetName: string;
+  includeSpecial: boolean;
+}
+
 interface ReplaceState {
   // フォルダ選択
   folders: FolderSelection;
 
   // バッチモード用サブフォルダ
   batchFolders: BatchFolder[];
+
+  // 合成モード: 合成前にフォルダ格納（前処理）
+  organizePre: OrganizePreSettings;
 
   // 設定
   settings: ReplaceSettings;
@@ -83,6 +92,7 @@ interface ReplaceState {
   removeComposeElement: (elementId: string) => void;
   updateComposeElement: (elementId: string, updates: Partial<ComposeElement>) => void;
   setComposeRestSource: (source: ComposeRestSource) => void;
+  setOrganizePre: (settings: Partial<OrganizePreSettings>) => void;
 
   // Actions - モーダル
   openModal: () => void;
@@ -193,6 +203,7 @@ const defaultSettings: ReplaceSettings = {
 export const useReplaceStore = create<ReplaceState>((set) => ({
   folders: { sourceFolder: null, targetFolder: null, sourceFiles: null, targetFiles: null },
   batchFolders: [],
+  organizePre: { enabled: false, targetName: "#原稿#", includeSpecial: false },
   settings: defaultSettings,
   isModalOpen: false,
   pairingJobs: [],
@@ -334,17 +345,34 @@ export const useReplaceStore = create<ReplaceState>((set) => ({
       },
     })),
   setComposeElementSource: (elementId, source) =>
-    set((state) => ({
-      settings: {
-        ...state.settings,
-        composeSettings: {
-          ...state.settings.composeSettings,
-          elements: state.settings.composeSettings.elements.map((el) =>
-            el.id === elementId ? { ...el, source } : el,
-          ),
+    set((state) => {
+      let newElements = state.settings.composeSettings.elements.map((el) =>
+        el.id === elementId ? { ...el, source } : el,
+      );
+      // 背景 と #原稿# は排他（片方をA/Bにすると、もう片方は除外）
+      if (source !== "exclude") {
+        if (elementId === "background") {
+          newElements = newElements.map((el) =>
+            el.id === "manuscript" ? { ...el, source: "exclude" as ComposeSource } : el,
+          );
+        } else if (elementId === "manuscript") {
+          newElements = newElements.map((el) =>
+            el.id === "background" ? { ...el, source: "exclude" as ComposeSource } : el,
+          );
+        }
+      }
+      return {
+        settings: {
+          ...state.settings,
+          composeSettings: {
+            ...state.settings.composeSettings,
+            elements: newElements,
+          },
         },
-      },
-    })),
+      };
+    }),
+  setOrganizePre: (newSettings) =>
+    set((state) => ({ organizePre: { ...state.organizePre, ...newSettings } })),
   addComposeElement: (element) =>
     set((state) => ({
       settings: {

@@ -122,6 +122,11 @@
 - **詳細マッチレポート**: 処理完了後に結果テーブルの各行にマッチしたレイヤー/グループ名をインラインタグバッジで表示（resultMatchMap）
 - **完了トースト通知**: モーダル閉じ後にも成功/エラー結果をReplaceToastで表示、出力フォルダを開くボタン付き
 - Photoshop JSX経由で差替え実行（`replace_layers.jsx`）
+- **合成モード統合**（v1.9.14〜）: 独立した「合成」タブを廃止し、レイヤー差替えタブ内の `mode === "compose"` として統合
+  - 5要素ルーティング（テキスト/背景/#背景#/白消し/棒消し）+ `restSource`（A/B）
+  - **背景 ⇔ #原稿# の排他制御**: 片方を A/B にセットするともう一方は自動的に `exclude`（`replaceStore.setComposeElementSource` 内で処理）。UI には「(○○と排他)」バッジ表示
+  - **合成前フォルダ格納（前処理）**: `organizePre.enabled` ON で原稿B（target）側のレイヤーを指定フォルダ（デフォルト `#原稿#`）に格納してから合成。`run_photoshop_layer_organize` を合成前に呼ぶ。`organizePre.includeSpecial` で白消し・棒消しも含めるか選択
+  - `composeStore.ts` は廃止し `replaceStore.ts` に統合（`organizePre`, `setComposeElementSource` 等）
 
 ### 8. 見開き分割（Photoshop JSX経由）
 - **均等分割**: 中央で左右に分割（`_R`/`_L`サフィックス）
@@ -146,6 +151,7 @@
 - **ExtendScript注意**: レイヤー比較は`.id`（プロキシオブジェクトの`===`は不可）、選択は`putIdentifier`+`makeVisible:false`、crop引数は`UnitValue`配列
 - **出力フォルダ重複回避**: `TIF_Output`フォルダが既存の場合`TIF_Output (1)`, `(2)`...で連番生成（Rust側でJSON内outputPathも書き換え）
 - **ビジュアルクロップエディタ**: useHighResPreviewベースのプレビュー上にドラッグ可能なクロップ矩形をオーバーレイ。640:909アスペクト比ロック、8ハンドルリサイズ、暗転マスク、三分割グリッド、リアルタイム寸法表示、比率検証（±1%）。手入力フィールド(L/T/R/B)は廃止済み — 比率OK/サイズ表示/PSDから自動設定のみ表示
+- **クロップエディタのリサイズ修正**（v1.9.14）: ドキュメント端でハンドルをドラッグした際にアスペクト比が崩れる不具合を修正。ハンドル方向ごとに「ドキュメント内に収まる最大幅/高さ」を `maxW/maxH` として先に算出し、比率調整 → max でクリップ → 比率再調整の順で適用（従来は最後に `Math.min(originalSize, …)` で独立クリップしていたため w/h がそれぞれ別々に削られ比率が崩れていた）
 - **個別クロップ編集**: ファイル別クロップ編集モード中は`savedGlobalBoundsRef`でグローバル範囲を退避。OK/キャンセルボタン押下時にグローバル範囲を復元（個別編集がグローバル設定を上書きしない）
 - **個別クロップ優先表示**: TiffViewerPanel（ビューアータブ）・TiffCropEditor（プレビュータブ）ともに、参照ファイルに個別クロップ設定があればグローバル設定より優先して表示。fileOverridesのキーはPsdFileの`.id`（`.fileId`ではない）。TiffCropEditorでは個別範囲をアンバー色ソリッド枠（読み取り専用）でメイン表示し、グローバル範囲をピンク破線＋ハンドルでグローバル編集可能な状態を維持
 - **バッチキュー＆個別上書き**: 全ファイルの処理予定を可視化。ファイル毎にカラーモード・ぼかし半径・スキップをインライン上書き。リネームプレビュータブで出力名確認・重複検出
@@ -196,17 +202,10 @@
 - **fileEntries→psdStore自動同期**: ファイルリネームに追加されたPSD/PSBを自動的にpsdStoreへ同期（レイヤーリネーム用のレイヤーツリー取得）
 - **RenameResultDialog**: 処理完了ダイアログ（成功/失敗一覧 + 出力フォルダを開くボタン）
 
-### 11. 合成（Compose / Photoshop JSX経由）
-- **概要**: 2つのPSDファイル（原稿A / 原稿B）を1つの合成ファイルに統合
-- **5つのデフォルト要素**: テキストフォルダ(A)、背景(B)、#背景#(除外)、白消し(除外)、棒消し(除外) — 各要素をどちらのソースから取るか(A/B/除外)選択可能
-- **要素ルーティング**: restSourceで指定した側がbaseDoc（保存対象）、もう片方がotherDoc（コピー元）。要素のsourceとbaseLabel(A/B)を**文字列比較**してルーティング（ExtendScriptのDocumentオブジェクト比較は不安定なため）
-- **ペアリング**: ファイル順/数字キー/リンク文字（手動・自動検出）の4方式。Replaceと同じペアリングUIを流用
-- **出力先**: `Desktop/Script_Output/合成ファイル_出力/{timestamp}/` または差替えタブ内合成は `差替えファイル_出力/{timestamp}/`
-- **サブフォルダ対応**: ソースファイルをサブフォルダに整理してから合成可能
-- **コンポーネント**: ComposeView, ComposePanel, ComposeDropZone, ComposePairingModal（Auto/Manualタブ）, ComposePairingOutputSettings, ComposeToast
-- **ストア**: `composeStore.ts` — folders, composeSettings(elements/restSource/skipResize/roundFontSize), pairingJobs, scannedFileGroups, excludedPairIndices, manualPairs, phase/progress/results管理
-- **フック**: `useComposeProcessor.ts` — スキャン＆ペアリング、Photoshop実行
-- Photoshop JSX経由で合成実行（`replace_layers.jsx`のcompose設定で処理）。合成ヘルパー: `composeCopyElement()`, `composeRemoveElement()`
+### 11. 合成（Compose）
+**v1.9.14 で「レイヤー差替え」タブ内に統合済み**（独立タブ「合成」とビュー `ComposeView` は廃止）。仕様詳細は [#7 レイヤー差替え](#7-レイヤー差替えphotoshop-jsx経由) の「合成モード統合」項を参照。
+- 旧 `ComposeView`/`composeStore`/`useComposeProcessor` のコンポーネント・ストア・フックは廃止し、`ReplacePanel`/`replaceStore`/`useReplaceProcessor` に統合
+- 配下の `src/components/compose/*` は当面ファイル自体は残置（参照されない dead code）。実行経路は `useReplaceProcessor` → `run_photoshop_replace` の compose 設定パスのみ
 
 ### 12. Scan PSD（フォントプリセット管理）
 - **元スクリプト**: `je-nsonman_ver2.86.jsx`（約11,000行）からの移植
@@ -318,27 +317,19 @@
 - **ストア**: `typesettingCheckStore.ts` — checkData, checkTabMode, searchQuery, jsonBasePath, showJsonBrowser, navigateToPage
 
 ### 17. 写植確認（TypesettingConfirmPanel）
-- **概要**: comicpotテキストデータにフォント指定を付与して保存する機能。フォント帳（プリセットJSON）を読み込み、テキストブロックにフォントを割り当て
-- **コンポーネント**: `TypesettingConfirmPanel.tsx`（`src/components/typesetting-confirm/`）
-- **テキスト解析**: `parseComicPotText()` でページ区切り `<<NPage>>` とブロック（空行区切り）を解析
-- **テキスト保存**: `serializeText()` でフォント指定タグ付きテキストに変換
-- **フォント指定書式**: `[font:PostScriptName(表示名(カテゴリ))]` — subNameなし時は `[font:PostScriptName(表示名)]`
-- **sanitize処理**: フォント名・カテゴリ名から括弧文字（半角`()`・全角`（）`・角括弧`[]`）を除去して書式破壊を防止
-- **validateFontTag**: 出力前に括弧バランスを検証。不正な場合はPostScript名のみにフォールバック（再発防止）
-- **フォントプリセット読み込み**: Scan PSDのJSONフォルダからフォントプリセットJSONを選択・読み込み（`handleSelectFontJson`）
-- **PDF見開き分割モード**: 見開きPDFのページ割り当て（none/coverSpread/skipCover/allSpread）
-- **ビューアー連動**: 高解像度プレビュー + ページ遷移 + クロップ表示
-- **ブロック操作**: 選択（Ctrl/Shift複数対応）、フォント割り当て、追加、並べ替え（D&D）、移動マーカー
+**v1.9.14 でUIから非公開化**（「写植関連」タブ内のサブタブ `confirm` を削除）。コンポーネント `TypesettingConfirmPanel.tsx` 自体は当面残置しているが、画面導線はなし。
+- 旧仕様: comicpotテキストにフォント指定タグを付与して保存。フォント指定書式 `[font:PostScriptName(表示名(カテゴリ))]`
+- 再有効化する場合は `TypsettingView.tsx` の `SubTab` 型と `tabs` 配列に `"confirm"` を戻す
 
 ### 18. テキスト抽出（Photoshop不要）
 - **概要**: PSDファイルのテキストレイヤーからテキストを抽出し、COMIC-POT互換フォーマットで保存
 - **データソース**: ag-psdで読み込み済みの`layerTree`から`textInfo.text`を取得（Photoshop不要）
 - **出力フォーマット**: COMIC-POT互換テキスト
   - ヘッダー: `[COMIC-POT:bottomToTop]` または `[COMIC-POT:topToBottom]`
-  - 巻ヘッダー: `[01巻]`
+  - 巻ヘッダー: `[NN巻]`（v1.9.14〜 UIから1〜99の範囲で指定可能。デフォルト `01`、`String(volume).padStart(2, "0")` でゼロ埋め）
   - ページ区切り: `<<NPage>>`
   - テキスト内容 + 空行区切り
-- **設定オプション**: レイヤー順序（下→上 / 上→下）、非表示レイヤー含むかどうか
+- **設定オプション**: レイヤー順序（下→上 / 上→下）、非表示レイヤー含むかどうか、**巻数指定（1〜99）**
 - **ルビレイヤー自動除外**: レイヤー名が`文字（ふりがな）`パターンに一致する場合スキップ
 - **出力先**: `Desktop/Script_Output/テキスト抽出/{フォルダ名}.txt`（重複時はタイムスタンプ付き）
 - **保存後にエクスプローラーで出力フォルダを自動表示**
@@ -369,8 +360,8 @@
 ## UI構成
 
 ### レイアウト
-- **TopNav**: 上部ナビゲーション。タブでビュー切替（完成原稿チェック/レイヤー制御/写植関連/差替え/合成/TIFF化/スキャナー/見開き分割/リネーム）
-- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | layers | typesetting | split | replace | compose | rename | tiff | scanPsd）
+- **TopNav**: 上部ナビゲーション。タブでビュー切替（完成原稿チェック/レイヤー制御/写植関連/差替え/TIFF化/スキャナー/見開き分割/リネーム）。v1.9.14 で「合成」タブを削除し、差替えタブ内の compose モードに統合
+- **ViewRouter + viewStore**: タブベースのビュー切替管理（AppView: specCheck | layers | typesetting | split | replace | rename | tiff | scanPsd）
 - **AppLayout**: TopNav + フルワイドビュー構成（旧3カラムサイドバーは廃止済み）、グローバルD&Dリスナー（useGlobalDragDrop）。`handleMouseDown`で領域外クリック時に選択解除（モーダルは`onMouseDown stopPropagation`で保護が必要）
 
 ### ビュー
@@ -380,10 +371,10 @@
   - viewMode切替: サムネイル（PreviewGrid）、レイヤー構造（SpecLayerGrid）、写植仕様（SpecTextGrid）
   - SpecTextGrid: 使用フォントサマリー（種類数・レイヤー数）、サイズ統計（頻度順・基本ポイント数）、ファイル別テキストレイヤー一覧。フォント切替（デフォルト/プレビュー）、ソート切替（昇順/降順）
   - SpecLayerGrid: 全ファイルのレイヤー構造をグリッド表示
-- **TypsettingView**: 写植関連（写植仕様・DTPビューアー・写植調整・写植確認）。MojiQ校正JSONの読み込み・カテゴリ別表示・ページ遷移連動。フォント帳はScanPsdViewに移動済み
+- **TypsettingView**: 写植関連（写植仕様・DTPビューアー・写植調整）。MojiQ校正JSONの読み込み・カテゴリ別表示・ページ遷移連動。フォント帳はScanPsdViewに移動済み。v1.9.14でサブタブ「写植確認」を削除
 - **ViewerView**: 独立ビューアー（SpecViewerPanelを再利用）。画像+サイドバー（写植仕様/レイヤー構造タブ）。OS全画面（Tauri setFullscreen）、スプラッシュトランジション、矢印キー/ホイールナビ、P/Fショートカット
-- **ReplaceView**: レイヤー差替え
-- **ComposeView**: 合成（2カラム: ComposePanel | ComposeDropZone）。Replace機能と類似のペアリングUI
+- **ReplaceView**: レイヤー差替え（v1.9.14〜 旧合成タブを compose モードとして統合）
+- ~~**ComposeView**~~: v1.9.14 で廃止（ReplaceViewに統合）
 - **SplitView**: 見開き分割
 - **RenameView**: リネーム（レイヤーリネーム / ファイルリネーム）
 - **TiffView**: TIFF化（3カラム: TiffSettingsPanel | TiffFileList | Center(プレビュー/一覧/ビューアータブ切替)）。TiffFileListヘッダーとTiffBatchQueueヘッダーにサブフォルダチェックを配置
@@ -447,10 +438,10 @@ src/
 │   │   ├── FontBookView.tsx      # フォント帳ビュー
 │   │   ├── LayerControlView.tsx  # レイヤー制御ビュー
 │   │   ├── SpecCheckView.tsx     # 仕様チェックビュー（サムネイル/レイヤー/写植タブ切替）
-│   │   ├── TypsettingView.tsx    # 写植関連ビュー（写植仕様・DTPビューアー・写植調整・写植確認）
+│   │   ├── TypsettingView.tsx    # 写植関連ビュー（写植仕様・DTPビューアー・写植調整）。v1.9.14でサブタブ"写植確認"削除
 │   │   ├── ViewerView.tsx        # ビューアービュー（SpecViewerPanel再利用）
-│   │   ├── ReplaceView.tsx       # レイヤー差替えビュー
-│   │   ├── ComposeView.tsx      # 合成ビュー（ComposePanel + ComposeDropZone）
+│   │   ├── ReplaceView.tsx       # レイヤー差替えビュー（v1.9.14〜 compose統合）
+│   │   ├── ComposeView.tsx      # v1.9.14で廃止（ReplaceViewに統合）
 │   │   ├── SplitView.tsx         # 見開き分割ビュー
 │   │   ├── RenameView.tsx        # リネームビュー（fileEntries→psdStore自動同期）
 │   │   ├── TiffView.tsx          # TIFF化ビュー（3カラム: FileList|Center|Settings）
@@ -494,14 +485,14 @@ src/
 │   │   ├── PairingManualTab.tsx         # 手動マッチタブ（2カラム+クリック/ドラッグ）
 │   │   ├── PairingOutputSettings.tsx    # 出力設定（保存ファイル名・フォルダ名）
 │   │   └── ReplaceToast.tsx
-│   ├── compose/           # 合成
-│   │   ├── ComposePanel.tsx             # 合成設定パネル（要素選択・ペアリング方式）
-│   │   ├── ComposeDropZone.tsx          # Source A/B ドロップゾーン
-│   │   ├── ComposePairingModal.tsx      # ペアリング確認ダイアログ（タブ切替シェル）
-│   │   ├── ComposePairingAutoTab.tsx    # 自動ペアリングタブ
-│   │   ├── ComposePairingManualTab.tsx  # 手動マッチタブ
-│   │   ├── ComposePairingOutputSettings.tsx # 出力設定
-│   │   └── ComposeToast.tsx             # 合成完了トースト通知
+│   ├── compose/           # 合成（v1.9.14でReplaceに統合、dead code として残置）
+│   │   ├── ComposePanel.tsx             # 廃止
+│   │   ├── ComposeDropZone.tsx          # 廃止
+│   │   ├── ComposePairingModal.tsx      # 廃止
+│   │   ├── ComposePairingAutoTab.tsx    # 廃止
+│   │   ├── ComposePairingManualTab.tsx  # 廃止
+│   │   ├── ComposePairingOutputSettings.tsx # 廃止
+│   │   └── ComposeToast.tsx             # 廃止
 │   ├── split/             # 見開き分割
 │   │   ├── SplitPanel.tsx
 │   │   ├── SplitPreview.tsx       # 定規ドラッグ・ガイド操作・ズーム/パン
@@ -530,7 +521,7 @@ src/
 │   │   ├── ScanPsdModeSelector.tsx   # モード選択カード（新規/編集）
 │   │   ├── JsonFileBrowser.tsx       # basePath以下のJSON専用ファイルブラウザ
 │   │   └── tabs/
-│   │       ├── WorkInfoTab.tsx       # タブ0: 作品情報（ジャンル/レーベル/著者/タイトル等）
+│   │       ├── WorkInfoTab.tsx       # タブ0: 作品情報（ジャンル/レーベル/著者/タイトル等）。v1.9.14で「その他」（保存パス・備考）セクションを削除
 │   │       ├── FontTypesTab.tsx      # タブ1: フォント種類（プリセットセット管理）
 │   │       ├── FontSizesTab.tsx      # タブ2: フォントサイズ統計
 │   │       ├── GuideLinesTab.tsx     # タブ3: ガイド線（選択/除外）
@@ -550,7 +541,7 @@ src/
 ├── hooks/
 │   ├── useAppUpdater.ts          # アプリ更新管理（Tauri Updaterプラグイン）
 │   ├── useCanvasSizeCheck.ts     # キャンバスサイズ検証（多数派検出・外れ値フラグ）
-│   ├── useComposeProcessor.ts    # 合成処理（スキャン＆ペアリング・PS実行）
+│   ├── useComposeProcessor.ts    # v1.9.14で廃止（useReplaceProcessorに統合、dead code として残置）
 │   ├── useCropEditorKeyboard.ts  # クロップエディタキーボード操作（Tachimi互換）
 │   ├── useFileWatcher.ts         # ファイル変更監視（外部変更検出）
 │   ├── useFontResolver.ts        # フォント名解決（PostScript名→表示名・色マッピング・未インストール検出）
@@ -588,8 +579,8 @@ src/
 │   ├── viewStore.ts       # ビュー切替状態（activeView: AppView）
 │   ├── fontBookStore.ts   # フォント帳（entries, fontBookDir, isLoaded）
 │   ├── splitStore.ts      # 分割設定（settings, selectionHistory/Future）
-│   ├── replaceStore.ts    # 差替え設定（folders, batchFolders, settings, pairingJobs, manualPairs, excludedPairIndices）
-│   ├── composeStore.ts    # 合成設定（folders, settings, pairingJobs, scannedFileGroups, manualPairs）
+│   ├── replaceStore.ts    # 差替え/合成設定（folders, batchFolders, settings, pairingJobs, manualPairs, excludedPairIndices, organizePre, composeSettings）
+│   ├── composeStore.ts    # v1.9.14で廃止（replaceStoreに統合、dead code として残置）
 │   ├── renameStore.ts     # リネーム設定（subMode, layerSettings, fileSettings, fileEntries）
 │   ├── tiffStore.ts       # TIFF化設定・状態（settings, fileOverrides, cropPresets, cropGuides, phase, results）。localStorage永続化（crop.bounds除く）
 │   ├── scanPsdStore.ts    # Scan PSD（mode, scanData, presetSets, workInfo, guide選択/除外, パス設定）。パスのみlocalStorage永続化

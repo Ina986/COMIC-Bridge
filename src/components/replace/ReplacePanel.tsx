@@ -25,6 +25,8 @@ export function ReplacePanel() {
   const removeComposeElement = useReplaceStore((s) => s.removeComposeElement);
   const updateComposeElement = useReplaceStore((s) => s.updateComposeElement);
   const setComposeRestSource = useReplaceStore((s) => s.setComposeRestSource);
+  const organizePre = useReplaceStore((s) => s.organizePre);
+  const setOrganizePre = useReplaceStore((s) => s.setOrganizePre);
   const phase = useReplaceStore((s) => s.phase);
   const isModalOpen = useReplaceStore((s) => s.isModalOpen);
 
@@ -411,13 +413,65 @@ export function ReplacePanel() {
                   原稿Aと原稿Bから要素ごとにソースを選択して合成します。
                 </p>
 
+                {/* Pre-process: Organize layers */}
+                <div className="pt-1.5 pb-1.5 border-b border-warning/15">
+                  <CheckBox
+                    checked={organizePre.enabled}
+                    onChange={(v) => setOrganizePre({ enabled: v })}
+                  >
+                    <div>
+                      <span className="text-xs text-text-primary font-medium">
+                        合成前にフォルダ格納
+                      </span>
+                      <p className="text-[9px] text-text-muted mt-0.5">
+                        原稿Bのレイヤーを指定フォルダに格納してから合成
+                      </p>
+                    </div>
+                  </CheckBox>
+                  {organizePre.enabled && (
+                    <div className="mt-2 pt-2 border-t border-white/5 space-y-2">
+                      <div>
+                        <span className="text-[10px] text-text-muted">格納先フォルダ名</span>
+                        <input
+                          type="text"
+                          value={organizePre.targetName}
+                          onChange={(e) => setOrganizePre({ targetName: e.target.value })}
+                          placeholder="#原稿#"
+                          className="w-full mt-1 bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-warning focus:outline-none"
+                        />
+                      </div>
+                      <CheckBox
+                        checked={organizePre.includeSpecial}
+                        onChange={(v) => setOrganizePre({ includeSpecial: v })}
+                      >
+                        <span className="text-[10px] text-text-secondary">
+                          白消し・棒消しも格納する
+                        </span>
+                      </CheckBox>
+                    </div>
+                  )}
+                </div>
+
                 {/* Element list */}
                 <div className="space-y-1.5">
-                  {settings.composeSettings.elements.map((el) => (
+                  {settings.composeSettings.elements.map((el) => {
+                    const isExclusivePair = el.id === "background" || el.id === "manuscript";
+                    const otherEl = isExclusivePair
+                      ? settings.composeSettings.elements.find(
+                          (e) => e.id === (el.id === "background" ? "manuscript" : "background"),
+                        )
+                      : null;
+                    const otherIsActive = otherEl && otherEl.source !== "exclude";
+                    return (
                     <div key={el.id}>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-text-primary flex-1 min-w-0 truncate">
                           {el.label}
+                          {isExclusivePair && otherIsActive && el.source === "exclude" && (
+                            <span className="text-[9px] text-text-muted ml-1">
+                              ({otherEl!.label}と排他)
+                            </span>
+                          )}
                         </span>
                         <SourcePill
                           value={el.source}
@@ -488,7 +542,8 @@ export function ReplacePanel() {
                           </div>
                         )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Add custom element */}

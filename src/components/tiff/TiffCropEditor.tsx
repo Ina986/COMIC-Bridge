@@ -327,37 +327,66 @@ export function TiffCropEditor({ onSwitchToQueue }: TiffCropEditorProps) {
 
         let w = newRight - newLeft;
         let h = newBottom - newTop;
-        const currentRatio = w / h;
 
-        if (currentRatio > ASPECT_RATIO) {
+        // ドラッグ方向ごとに「ドキュメント内に収まる最大幅/高さ」を計算
+        // （アンカーが動かない辺は init.* を基準、中央維持の辺は init の中心を基準）
+        let maxW: number;
+        if (mode.includes("e") && !mode.includes("w")) {
+          maxW = originalSize.width - init.left;
+        } else if (mode.includes("w") && !mode.includes("e")) {
+          maxW = init.right;
+        } else {
+          const hCenter = (init.left + init.right) / 2;
+          maxW = Math.min(hCenter, originalSize.width - hCenter) * 2;
+        }
+        let maxH: number;
+        if (mode.includes("s") && !mode.includes("n")) {
+          maxH = originalSize.height - init.top;
+        } else if (mode.includes("n") && !mode.includes("s")) {
+          maxH = init.bottom;
+        } else {
+          const vCenter = (init.top + init.bottom) / 2;
+          maxH = Math.min(vCenter, originalSize.height - vCenter) * 2;
+        }
+
+        // 比率を維持したまま縮める（先に max でクリップしてから ratio 調整すると、
+        // ドキュメント端で w/h がそれぞれ独立にクリップされて比率が崩れる問題を回避）
+        if (w / h > ASPECT_RATIO) {
           w = h * ASPECT_RATIO;
         } else {
           h = w / ASPECT_RATIO;
         }
+        if (w > maxW) {
+          w = maxW;
+          h = w / ASPECT_RATIO;
+        }
+        if (h > maxH) {
+          h = maxH;
+          w = h * ASPECT_RATIO;
+        }
 
         if (mode.includes("e") && !mode.includes("w")) {
+          newLeft = init.left;
           newRight = newLeft + w;
         } else if (mode.includes("w") && !mode.includes("e")) {
+          newRight = init.right;
           newLeft = newRight - w;
         } else {
-          const center = (newLeft + newRight) / 2;
+          const center = (init.left + init.right) / 2;
           newLeft = center - w / 2;
           newRight = center + w / 2;
         }
         if (mode.includes("s") && !mode.includes("n")) {
+          newTop = init.top;
           newBottom = newTop + h;
         } else if (mode.includes("n") && !mode.includes("s")) {
+          newBottom = init.bottom;
           newTop = newBottom - h;
         } else {
-          const center = (newTop + newBottom) / 2;
+          const center = (init.top + init.bottom) / 2;
           newTop = center - h / 2;
           newBottom = center + h / 2;
         }
-
-        newLeft = Math.max(0, newLeft);
-        newTop = Math.max(0, newTop);
-        newRight = Math.min(originalSize.width, newRight);
-        newBottom = Math.min(originalSize.height, newBottom);
 
         newBounds = {
           left: Math.round(newLeft),

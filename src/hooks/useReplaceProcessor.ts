@@ -535,6 +535,21 @@ export function useReplaceProcessor() {
     setProgress(0, allPairs.length);
 
     try {
+      // 合成モード: 前処理（フォルダ格納）
+      if (currentSettings.mode === "compose") {
+        const currentOrganizePre = state.organizePre;
+        if (currentOrganizePre.enabled && currentOrganizePre.targetName.trim()) {
+          setCurrentPair("原稿Bをフォルダ格納中...");
+          const targetFiles = [...new Set(pairEntries.map((p) => p.targetFile))];
+          await invoke("run_photoshop_layer_organize", {
+            filePaths: targetFiles,
+            targetGroupName: currentOrganizePre.targetName.trim(),
+            includeSpecial: currentOrganizePre.includeSpecial,
+            saveMode: "overwrite",
+          });
+        }
+      }
+
       setCurrentPair("Photoshopで処理中...");
 
       const psResults = await invoke<PhotoshopResult[]>("run_photoshop_replace", {

@@ -171,31 +171,6 @@ export function WorkInfoTab() {
         </div>
       </Section>
 
-      {/* 保存パス・備考 */}
-      <Section title="その他" accent="#9090a0">
-        <div className="space-y-2">
-          <div>
-            <Label>保存パス</Label>
-            <Input
-              value={workInfo.storagePath}
-              onChange={(v) => setWorkInfo({ storagePath: v })}
-              placeholder="保存先パス（任意）"
-            />
-          </div>
-          <div>
-            <Label>備考</Label>
-            <textarea
-              value={workInfo.notes}
-              onChange={(e) => setWorkInfo({ notes: e.target.value })}
-              placeholder="メモ（任意）"
-              rows={3}
-              className="w-full bg-bg-primary border border-border rounded-xl px-3 py-1.5 text-xs text-text-primary
-                focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/10 resize-none transition-all"
-            />
-          </div>
-        </div>
-      </Section>
-
       {/* 保存ファイル一覧 */}
       <SavedFileListSection
         label={workInfo.label}

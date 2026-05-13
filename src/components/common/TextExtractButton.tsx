@@ -14,6 +14,7 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
   const [showOptions, setShowOptions] = useState(false);
   const [sortMode, setSortMode] = useState<"bottomToTop" | "topToBottom">("bottomToTop");
   const [includeHidden, setIncludeHidden] = useState(false);
+  const [volumeNumber, setVolumeNumber] = useState<number>(1);
   const [result, setResult] = useState<{
     success: boolean;
     message: string;
@@ -29,7 +30,7 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
     setShowOptions(false);
 
     try {
-      const output = generateText(psdFiles, sortMode, includeHidden);
+      const output = generateText(psdFiles, sortMode, includeHidden, volumeNumber);
 
       // フォルダ名を取得（最初のファイルの親フォルダ）
       const firstPath = psdFiles[0].filePath.replace(/\//g, "\\");
@@ -83,7 +84,7 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
     } finally {
       setIsExtracting(false);
     }
-  }, [psdFiles, sortMode, includeHidden]);
+  }, [psdFiles, sortMode, includeHidden, volumeNumber]);
 
   if (psdFiles.length === 0) return null;
 
@@ -124,6 +125,44 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
                   上→下
                 </button>
               </div>
+            </div>
+
+            {/* 巻数指定 */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-text-muted">巻数</label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVolumeNumber((v) => Math.max(1, v - 1))}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg border border-border text-text-secondary hover:bg-bg-tertiary transition-colors"
+                  aria-label="巻数を減らす"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={volumeNumber}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    if (Number.isFinite(n)) setVolumeNumber(Math.max(1, Math.min(99, n)));
+                  }}
+                  className="flex-1 h-7 px-2 text-xs text-center text-text-primary bg-bg-tertiary border border-border rounded-lg focus:border-accent focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setVolumeNumber((v) => Math.min(99, v + 1))}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg border border-border text-text-secondary hover:bg-bg-tertiary transition-colors"
+                  aria-label="巻数を増やす"
+                >
+                  +
+                </button>
+                <span className="text-[10px] text-text-muted">巻</span>
+              </div>
+              <p className="text-[10px] text-text-muted">
+                出力に <code className="font-mono">[{String(volumeNumber).padStart(2, "0")}巻]</code> として記録されます
+              </p>
             </div>
 
             {/* 非表示レイヤー */}
@@ -346,12 +385,14 @@ function generateText(
   files: PsdFile[],
   sortMode: "bottomToTop" | "topToBottom",
   includeHidden: boolean,
+  volumeNumber: number,
 ): string {
   const lines: string[] = [];
 
   // ヘッダー
   lines.push(`[COMIC-POT:${sortMode}]`);
-  lines.push("[01巻]");
+  const vol = Math.max(1, Math.min(99, Math.floor(volumeNumber)));
+  lines.push(`[${String(vol).padStart(2, "0")}巻]`);
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
