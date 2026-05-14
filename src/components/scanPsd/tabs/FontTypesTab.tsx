@@ -165,8 +165,10 @@ export function FontTypesTab() {
   const [manualSelectMode, setManualSelectMode] = useState(false);
   const [manualSelected, setManualSelected] = useState<Set<number>>(new Set());
 
-  // --- 手動フォント追加 ---
+  // --- モーダル類（手動フォント追加・未登録・未インストール） ---
   const [showManualFontAdd, setShowManualFontAdd] = useState(false);
+  const [showUnregisteredModal, setShowUnregisteredModal] = useState(false);
+  const [showMissingFontsModal, setShowMissingFontsModal] = useState(false);
   const [manualFont, setManualFont] = useState({ psName: "", displayName: "", subName: "" });
   const [manualFontResolving, setManualFontResolving] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState("");
@@ -555,8 +557,6 @@ export function FontTypesTab() {
     return count;
   }, [editableGroups]);
 
-  const gridCols = manualSelectMode ? "20px 20px 76px 1fr 44px" : "20px 76px 1fr 44px";
-
   // ピッカー用データ
   const pickerSections = useMemo(() => {
     const sections: {
@@ -593,90 +593,7 @@ export function FontTypesTab() {
   }, [setNames, presetSets, unregisteredFonts, fontCountMap]);
 
   return (
-    <div className="space-y-4">
-      {/* プリセットセット選択 */}
-      <div className="bg-bg-tertiary/50 rounded-xl p-3 border border-border/30">
-        <div className="flex items-center gap-2 mb-2">
-          <select
-            value={currentSetName}
-            onChange={(e) => setCurrentSetName(e.target.value)}
-            className="flex-1 bg-white border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary
-              focus:border-accent focus:outline-none"
-          >
-            {setNames.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={handleOpenFontPicker}
-            className="w-7 h-7 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 flex items-center justify-center transition-colors"
-            title="セット追加"
-          >
-            <svg
-              className="w-3.5 h-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.5}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-          </button>
-          <button
-            onClick={() => {
-              setEditMode("rename");
-              setInputValue(currentSetName);
-            }}
-            className="text-[10px] text-text-muted hover:text-accent px-1.5 py-1 rounded-lg hover:bg-accent/5 transition-colors"
-            title="名前変更"
-          >
-            名前変更
-          </button>
-          {setNames.length > 1 && (
-            <button
-              onClick={() => removePresetSet(currentSetName)}
-              className="text-[10px] text-text-muted hover:text-error px-1.5 py-1 rounded-lg hover:bg-error/5 transition-colors"
-              title="セット削除"
-            >
-              削除
-            </button>
-          )}
-        </div>
-
-        {editMode === "rename" && (
-          <div className="flex items-center gap-2 mt-2">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleRenameSet();
-                if (e.key === "Escape") setEditMode("none");
-              }}
-              placeholder="新しいセット名"
-              className="flex-1 bg-white border border-accent/40 rounded-lg px-2.5 py-1.5 text-xs text-text-primary
-                focus:outline-none focus:ring-2 focus:ring-accent/15"
-              autoFocus
-            />
-            <button
-              onClick={handleRenameSet}
-              className="text-[10px] text-white font-medium px-3 py-1.5 rounded-lg"
-              style={{ background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }}
-            >
-              OK
-            </button>
-            <button
-              onClick={() => setEditMode("none")}
-              className="text-[10px] text-text-muted px-2 py-1"
-            >
-              取消
-            </button>
-          </div>
-        )}
-      </div>
-
+    <div className="space-y-2">
       {/* === セット作成フォントピッカー === */}
       {showFontPicker && (
         <div className="bg-white rounded-xl border-2 border-accent/30 shadow-lg overflow-hidden">
@@ -832,63 +749,114 @@ export function FontTypesTab() {
 
       {/* フォントプリセットリスト */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
-          <h4 className="text-[10px] font-bold text-text-secondary">プリセット</h4>
-          <span className="text-[9px] font-bold text-accent-secondary bg-accent-secondary/10 px-2 py-0.5 rounded-full">
-            {currentPresets.length}
-          </span>
-          {fontChecked && missingFontNames.length === 0 && currentPresets.length > 0 && (
-            <span className="text-[9px] font-bold text-success bg-success/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+        {/* 統合ツールバー: フィルタ / ソート / 機能 / 追加 / プリセット選択(右) */}
+        <div className="bg-bg-tertiary/40 rounded-lg px-2 py-1.5 mb-1.5 border border-border/20 space-y-1">
+          {/* Row 1: フィルタ + プリセット選択(右) */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[9px] text-text-muted font-medium">フィルタ</span>
+            <FilterChip
+              label="カテゴリあり"
+              active={filterCategory === "has"}
+              onClick={() => setFilterCategory(filterCategory === "has" ? "all" : "has")}
+            />
+            <FilterChip
+              label="カテゴリなし"
+              active={filterCategory === "none"}
+              onClick={() => setFilterCategory(filterCategory === "none" ? "all" : "none")}
+            />
+            <span className="w-px h-3 bg-border/40 mx-0.5" />
+            <FilterChip
+              label="インストール済"
+              active={filterInstall === "installed"}
+              onClick={() =>
+                setFilterInstall(filterInstall === "installed" ? "all" : "installed")
+              }
+            />
+            <FilterChip
+              label="未インストール"
+              active={filterInstall === "missing"}
+              onClick={() => setFilterInstall(filterInstall === "missing" ? "all" : "missing")}
+              color="error"
+            />
+            <span className="flex-1" />
+            {/* プリセット選択 */}
+            <span className="text-[9px] text-text-muted font-medium ml-1">プリセット</span>
+            <select
+              value={currentSetName}
+              onChange={(e) => setCurrentSetName(e.target.value)}
+              className="bg-white border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary
+                focus:border-accent focus:outline-none max-w-[140px]"
+            >
+              {setNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleOpenFontPicker}
+              className="w-5 h-5 rounded bg-accent/10 text-accent hover:bg-accent/20 flex items-center justify-center transition-colors"
+              title="セット追加"
+            >
               <svg
-                className="w-2.5 h-2.5"
+                className="w-3 h-3"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
-                strokeWidth={3}
+                strokeWidth={2.5}
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              全フォントOK
-            </span>
-          )}
-        </div>
+            </button>
+            <button
+              onClick={() => {
+                setEditMode("rename");
+                setInputValue(currentSetName);
+              }}
+              className="w-5 h-5 rounded text-text-muted hover:text-accent hover:bg-accent/5 flex items-center justify-center transition-colors"
+              title="名前変更"
+            >
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                />
+              </svg>
+            </button>
+            {setNames.length > 1 && (
+              <button
+                onClick={() => removePresetSet(currentSetName)}
+                className="w-5 h-5 rounded text-text-muted hover:text-error hover:bg-error/5 flex items-center justify-center transition-colors"
+                title="セット削除"
+              >
+                <svg
+                  className="w-3 h-3"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
 
-        {/* フィルタ・ソート・纏めコントロール */}
-        {currentPresets.length > 0 && (
-          <div className="bg-bg-tertiary/40 rounded-xl px-2.5 py-2 mb-2 border border-border/20 space-y-1.5">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[9px] text-text-muted font-medium mr-0.5">フィルタ:</span>
-              <FilterChip
-                label="カテゴリあり"
-                active={filterCategory === "has"}
-                onClick={() => setFilterCategory(filterCategory === "has" ? "all" : "has")}
-              />
-              <FilterChip
-                label="カテゴリなし"
-                active={filterCategory === "none"}
-                onClick={() => setFilterCategory(filterCategory === "none" ? "all" : "none")}
-              />
-              <span className="w-px h-3 bg-border/40 mx-0.5" />
-              <FilterChip
-                label="インストール済み"
-                active={filterInstall === "installed"}
-                onClick={() =>
-                  setFilterInstall(filterInstall === "installed" ? "all" : "installed")
-                }
-              />
-              <FilterChip
-                label="未インストール"
-                active={filterInstall === "missing"}
-                onClick={() => setFilterInstall(filterInstall === "missing" ? "all" : "missing")}
-                color="error"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-text-muted font-medium">ソート:</span>
+          {/* Row 2: ソート + 件数 + 機能 + 追加 */}
+          {currentPresets.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-[9px] text-text-muted font-medium">ソート</span>
               <select
                 value={sortMode}
                 onChange={(e) => setSortMode(e.target.value as SortMode)}
-                className="bg-white border border-border rounded-lg px-2 py-0.5 text-[10px] text-text-primary
+                className="bg-white border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary
                   focus:border-accent focus:outline-none"
               >
                 <option value="default">デフォルト</option>
@@ -897,33 +865,168 @@ export function FontTypesTab() {
                 <option value="count">出現数順</option>
                 <option value="install">インストール順</option>
               </select>
+              <span className="w-px h-3 bg-border/40 mx-0.5" />
+              <span
+                className="text-[9px] font-bold text-accent-secondary bg-accent-secondary/10 px-1.5 py-0.5 rounded-full"
+                title="登録フォント数"
+              >
+                {currentPresets.length}
+              </span>
+              {fontChecked && missingFontNames.length === 0 && currentPresets.length > 0 && (
+                <span
+                  className="text-[9px] font-bold text-success bg-success/10 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
+                  title="全フォントOK"
+                >
+                  <svg
+                    className="w-2.5 h-2.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  OK
+                </span>
+              )}
               <span className="flex-1" />
               <button
                 onClick={() => {
                   setManualSelectMode(!manualSelectMode);
                   setManualSelected(new Set());
                 }}
-                className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-all ${
+                className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all ${
                   manualSelectMode
                     ? "bg-purple-100 text-purple-600 border-purple-300"
                     : "bg-white text-text-muted border-border hover:text-purple-500 hover:border-purple-200"
                 }`}
+                title="手動纏め"
               >
                 手動纏め
               </button>
               <button
                 onClick={handleOpenGroupPreview}
-                className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-all ${
+                className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all ${
                   showGroupPreview
                     ? "bg-accent/10 text-accent border-accent/30"
                     : "bg-white text-text-muted border-border hover:text-accent hover:border-accent/30"
                 }`}
+                title="自動纏め"
               >
                 自動纏め
               </button>
+              <span className="w-px h-3 bg-border/40 mx-0.5" />
+              <button
+                onClick={() => setShowManualFontAdd(true)}
+                className="text-[10px] font-medium px-2 py-0.5 rounded border bg-white text-accent-tertiary border-accent-tertiary/30 hover:bg-accent-tertiary/10 transition-all flex items-center gap-0.5"
+                title="フォントを手動で追加"
+              >
+                <svg
+                  className="w-2.5 h-2.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                追加
+              </button>
+              {scanData && (
+                <button
+                  onClick={() => setShowUnregisteredModal(true)}
+                  disabled={unregisteredFonts.length === 0}
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all flex items-center gap-0.5 ${
+                    unregisteredFonts.length === 0
+                      ? "bg-white text-text-muted/40 border-border/40 cursor-not-allowed"
+                      : "bg-white text-warning border-warning/30 hover:bg-warning/10"
+                  }`}
+                  title="未登録フォント一覧"
+                >
+                  未登録
+                  <span
+                    className={`text-[9px] font-bold px-1 py-px rounded-full ${
+                      unregisteredFonts.length === 0
+                        ? "text-text-muted/40 bg-bg-tertiary"
+                        : "text-warning bg-warning/15"
+                    }`}
+                  >
+                    {unregisteredFonts.length}
+                  </span>
+                </button>
+              )}
+              {fontChecked && (
+                <button
+                  onClick={() => setShowMissingFontsModal(true)}
+                  disabled={missingFontNames.length === 0}
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all flex items-center gap-0.5 ${
+                    missingFontNames.length === 0
+                      ? "bg-white text-text-muted/40 border-border/40 cursor-not-allowed"
+                      : "bg-white border hover:opacity-90"
+                  }`}
+                  style={
+                    missingFontNames.length === 0
+                      ? undefined
+                      : {
+                          color: MISSING_FONT_COLOR,
+                          borderColor: `${MISSING_FONT_COLOR}40`,
+                          backgroundColor: `${MISSING_FONT_COLOR}08`,
+                        }
+                  }
+                  title="未インストールフォント一覧"
+                >
+                  未インストール
+                  <span
+                    className="text-[9px] font-bold px-1 py-px rounded-full"
+                    style={
+                      missingFontNames.length === 0
+                        ? undefined
+                        : {
+                            color: MISSING_FONT_COLOR,
+                            backgroundColor: `${MISSING_FONT_COLOR}18`,
+                          }
+                    }
+                  >
+                    {missingFontNames.length}
+                  </span>
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          )}
+
+          {/* セット名変更（インライン） */}
+          {editMode === "rename" && (
+            <div className="flex items-center gap-1.5 pt-1 border-t border-border/30">
+              <span className="text-[9px] text-text-muted font-medium">新セット名</span>
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRenameSet();
+                  if (e.key === "Escape") setEditMode("none");
+                }}
+                placeholder="新しいセット名"
+                className="flex-1 bg-white border border-accent/40 rounded px-2 py-0.5 text-[10px] text-text-primary
+                  focus:outline-none focus:ring-1 focus:ring-accent/30"
+                autoFocus
+              />
+              <button
+                onClick={handleRenameSet}
+                className="text-[10px] text-white font-medium px-2.5 py-0.5 rounded"
+                style={{ background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }}
+              >
+                OK
+              </button>
+              <button
+                onClick={() => setEditMode("none")}
+                className="text-[10px] text-text-muted px-2 py-0.5 hover:text-text-primary"
+              >
+                取消
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* 手動纏めバー */}
         {manualSelectMode && (
@@ -1069,48 +1172,6 @@ export function FontTypesTab() {
           </div>
         )}
 
-        {/* 未インストールフォント警告 */}
-        {fontChecked && missingFontNames.length > 0 && (
-          <div
-            className="flex items-start gap-2 px-3 py-2 rounded-xl mb-2 border"
-            style={{
-              backgroundColor: `${MISSING_FONT_COLOR}08`,
-              borderColor: `${MISSING_FONT_COLOR}25`,
-            }}
-          >
-            <svg
-              className="w-3.5 h-3.5 flex-shrink-0 mt-0.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke={MISSING_FONT_COLOR}
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-            <div className="flex-1">
-              <p className="text-[10px] font-bold" style={{ color: MISSING_FONT_COLOR }}>
-                未インストール: {missingFontNames.length}件
-              </p>
-              <p className="text-[9px] mt-0.5" style={{ color: `${MISSING_FONT_COLOR}cc` }}>
-                {missingFontNames.map((n) => fontResolveMap[n]?.display_name || n).join(", ")}
-              </p>
-              <button
-                onClick={() => setShowFontBrowser(true)}
-                className="mt-1.5 text-[9px] font-bold text-white px-2.5 py-1 rounded-lg transition-colors"
-                style={{ backgroundColor: MISSING_FONT_COLOR }}
-                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-              >
-                共有フォルダから探す
-              </button>
-            </div>
-          </div>
-        )}
-
         {currentPresets.length === 0 ? (
           <p className="text-[10px] text-text-muted py-4 text-center bg-bg-tertiary/30 rounded-xl border border-dashed border-border">
             プリセットがありません
@@ -1120,42 +1181,27 @@ export function FontTypesTab() {
             フィルタ条件に一致するフォントがありません
           </p>
         ) : (
-          <div className="border border-border/50 rounded-xl overflow-hidden">
-            {/* テーブルヘッダー */}
-            <div
-              className="grid items-center gap-x-2.5 px-2.5 py-1.5 bg-bg-tertiary/60 border-b border-border/40 text-[9px] font-bold text-text-muted"
-              style={{ gridTemplateColumns: gridCols }}
-            >
-              {manualSelectMode && <span />}
-              <span />
-              <span>カテゴリ</span>
-              <span>フォント名</span>
-              <span />
-            </div>
-            {/* テーブルボディ */}
-            <div>
-              {displayPresets.map(({ preset: p, originalIndex }, idx) => {
-                const missing = isFontMissing(p.font);
-                const count = fontCountMap.get(p.font);
-                const isManualSelected = manualSelected.has(originalIndex);
-                return (
-                  <div key={originalIndex}>
-                    <div
-                      className={`grid items-start gap-x-2.5 px-2.5 py-1.5 group
-                    border-b last:border-b-0 transition-all ${
+          <div className="grid grid-cols-2 gap-1.5">
+            {displayPresets.map(({ preset: p, originalIndex }) => {
+              const missing = isFontMissing(p.font);
+              const count = fontCountMap.get(p.font);
+              const isManualSelected = manualSelected.has(originalIndex);
+              const isEditing = editingPresetIndex === originalIndex;
+              return (
+                <div key={originalIndex} className={`${isEditing ? "col-span-2" : ""}`}>
+                  <div
+                    className={`group rounded-lg border px-2 py-1.5 transition-all ${
                       isManualSelected
-                        ? "bg-purple-50/80 hover:bg-purple-50 border-purple-200/30"
+                        ? "bg-purple-50/80 hover:bg-purple-50 border-purple-200"
                         : missing
-                          ? "bg-red-50/60 hover:bg-red-50 border-red-200/30"
-                          : idx % 2 === 0
-                            ? "bg-white hover:bg-bg-secondary/60 border-border/20"
-                            : "bg-bg-secondary/30 hover:bg-bg-secondary/60 border-border/20"
+                          ? "bg-red-50/60 hover:bg-red-50 border-red-200/40"
+                          : "bg-white hover:bg-bg-secondary/60 border-border/40"
                     }`}
-                      style={{ gridTemplateColumns: gridCols }}
-                    >
+                  >
+                    <div className="flex items-start gap-1.5 min-w-0">
                       {/* 手動纏め選択 */}
                       {manualSelectMode && (
-                        <span className="flex items-center justify-center pt-0.5">
+                        <span className="flex items-center justify-center pt-0.5 flex-shrink-0">
                           <input
                             type="checkbox"
                             checked={isManualSelected}
@@ -1165,7 +1211,7 @@ export function FontTypesTab() {
                         </span>
                       )}
                       {/* インストール状態 */}
-                      <span className="flex items-center justify-center pt-0.5">
+                      <span className="flex items-center justify-center pt-0.5 flex-shrink-0">
                         {fontChecked &&
                           (missing ? (
                             <span
@@ -1209,55 +1255,62 @@ export function FontTypesTab() {
                             </span>
                           ))}
                       </span>
-                      {/* カテゴリ */}
-                      <span>
-                        {p.subName ? (
-                          <span
-                            className="text-[9px] font-semibold px-1.5 py-0.5 rounded border inline-block truncate max-w-full"
-                            style={getSubNameStyle(p.subName)}
-                          >
-                            {p.subName}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] text-text-muted/40">&mdash;</span>
-                        )}
-                      </span>
-                      {/* フォント名 + PostScript名 + 出現数 */}
-                      <span className="min-w-0">
-                        <span
-                          className={`text-[11px] block ${missing ? "" : "text-text-primary"}`}
-                          style={
-                            missing
-                              ? {
-                                  color: MISSING_FONT_COLOR,
-                                  textDecoration: "line-through",
-                                  textDecorationColor: `${MISSING_FONT_COLOR}50`,
-                                }
-                              : undefined
-                          }
-                        >
-                          {p.name}
-                          {count != null && (
-                            <span className="text-[8px] text-text-muted ml-1.5 font-normal">
-                              ({count}回)
+                      {/* フォント情報 */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1 min-w-0">
+                          {p.subName ? (
+                            <span
+                              className="text-[8px] font-semibold px-1 py-0.5 rounded border flex-shrink-0"
+                              style={getSubNameStyle(p.subName)}
+                            >
+                              {p.subName}
+                            </span>
+                          ) : (
+                            <span className="text-[8px] text-text-muted/40 flex-shrink-0">
+                              &mdash;
                             </span>
                           )}
-                        </span>
-                        <span
-                          className={`text-[9px] font-mono block ${missing ? "" : "text-text-muted"}`}
+                          <span
+                            className={`text-[10px] truncate flex-1 min-w-0 ${
+                              missing ? "" : "text-text-primary"
+                            }`}
+                            style={
+                              missing
+                                ? {
+                                    color: MISSING_FONT_COLOR,
+                                    textDecoration: "line-through",
+                                    textDecorationColor: `${MISSING_FONT_COLOR}50`,
+                                  }
+                                : undefined
+                            }
+                            title={p.name}
+                          >
+                            {p.name}
+                          </span>
+                          {count != null && (
+                            <span className="text-[8px] text-text-muted flex-shrink-0">
+                              ({count})
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className={`text-[8px] font-mono truncate ${
+                            missing ? "" : "text-text-muted"
+                          }`}
                           style={missing ? { color: `${MISSING_FONT_COLOR}90` } : undefined}
+                          title={p.font}
                         >
                           {p.font}
-                        </span>
-                      </span>
+                        </div>
+                      </div>
                       {/* アクション */}
-                      <span className="flex items-center gap-1 justify-end">
+                      <div className="flex items-center gap-0.5 flex-shrink-0 self-center">
                         <button
                           onClick={() => {
                             setEditingPresetIndex(originalIndex);
                             setEditForm({ name: p.name, subName: p.subName || "" });
                           }}
-                          className="text-text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
+                          className="text-text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100 p-0.5"
                           title="編集"
                         >
                           <svg
@@ -1276,7 +1329,8 @@ export function FontTypesTab() {
                         </button>
                         <button
                           onClick={() => removeFontFromPreset(currentSetName, originalIndex)}
-                          className="text-text-muted hover:text-error transition-colors opacity-0 group-hover:opacity-100"
+                          className="text-text-muted hover:text-error transition-colors opacity-0 group-hover:opacity-100 p-0.5"
+                          title="削除"
                         >
                           <svg
                             className="w-3 h-3"
@@ -1292,11 +1346,11 @@ export function FontTypesTab() {
                             />
                           </svg>
                         </button>
-                      </span>
+                      </div>
                     </div>
                     {/* インライン編集フォーム */}
-                    {editingPresetIndex === originalIndex && (
-                      <div className="mx-2 my-1 bg-bg-tertiary/60 rounded-lg px-2.5 py-2 border border-accent/20 space-y-1.5">
+                    {isEditing && (
+                      <div className="mt-2 bg-bg-tertiary/60 rounded-lg px-2.5 py-2 border border-accent/20 space-y-1.5">
                         <div className="flex items-center gap-2">
                           <span className="text-[9px] text-text-muted w-12 flex-shrink-0">
                             カテゴリ
@@ -1351,136 +1405,151 @@ export function FontTypesTab() {
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* === 手動フォント追加 === */}
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <h4 className="text-[10px] font-bold text-text-secondary">フォント手動追加</h4>
-          <button
-            onClick={() => setShowManualFontAdd(!showManualFontAdd)}
-            className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-all ${
-              showManualFontAdd
-                ? "bg-accent-tertiary/10 text-accent-tertiary border-accent-tertiary/30"
-                : "bg-white text-text-muted border-border hover:text-accent-tertiary hover:border-accent-tertiary/30"
-            }`}
+      {/* === 手動フォント追加モーダル === */}
+      {showManualFontAdd && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowManualFontAdd(false);
+            }
+          }}
+        >
+          <div
+            className="w-[min(560px,calc(100vw-64px))] max-h-[80vh] overflow-hidden rounded-2xl border border-accent-tertiary/30 bg-white shadow-xl flex flex-col"
+            onMouseDown={(e) => e.stopPropagation()}
           >
-            {showManualFontAdd ? "閉じる" : "+ 追加フォーム"}
-          </button>
-        </div>
-
-        {showManualFontAdd && (
-          <div className="bg-accent-tertiary/5 rounded-xl px-3 py-2.5 border border-accent-tertiary/20 space-y-2">
-            <p className="text-[9px] text-text-muted">
-              追加したフォントは「手動追加」セットに登録されます。フォント名やPostScript名の一部を入力して検索できます。
-            </p>
-            <div className="relative">
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] text-text-muted w-20 flex-shrink-0">フォント検索</span>
-                <input
-                  type="text"
-                  value={fontSearchQuery}
-                  onChange={(e) => {
-                    setFontSearchQuery(e.target.value);
-                    setFontSearchNotFound(false);
-                    setShowSearchResults(false);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") resolveManualFontName();
-                  }}
-                  placeholder="例: 小塚ゴシック, KozGo, ヒラギノ..."
-                  className={`flex-1 bg-white border rounded-lg px-2 py-1 text-[10px] text-text-primary
+            <div className="flex items-center justify-between border-b border-border-light px-4 py-3 bg-gradient-to-r from-accent-tertiary/5 to-accent/5">
+              <div>
+                <h3 className="text-sm font-black text-text-primary">フォント追加</h3>
+                <p className="mt-0.5 text-[10px] font-semibold text-text-secondary">
+                  「手動追加」セットに登録されます
+                </p>
+              </div>
+              <button
+                onClick={() => setShowManualFontAdd(false)}
+                className="grid h-7 w-7 place-items-center rounded-lg text-text-muted hover:bg-bg-tertiary hover:text-text-primary"
+                title="閉じる"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+              <p className="text-[9px] text-text-muted">
+                フォント名やPostScript名の一部を入力して検索できます。
+              </p>
+              <div className="relative">
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-text-muted w-20 flex-shrink-0">
+                    フォント検索
+                  </span>
+                  <input
+                    type="text"
+                    value={fontSearchQuery}
+                    onChange={(e) => {
+                      setFontSearchQuery(e.target.value);
+                      setFontSearchNotFound(false);
+                      setShowSearchResults(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") resolveManualFontName();
+                    }}
+                    placeholder="例: 小塚ゴシック, KozGo, ヒラギノ..."
+                    className={`flex-1 bg-white border rounded-lg px-2 py-1 text-[10px] text-text-primary
                     focus:border-accent-tertiary focus:outline-none focus:ring-2 focus:ring-accent-tertiary/15
                     ${fontSearchNotFound ? "border-error" : "border-border"}`}
-                />
-                <button
-                  onClick={resolveManualFontName}
-                  disabled={!fontSearchQuery.trim() || manualFontResolving}
-                  className="text-[9px] text-accent-tertiary hover:bg-accent-tertiary/10 px-2 py-1 rounded-lg border border-accent-tertiary/30 transition-colors disabled:opacity-40"
-                  title="インストール済みフォントを部分一致検索"
-                >
-                  {manualFontResolving ? "..." : "検索"}
-                </button>
-              </div>
-              {fontSearchNotFound && (
-                <p className="text-[9px] text-error mt-1 ml-[88px]">
-                  一致するフォントが見つかりませんでした
-                </p>
-              )}
-              {showSearchResults && fontSearchResults.length > 0 && (
-                <div className="absolute left-[88px] right-0 mt-1 bg-white border border-accent-tertiary/30 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-                  <div className="px-2 py-1 text-[9px] text-text-muted border-b border-border bg-bg-tertiary rounded-t-lg">
-                    {fontSearchResults.length}件のフォントが見つかりました — クリックで選択
-                  </div>
-                  {fontSearchResults.map((r) => (
-                    <button
-                      key={r.postscript_name}
-                      onClick={() => selectSearchResult(r)}
-                      className="w-full text-left px-2 py-1.5 hover:bg-accent-tertiary/10 transition-colors border-b border-border/50 last:border-b-0"
-                    >
-                      <div className="text-[10px] text-text-primary font-medium">
-                        {r.display_name} {r.style_name}
-                      </div>
-                      <div className="text-[9px] text-text-muted font-mono">
-                        {r.postscript_name}
-                      </div>
-                    </button>
-                  ))}
+                  />
+                  <button
+                    onClick={resolveManualFontName}
+                    disabled={!fontSearchQuery.trim() || manualFontResolving}
+                    className="text-[9px] text-accent-tertiary hover:bg-accent-tertiary/10 px-2 py-1 rounded-lg border border-accent-tertiary/30 transition-colors disabled:opacity-40"
+                    title="インストール済みフォントを部分一致検索"
+                  >
+                    {manualFontResolving ? "..." : "検索"}
+                  </button>
                 </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-text-muted w-20 flex-shrink-0">PostScript名</span>
-              <input
-                type="text"
-                value={manualFont.psName}
-                onChange={(e) => setManualFont({ ...manualFont, psName: e.target.value })}
-                placeholder="検索結果から自動入力 or 直接入力"
-                className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary font-mono
+                {fontSearchNotFound && (
+                  <p className="text-[9px] text-error mt-1 ml-[88px]">
+                    一致するフォントが見つかりませんでした
+                  </p>
+                )}
+                {showSearchResults && fontSearchResults.length > 0 && (
+                  <div className="absolute left-[88px] right-0 mt-1 bg-white border border-accent-tertiary/30 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+                    <div className="px-2 py-1 text-[9px] text-text-muted border-b border-border bg-bg-tertiary rounded-t-lg">
+                      {fontSearchResults.length}件のフォントが見つかりました — クリックで選択
+                    </div>
+                    {fontSearchResults.map((r) => (
+                      <button
+                        key={r.postscript_name}
+                        onClick={() => selectSearchResult(r)}
+                        className="w-full text-left px-2 py-1.5 hover:bg-accent-tertiary/10 transition-colors border-b border-border/50 last:border-b-0"
+                      >
+                        <div className="text-[10px] text-text-primary font-medium">
+                          {r.display_name} {r.style_name}
+                        </div>
+                        <div className="text-[9px] text-text-muted font-mono">
+                          {r.postscript_name}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-text-muted w-20 flex-shrink-0">PostScript名</span>
+                <input
+                  type="text"
+                  value={manualFont.psName}
+                  onChange={(e) => setManualFont({ ...manualFont, psName: e.target.value })}
+                  placeholder="検索結果から自動入力 or 直接入力"
+                  className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary font-mono
                   focus:border-accent-tertiary focus:outline-none focus:ring-2 focus:ring-accent-tertiary/15"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-text-muted w-20 flex-shrink-0">表示名</span>
-              <input
-                type="text"
-                value={manualFont.displayName}
-                onChange={(e) => setManualFont({ ...manualFont, displayName: e.target.value })}
-                placeholder="検索結果から自動入力 or 手入力"
-                className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-text-muted w-20 flex-shrink-0">表示名</span>
+                <input
+                  type="text"
+                  value={manualFont.displayName}
+                  onChange={(e) => setManualFont({ ...manualFont, displayName: e.target.value })}
+                  placeholder="検索結果から自動入力 or 手入力"
+                  className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary
                   focus:border-accent-tertiary focus:outline-none focus:ring-2 focus:ring-accent-tertiary/15"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-text-muted w-20 flex-shrink-0">カテゴリ</span>
-              <input
-                list="subname-manual-list"
-                value={manualFont.subName}
-                onChange={(e) => setManualFont({ ...manualFont, subName: e.target.value })}
-                placeholder="自動判定（選択 or 手入力）"
-                className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-text-muted w-20 flex-shrink-0">カテゴリ</span>
+                <input
+                  list="subname-manual-list"
+                  value={manualFont.subName}
+                  onChange={(e) => setManualFont({ ...manualFont, subName: e.target.value })}
+                  placeholder="自動判定（選択 or 手入力）"
+                  className="flex-1 bg-white border border-border rounded-lg px-2 py-1 text-[10px] text-text-primary
                   focus:border-accent-tertiary focus:outline-none"
-              />
-              <datalist id="subname-manual-list">
-                {UNIQUE_SUB_NAMES.map((sn) => (
-                  <option key={sn} value={sn} />
-                ))}
-              </datalist>
+                />
+                <datalist id="subname-manual-list">
+                  {UNIQUE_SUB_NAMES.map((sn) => (
+                    <option key={sn} value={sn} />
+                  ))}
+                </datalist>
+              </div>
             </div>
-            <div className="flex gap-1.5 justify-end pt-1">
-              <button
-                onClick={handleManualFontAdd}
-                disabled={!manualFont.psName.trim()}
-                className="text-[10px] font-bold text-white px-4 py-1.5 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: "linear-gradient(135deg, #00c9a7, #7c5cff)" }}
-              >
-                手動追加に登録
-              </button>
+            <div className="flex gap-1.5 justify-end px-4 py-3 border-t border-border/40 bg-bg-tertiary/30">
               <button
                 onClick={() => {
                   setShowManualFontAdd(false);
@@ -1494,81 +1563,258 @@ export function FontTypesTab() {
               >
                 取消
               </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 未登録フォント */}
-      {scanData && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <h4 className="text-[10px] font-bold text-text-secondary">未登録フォント</h4>
-            <span
-              className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                unregisteredFonts.length === 0
-                  ? "text-success bg-success/10"
-                  : "text-warning bg-warning/10"
-              }`}
-            >
-              {unregisteredFonts.length}
-            </span>
-          </div>
-          {unregisteredFonts.length === 0 ? (
-            <div className="flex items-center gap-2 py-2.5 px-3 bg-success/5 rounded-xl border border-success/20">
-              <svg
-                className="w-3.5 h-3.5 text-success flex-shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
+              <button
+                onClick={handleManualFontAdd}
+                disabled={!manualFont.psName.trim()}
+                className="text-[10px] font-bold text-white px-4 py-1.5 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: "linear-gradient(135deg, #00c9a7, #7c5cff)" }}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span className="text-[10px] text-success font-medium">
-                全てのフォントが登録済みです
-              </span>
+                手動追加に登録
+              </button>
             </div>
-          ) : (
-            <>
-              <div className="space-y-1 mb-2">
-                {unregisteredFonts.map((f) => (
-                  <div
-                    key={f.name}
-                    className="flex items-center gap-2 bg-warning/5 hover:bg-warning/10 rounded-lg px-2.5 py-1.5
-                      border border-warning/10 hover:border-warning/30 transition-all"
-                  >
-                    <span className="text-xs text-text-primary flex-1 truncate">
-                      {f.displayName || f.name}
-                    </span>
-                    <span className="text-[9px] text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded">
-                      {f.count}回
-                    </span>
-                    <button
-                      onClick={() => handleAddUnregistered(f.name, f.displayName, f.count)}
-                      className="text-[10px] text-accent font-medium hover:text-white hover:bg-accent px-2 py-0.5 rounded-lg transition-all"
-                    >
-                      追加
-                    </button>
-                  </div>
-                ))}
+          </div>
+        </div>
+      )}
+
+      {/* === 未登録フォント モーダル === */}
+      {showUnregisteredModal && scanData && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowUnregisteredModal(false);
+          }}
+        >
+          <div
+            className="w-[min(560px,calc(100vw-64px))] max-h-[80vh] overflow-hidden rounded-2xl border border-warning/30 bg-white shadow-xl flex flex-col"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border-light px-4 py-3 bg-warning/5">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-black text-text-primary">未登録フォント</h3>
+                <span
+                  className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                    unregisteredFonts.length === 0
+                      ? "text-success bg-success/10"
+                      : "text-warning bg-warning/15"
+                  }`}
+                >
+                  {unregisteredFonts.length}
+                </span>
               </div>
               <button
-                onClick={handleAddAllUnregistered}
-                className="w-full py-2 text-[10px] font-bold text-white rounded-xl transition-all hover:-translate-y-0.5"
-                style={{
-                  background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
-                  boxShadow: "0 3px 12px rgba(255,90,138,0.2)",
-                }}
+                onClick={() => setShowUnregisteredModal(false)}
+                className="grid h-7 w-7 place-items-center rounded-lg text-text-muted hover:bg-bg-tertiary hover:text-text-primary"
+                title="閉じる"
               >
-                検出フォントを全て追加
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
-            </>
-          )}
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {unregisteredFonts.length === 0 ? (
+                <div className="flex items-center gap-2 py-2.5 px-3 bg-success/5 rounded-xl border border-success/20">
+                  <svg
+                    className="w-3.5 h-3.5 text-success flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span className="text-[10px] text-success font-medium">
+                    全てのフォントが登録済みです
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {unregisteredFonts.map((f) => (
+                    <div
+                      key={f.name}
+                      className="flex items-center gap-2 bg-warning/5 hover:bg-warning/10 rounded-lg px-2.5 py-1.5
+                        border border-warning/10 hover:border-warning/30 transition-all"
+                    >
+                      <span className="text-xs text-text-primary flex-1 truncate">
+                        {f.displayName || f.name}
+                      </span>
+                      <span className="text-[9px] text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded">
+                        {f.count}回
+                      </span>
+                      <button
+                        onClick={() => handleAddUnregistered(f.name, f.displayName, f.count)}
+                        className="text-[10px] text-accent font-medium hover:text-white hover:bg-accent px-2 py-0.5 rounded-lg transition-all"
+                      >
+                        追加
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {unregisteredFonts.length > 0 && (
+              <div className="flex items-center gap-2 px-4 py-3 border-t border-border/40 bg-bg-tertiary/30">
+                <button
+                  onClick={() => setShowUnregisteredModal(false)}
+                  className="text-[10px] text-text-muted px-3 py-1.5 hover:text-text-primary transition-colors ml-auto"
+                >
+                  閉じる
+                </button>
+                <button
+                  onClick={() => {
+                    handleAddAllUnregistered();
+                    setShowUnregisteredModal(false);
+                  }}
+                  className="text-[10px] font-bold text-white px-4 py-1.5 rounded-lg transition-all hover:-translate-y-0.5"
+                  style={{
+                    background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
+                    boxShadow: "0 3px 12px rgba(255,90,138,0.2)",
+                  }}
+                >
+                  検出フォントを全て追加
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* === 未インストールフォント モーダル === */}
+      {showMissingFontsModal && fontChecked && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowMissingFontsModal(false);
+          }}
+        >
+          <div
+            className="w-[min(560px,calc(100vw-64px))] max-h-[80vh] overflow-hidden rounded-2xl bg-white shadow-xl flex flex-col"
+            style={{ border: `1px solid ${MISSING_FONT_COLOR}40` }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div
+              className="flex items-center justify-between border-b border-border-light px-4 py-3"
+              style={{ backgroundColor: `${MISSING_FONT_COLOR}08` }}
+            >
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke={MISSING_FONT_COLOR}
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+                <h3 className="text-sm font-black" style={{ color: MISSING_FONT_COLOR }}>
+                  未インストールフォント
+                </h3>
+                <span
+                  className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                  style={{
+                    color: MISSING_FONT_COLOR,
+                    backgroundColor: `${MISSING_FONT_COLOR}18`,
+                  }}
+                >
+                  {missingFontNames.length}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowMissingFontsModal(false)}
+                className="grid h-7 w-7 place-items-center rounded-lg text-text-muted hover:bg-bg-tertiary hover:text-text-primary"
+                title="閉じる"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {missingFontNames.length === 0 ? (
+                <div className="flex items-center gap-2 py-2.5 px-3 bg-success/5 rounded-xl border border-success/20">
+                  <svg
+                    className="w-3.5 h-3.5 text-success flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span className="text-[10px] text-success font-medium">
+                    全てのフォントがインストール済みです
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {missingFontNames.map((n) => (
+                    <div
+                      key={n}
+                      className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 border"
+                      style={{
+                        backgroundColor: `${MISSING_FONT_COLOR}08`,
+                        borderColor: `${MISSING_FONT_COLOR}20`,
+                      }}
+                    >
+                      <span
+                        className="text-xs flex-1 truncate"
+                        style={{ color: MISSING_FONT_COLOR }}
+                      >
+                        {fontResolveMap[n]?.display_name || n}
+                      </span>
+                      <span className="text-[9px] text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded font-mono truncate max-w-[60%]">
+                        {n}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {missingFontNames.length > 0 && (
+              <div className="flex items-center gap-2 px-4 py-3 border-t border-border/40 bg-bg-tertiary/30">
+                <button
+                  onClick={() => setShowMissingFontsModal(false)}
+                  className="text-[10px] text-text-muted px-3 py-1.5 hover:text-text-primary transition-colors ml-auto"
+                >
+                  閉じる
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMissingFontsModal(false);
+                    setShowFontBrowser(true);
+                  }}
+                  className="text-[10px] font-bold text-white px-4 py-1.5 rounded-lg transition-colors"
+                  style={{ backgroundColor: MISSING_FONT_COLOR }}
+                >
+                  共有フォルダから探す
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
