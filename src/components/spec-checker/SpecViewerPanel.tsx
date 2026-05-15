@@ -976,7 +976,7 @@ export function SpecViewerPanel({
       </div>
 
       {/* Sidebar */}
-      <div className="w-[320px] flex-shrink-0 border-l border-border bg-bg-secondary flex flex-col">
+      <div className="w-[480px] flex-shrink-0 border-l border-border bg-bg-secondary flex flex-col">
         {/* File header */}
         <div className="px-3 py-2 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -1056,7 +1056,7 @@ export function SpecViewerPanel({
                   : "text-text-muted hover:text-text-secondary"
               }`}
             >
-              写植仕様
+              校正データ確認
             </button>
             <button
               onClick={() => setSidebarTab("layers")}

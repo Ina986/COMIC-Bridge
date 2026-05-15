@@ -94,6 +94,7 @@ interface SpecStore {
   lastSelectedSpecId: string | null;
   showSpecSelectionModal: boolean;
   pendingFilesCount: number; // モーダル表示時の読み込み待ちファイル数
+  guidanceBannerDismissed: boolean;
 
   // 変換関連
   conversionSettings: ConversionSettings;
@@ -114,6 +115,7 @@ interface SpecStore {
   openSpecSelectionModal: (pendingFilesCount: number) => void;
   closeSpecSelectionModal: () => void;
   selectSpecAndCheck: (specId: string) => void;
+  setGuidanceBannerDismissed: (dismissed: boolean) => void;
 
   // Check results
   setCheckResult: (fileId: string, result: SpecCheckResult) => void;
@@ -159,6 +161,7 @@ export const useSpecStore = create<SpecStore>((set, get) => ({
   lastSelectedSpecId: getStoredLastSpecId(),
   showSpecSelectionModal: false,
   pendingFilesCount: 0,
+  guidanceBannerDismissed: false,
 
   conversionSettings: DEFAULT_CONVERSION_SETTINGS,
   isConverting: false,
@@ -214,6 +217,8 @@ export const useSpecStore = create<SpecStore>((set, get) => ({
     set({ showSpecSelectionModal: true, pendingFilesCount }),
 
   closeSpecSelectionModal: () => set({ showSpecSelectionModal: false, pendingFilesCount: 0 }),
+
+  setGuidanceBannerDismissed: (guidanceBannerDismissed) => set({ guidanceBannerDismissed }),
 
   selectSpecAndCheck: (specId) => {
     const { specifications, setLastSelectedSpecId } = get();

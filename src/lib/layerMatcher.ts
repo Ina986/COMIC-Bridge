@@ -126,6 +126,10 @@ function nameMatches(layerName: string, targetName: string, partial: boolean): b
   return partial ? a.includes(b) : a === b;
 }
 
+function matchesAnyName(layerName: string, targetNames: string[], partial: boolean): boolean {
+  return targetNames.some((name) => name.trim() && nameMatches(layerName, name, partial));
+}
+
 export function findReplaceTargets(
   layers: LayerNode[],
   settings: ReplaceSettings,
@@ -175,11 +179,15 @@ export function findReplaceTargets(
       if (
         mode === "image" &&
         imageSettings.replaceSpecialLayer &&
-        imageSettings.specialLayerName &&
+        ((imageSettings.specialLayerNames?.some((name) => name.trim()) ??
+          Boolean(imageSettings.specialLayerName)) ||
+          false) &&
         layer.type !== "group" &&
-        nameMatches(
+        matchesAnyName(
           layer.name,
-          imageSettings.specialLayerName,
+          imageSettings.specialLayerNames?.length
+            ? imageSettings.specialLayerNames
+            : [imageSettings.specialLayerName],
           imageSettings.specialLayerPartialMatch,
         )
       ) {

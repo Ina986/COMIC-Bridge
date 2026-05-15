@@ -53,10 +53,12 @@ function removeNonTextLayersFromFolder(folder) {
 // 特定名レイヤーを収集
 function collectSpecialLayers(parentObject, collectedArray, specialName, usePartialMatch) {
     if (!parentObject || !parentObject.typename) return;
+    var names = normalizeNameList(specialName);
+    if (names.length === 0) return;
     if (parentObject.artLayers) {
         for (var i = 0; i < parentObject.artLayers.length; i++) {
             var layer = parentObject.artLayers[i];
-            var isMatch = usePartialMatch ? (layer.name.indexOf(specialName) !== -1) : (layer.name === specialName);
+            var isMatch = matchesAnyName(layer.name, names, usePartialMatch);
             if (layer.visible && isMatch) collectedArray.push(layer);
         }
     }
@@ -66,6 +68,33 @@ function collectSpecialLayers(parentObject, collectedArray, specialName, usePart
             if (layerSet.visible) collectSpecialLayers(layerSet, collectedArray, specialName, usePartialMatch);
         }
     }
+}
+
+function normalizeNameList(nameOrNames) {
+    var names = [];
+    if (nameOrNames instanceof Array) {
+        for (var i = 0; i < nameOrNames.length; i++) {
+            if (nameOrNames[i] !== undefined && nameOrNames[i] !== null) {
+                var n = String(nameOrNames[i]);
+                if (n !== "") names.push(n);
+            }
+        }
+    } else if (nameOrNames !== undefined && nameOrNames !== null) {
+        var single = String(nameOrNames);
+        if (single !== "") names.push(single);
+    }
+    return names;
+}
+
+function matchesAnyName(layerName, names, usePartialMatch) {
+    for (var i = 0; i < names.length; i++) {
+        if (usePartialMatch) {
+            if (layerName.indexOf(names[i]) !== -1) return true;
+        } else if (layerName === names[i]) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // 特定名グループ（LayerSet）を収集
@@ -320,7 +349,9 @@ function main() {
     var shouldRoundFontSize = generalSettings.roundFontSize;
     var useSourceFileName = (generalSettings.saveFileName === "source");
 
-    var specialName = imageSettings.specialLayerName;
+    var specialName = (imageSettings.specialLayerNames && imageSettings.specialLayerNames.length)
+        ? imageSettings.specialLayerNames
+        : imageSettings.specialLayerName;
     var specialPartialMatch = imageSettings.specialLayerPartialMatch;
     var groupName = "";
     var groupPartialMatch = false;
@@ -960,7 +991,7 @@ function processPair(pair, opts) {
                     } catch (e) {}
                 }
             }
-            if (specialCount > 0) result.changes.push("特定名レイヤー「" + opts.specialName + "」" + specialCount + " 個を複製");
+            if (specialCount > 0) result.changes.push("特定名レイヤー「" + normalizeNameList(opts.specialName).join(" / ") + "」" + specialCount + " 個を複製");
         }
 
         // === 4. 特定名グループ処理 ===

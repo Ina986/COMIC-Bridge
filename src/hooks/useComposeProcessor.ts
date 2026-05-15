@@ -493,6 +493,7 @@ export function useComposeProcessor() {
         replaceBackground: false,
         replaceSpecialLayer: false,
         specialLayerName: "",
+        specialLayerNames: [""],
         specialLayerPartialMatch: false,
         replaceNamedGroup: false,
         namedGroupName: "",

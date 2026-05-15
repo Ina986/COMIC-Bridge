@@ -11,18 +11,35 @@ import { useGlobalDragDrop } from "../../hooks/useGlobalDragDrop";
 import { useOpenFolderShortcut } from "../../hooks/useOpenFolder";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
 import { useHandoff } from "../../hooks/useHandoff";
+import { useFolderPicker } from "../../hooks/useFolderPicker";
 
 export function AppLayout() {
   const isEditorOpen = useGuideStore((state) => state.isEditorOpen);
   const clearSelection = usePsdStore((state) => state.clearSelection);
   const selectAll = usePsdStore((state) => state.selectAll);
   const files = usePsdStore((state) => state.files);
+  const { openFolderPicker } = useFolderPicker();
 
   // グローバルドラッグ＆ドロップ（常時有効）
   useGlobalDragDrop();
 
   // Fキーでフォルダを開く（全タブ共通）
   useOpenFolderShortcut();
+
+  // Ctrl+O で読み込みフォルダを選択
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "o") {
+        return;
+      }
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      openFolderPicker();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [openFolderPicker]);
 
   // ファイル変更検知（外部Photoshop保存を検知）
   useFileWatcher();

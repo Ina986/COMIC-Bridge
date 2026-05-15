@@ -39,6 +39,8 @@ export function SpecCheckView() {
   const setConversionSettings = useSpecStore((state) => state.setConversionSettings);
   const conversionResults = useSpecStore((state) => state.conversionResults);
   const clearConversionResults = useSpecStore((state) => state.clearConversionResults);
+  const guidanceBannerDismissed = useSpecStore((state) => state.guidanceBannerDismissed);
+  const setGuidanceBannerDismissed = useSpecStore((state) => state.setGuidanceBannerDismissed);
 
   const guides = useGuideStore((state) => state.guides);
   const openEditor = useGuideStore((state) => state.openEditor);
@@ -189,7 +191,6 @@ export function SpecCheckView() {
     return <DropZone />;
   }
 
-  const noSpecSelected = !activeSpecId;
   const hasChecked = checkResults.size > 0;
   const allPassed = hasChecked && stats.failed === 0 && stats.unchecked === 0;
 
@@ -198,6 +199,31 @@ export function SpecCheckView() {
       {/* Toolbar */}
       <div className="px-4 py-2 bg-bg-secondary border-b border-border flex items-center gap-4 flex-shrink-0">
         {/* Spec Presets */}
+        <button
+          type="button"
+          onClick={() => setGuidanceBannerDismissed(!guidanceBannerDismissed)}
+          className={`w-7 h-7 flex items-center justify-center rounded-full border transition-colors flex-shrink-0 ${
+            guidanceBannerDismissed
+              ? "border-accent/40 text-accent bg-accent/10 hover:bg-accent/20 hover:border-accent/60"
+              : "border-accent/60 text-white bg-accent hover:bg-accent/90"
+          }`}
+          title={guidanceBannerDismissed ? "仕様チェックの案内を表示" : "仕様チェックの案内を閉じる"}
+        >
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M13 16h-1v-4h-1m1-4h.01"
+            />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+        </button>
         <div className="flex items-center gap-2">
           <span className="text-xs text-text-muted flex-shrink-0">仕様:</span>
           {specifications.map((spec) => (
@@ -225,26 +251,20 @@ export function SpecCheckView() {
 
         {/* Stats */}
         <div className="flex items-center gap-3">
-          {hasChecked && (
-            <>
-              <div className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-success" />
-                <span className="text-xs font-medium text-success">{stats.passed}</span>
-                <span className="text-xs text-text-muted">OK</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-error" />
-                <span className="text-xs font-medium text-error">{stats.failed}</span>
-                <span className="text-xs text-text-muted">NG</span>
-              </div>
-              {stats.caution > 0 && (
-                <div className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-warning" />
-                  <span className="text-xs font-medium text-warning">{stats.caution}</span>
-                  <span className="text-xs text-text-muted">注意</span>
-                </div>
-              )}
-            </>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-bold leading-none text-success">〇</span>
+            <span className="text-xs font-medium text-success">{stats.passed}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-bold leading-none text-error">×</span>
+            <span className="text-xs font-medium text-error">{stats.failed}</span>
+          </div>
+          {hasChecked && stats.caution > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-warning" />
+              <span className="text-xs font-medium text-warning">{stats.caution}</span>
+              <span className="text-xs text-text-muted">注意</span>
+            </div>
           )}
           {stats.noGuides > 0 && (
             <>
@@ -374,7 +394,7 @@ export function SpecCheckView() {
       </div>
 
       {/* Guidance Banner - when no spec selected */}
-      {noSpecSelected && !hasChecked && (
+      {!guidanceBannerDismissed && (
         <div className="px-4 py-3 bg-accent/5 border-b border-accent/20 flex items-center gap-3 flex-shrink-0">
           <div className="w-6 h-6 rounded-full bg-accent/15 flex items-center justify-center flex-shrink-0">
             <svg
@@ -399,6 +419,22 @@ export function SpecCheckView() {
               モノクロ原稿 (Grayscale/600dpi/8bit) またはカラー原稿 (RGB/350dpi/8bit) を選択
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setGuidanceBannerDismissed(true)}
+            className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors flex-shrink-0"
+            title="閉じる"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
 

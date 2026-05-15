@@ -29,6 +29,7 @@ export interface ImageModeSettings {
   replaceBackground: boolean; // 最下層レイヤー差替え
   replaceSpecialLayer: boolean; // 特定名レイヤー差替え
   specialLayerName: string; // e.g. "白消し"
+  specialLayerNames: string[]; // 複数の特定名レイヤー
   specialLayerPartialMatch: boolean;
   replaceNamedGroup: boolean; // 特定名グループ差替え
   namedGroupName: string; // e.g. "棒消し"

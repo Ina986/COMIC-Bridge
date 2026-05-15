@@ -60,6 +60,30 @@ export function ReplacePanel() {
   const isSwitch = settings.mode === "switch";
   const isCompose = settings.mode === "compose";
   const isWhiteToBar = settings.switchSettings.subMode === "whiteToBar";
+  const specialLayerNames =
+    settings.imageSettings.specialLayerNames?.length > 0
+      ? settings.imageSettings.specialLayerNames
+      : [settings.imageSettings.specialLayerName || ""];
+
+  const updateSpecialLayerNames = (names: string[]) => {
+    const normalized = names.length > 0 ? names : [""];
+    setImageSettings({
+      specialLayerNames: normalized,
+      specialLayerName: normalized[0] ?? "",
+    });
+  };
+
+  const updateSpecialLayerName = (index: number, value: string) => {
+    updateSpecialLayerNames(specialLayerNames.map((name, i) => (i === index ? value : name)));
+  };
+
+  const addSpecialLayerName = () => {
+    updateSpecialLayerNames([...specialLayerNames, ""]);
+  };
+
+  const removeSpecialLayerName = (index: number) => {
+    updateSpecialLayerNames(specialLayerNames.filter((_, i) => i !== index));
+  };
 
   const handleSelectFolder = async (type: "source" | "target") => {
     const title = isCompose
@@ -212,7 +236,9 @@ export function ReplacePanel() {
                     checked={settings.generalSettings.roundFontSize}
                     onChange={(v) => setGeneralSettings({ roundFontSize: v })}
                   >
-                    <span className="text-[10px] text-text-secondary">フォントサイズを丸める</span>
+                    <span className="text-[10px] text-text-secondary">
+                      小数点以下を切り捨て
+                    </span>
                   </CheckBox>
                 </div>
               </div>
@@ -247,13 +273,46 @@ export function ReplacePanel() {
                 </CheckBox>
                 {settings.imageSettings.replaceSpecialLayer && (
                   <div className="ml-6 space-y-1.5">
-                    <input
-                      type="text"
-                      value={settings.imageSettings.specialLayerName}
-                      onChange={(e) => setImageSettings({ specialLayerName: e.target.value })}
-                      placeholder="レイヤー名"
-                      className="w-full bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent-secondary focus:outline-none"
-                    />
+                    {specialLayerNames.map((name, index) => (
+                      <div key={index} className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={name}
+                          onChange={(e) => updateSpecialLayerName(index, e.target.value)}
+                          placeholder="レイヤー名"
+                          className="min-w-0 flex-1 bg-bg-elevated border border-white/10 rounded-lg px-3 py-1.5 text-xs text-text-primary focus:border-accent-secondary focus:outline-none"
+                        />
+                        {specialLayerNames.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeSpecialLayerName(index)}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors flex-shrink-0"
+                            title="削除"
+                          >
+                            <svg
+                              className="w-3.5 h-3.5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M6 18L18 6M6 6l12 12"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addSpecialLayerName}
+                      className="w-full px-2 py-1 text-[10px] rounded-lg bg-bg-elevated border border-white/10 text-text-secondary hover:text-text-primary hover:border-accent-secondary/40 transition-colors"
+                    >
+                      レイヤー名を追加
+                    </button>
                     <CheckBox
                       checked={settings.imageSettings.specialLayerPartialMatch}
                       onChange={(v) => setImageSettings({ specialLayerPartialMatch: v })}
@@ -329,7 +388,9 @@ export function ReplacePanel() {
                     checked={settings.generalSettings.roundFontSize}
                     onChange={(v) => setGeneralSettings({ roundFontSize: v })}
                   >
-                    <span className="text-[10px] text-text-secondary">フォントサイズを丸める</span>
+                    <span className="text-[10px] text-text-secondary">
+                      小数点以下を切り捨て
+                    </span>
                   </CheckBox>
                   <CheckBox
                     checked={settings.generalSettings.skipResize}
@@ -597,7 +658,9 @@ export function ReplacePanel() {
                     checked={settings.composeSettings.roundFontSize}
                     onChange={(v) => setComposeSettings({ roundFontSize: v })}
                   >
-                    <span className="text-[10px] text-text-secondary">フォントサイズを丸める</span>
+                    <span className="text-[10px] text-text-secondary">
+                      小数点以下を切り捨て
+                    </span>
                   </CheckBox>
                 </div>
               </div>

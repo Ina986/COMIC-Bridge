@@ -174,31 +174,6 @@ export function TopNav() {
       className="h-12 flex-shrink-0 bg-bg-secondary border-b border-border flex items-center px-3 gap-2 relative z-20 shadow-soft"
       data-tauri-drag-region
     >
-      {/* Logo */}
-      <div className="flex items-center gap-2 mr-2 flex-shrink-0">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-accent to-accent-secondary flex items-center justify-center shadow-sm">
-          <svg
-            className="w-4 h-4 text-white"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-            />
-          </svg>
-        </div>
-        <span className="font-display font-bold text-sm text-text-primary hidden xl:block">
-          COMIC-Bridge
-        </span>
-      </div>
-
-      {/* Separator */}
-      <div className="w-px h-6 bg-border flex-shrink-0" />
-
       {/* View Tabs */}
       <div className="flex items-center gap-1 flex-1 min-w-0">
         {VIEW_TABS.map((tab) => (
@@ -222,24 +197,20 @@ export function TopNav() {
       </div>
 
       {/* Right: Status */}
-      {files.length > 0 && (
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-xs text-text-muted">{files.length} ファイル</span>
-          {checkResults.size > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-tertiary">
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                <span className="text-xs font-medium text-success">{passedCount}</span>
-              </div>
-              <span className="w-px h-3 bg-border" />
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-error" />
-                <span className="text-xs font-medium text-error">{failedCount}</span>
-              </div>
-            </div>
-          )}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="text-xs text-text-muted">{files.length} ファイル</span>
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-tertiary">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-bold leading-none text-success">〇</span>
+            <span className="text-xs font-medium text-success">{passedCount}</span>
+          </div>
+          <span className="w-px h-3 bg-border" />
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-bold leading-none text-error">×</span>
+            <span className="text-xs font-medium text-error">{failedCount}</span>
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Version + Update */}
       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">

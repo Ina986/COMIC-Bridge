@@ -60,7 +60,6 @@ function getMaxExistingVolume(): number {
 export function ScanPsdEditView() {
   const activeTab = useScanPsdStore((s) => s.activeTab);
   const setActiveTab = useScanPsdStore((s) => s.setActiveTab);
-  const currentJsonFilePath = useScanPsdStore((s) => s.currentJsonFilePath);
   const phase = useScanPsdStore((s) => s.phase);
   const workInfo = useScanPsdStore((s) => s.workInfo);
   const pendingTitleLabel = useScanPsdStore((s) => s.pendingTitleLabel);
@@ -99,7 +98,6 @@ export function ScanPsdEditView() {
   // 巻数管理ダイアログ
   const [showVolumeDialog, setShowVolumeDialog] = useState(false);
 
-  const fileName = currentJsonFilePath ? currentJsonFilePath.split(/[\\/]/).pop() || "" : "";
   const missingByTab = useMemo(() => {
     const counts = new Map<ScanPsdTab, number>();
     for (const field of missingFields) {
@@ -114,11 +112,6 @@ export function ScanPsdEditView() {
   const baseSize = scanData?.sizeStats?.mostFrequent?.size ?? null;
   const selectedGuide =
     selectedGuideIndex != null ? scanData?.guideSets?.[selectedGuideIndex] : null;
-  const completion = Math.max(
-    0,
-    Math.min(100, Math.round(((5 - Math.min(missingByTab.size, 5)) / 5) * 100)),
-  );
-
   const sectionMeta = [
     {
       tab: 0 as ScanPsdTab,
@@ -338,131 +331,7 @@ export function ScanPsdEditView() {
   return (
       <div className="h-full flex flex-col overflow-hidden bg-bg-primary">
         <div className="flex-1 min-h-0 grid grid-rows-[1fr] overflow-hidden bg-bg-primary">
-          <div className="min-h-0 grid grid-cols-[260px_minmax(0,1fr)] gap-3 p-3 overflow-hidden">
-            <aside className="min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-rows-[auto_1fr_auto]">
-              <div className="p-3 border-b border-border-light">
-                <p className="text-[10px] font-black uppercase text-text-muted tracking-wide">
-                  Current JSON
-                </p>
-                <div className="mt-2 flex items-center gap-2 min-w-0 rounded-lg bg-bg-tertiary border border-border-light p-2">
-                  <div className="w-7 h-7 rounded-lg grid place-items-center bg-accent/10 text-accent text-xs font-black">
-                    J
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-black text-text-primary truncate">
-                      {fileName || "untitled.json"}
-                    </p>
-                    <p className="text-[10px] text-text-muted mt-0.5 truncate">
-                      {workInfo.label || "label"} / {workInfo.title || "title"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5">
-                {sectionMeta.map((section) => {
-                  const missingCount = missingByTab.get(section.tab) ?? 0;
-                  const isActive = activeTab === section.tab;
-                  return (
-                    <button
-                      key={section.tab}
-                      onClick={() => setActiveTab(section.tab)}
-                      className={`grid grid-cols-[28px_1fr_auto] items-center gap-2 text-left min-h-[44px] rounded-lg border p-2 transition-all ${
-                        isActive
-                          ? "bg-accent/10 border-accent/25 text-text-primary"
-                          : missingCount
-                            ? "bg-warning/5 border-transparent hover:bg-warning/10"
-                            : "bg-transparent border-transparent hover:bg-bg-tertiary/80"
-                      }`}
-                    >
-                      <span
-                        className={`w-7 h-7 rounded-lg grid place-items-center text-[11px] font-black ${
-                          isActive ? "text-white" : "text-text-primary bg-bg-tertiary"
-                        }`}
-                        style={
-                          isActive
-                            ? { background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }
-                            : undefined
-                        }
-                      >
-                        {section.icon}
-                      </span>
-                      <span className="min-w-0">
-                        <strong className="block text-xs leading-tight text-text-primary truncate">
-                          {section.title}
-                        </strong>
-                        <span className="block text-[10px] leading-tight text-[#4b5563] font-semibold truncate mt-1">
-                          {getSectionSub(section.tab)}
-                        </span>
-                      </span>
-                      <span
-                        className={`text-[9px] font-black rounded-full px-2 py-0.5 whitespace-nowrap ${
-                          missingCount ? "text-warning bg-warning/15" : "text-success bg-success/10"
-                        }`}
-                      >
-                        {missingCount ? `${missingCount}` : "OK"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="border-t border-border-light p-2.5 grid gap-2">
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => setShowVolumeDialog(true)}
-                    disabled={
-                      phase !== "idle" ||
-                      !scanData?.folderVolumeMapping ||
-                      Object.keys(scanData.folderVolumeMapping).length === 0
-                    }
-                    className="h-8 px-2 text-[10px] font-black text-text-primary bg-bg-tertiary rounded-lg hover:bg-border-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    巻数管理
-                  </button>
-                  <button
-                    onClick={handleOpenScanDialog}
-                    disabled={phase !== "idle"}
-                    className="h-8 px-2 text-[10px] font-black text-accent bg-accent/10 rounded-lg hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    追加スキャン
-                  </button>
-                </div>
-                <button
-                  onClick={handleSave}
-                  disabled={phase !== "idle"}
-                  className={`h-8 px-4 text-[10px] font-black text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all ${
-                    pendingTitleLabel && workInfo.title && workInfo.label
-                      ? "bg-gradient-to-r from-success to-emerald-500 shadow-glow-success animate-pulse"
-                      : ""
-                  }`}
-                  style={
-                    !(pendingTitleLabel && workInfo.title && workInfo.label)
-                      ? {
-                          background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
-                          boxShadow: "0 4px 15px rgba(255, 90, 138, 0.22)",
-                        }
-                      : undefined
-                  }
-                >
-                  {pendingTitleLabel && workInfo.title && workInfo.label ? "正式保存" : "保存"}
-                </button>
-                <div className="grid grid-cols-[1fr_auto] gap-2 items-center text-[10px] font-bold text-text-secondary">
-                  <span>入力進捗</span>
-                  <span className="text-text-secondary">{completion}%</span>
-                  <div className="col-span-2 h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${completion}%`,
-                        background: "linear-gradient(90deg, #ff5a8a, #00c9a7)",
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </aside>
-
+          <div className="min-h-0 grid grid-cols-[minmax(0,1fr)] gap-3 p-3 overflow-hidden">
             <main className="min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-rows-[auto_1fr]">
               <div className="px-4 py-3 border-b border-border-light flex items-center gap-3">
                 <div className="min-w-0 flex-1">
@@ -472,6 +341,71 @@ export function ScanPsdEditView() {
                   <p className="text-[11px] text-text-muted font-semibold mt-1 truncate">
                     {getSectionSub(activeSection.tab)} / {getSectionValue(activeSection.tab)}
                   </p>
+                </div>
+                <div className="flex bg-bg-elevated rounded-md p-0.5 border border-white/5 flex-shrink-0">
+                  {sectionMeta.map((section) => {
+                    const missingCount = missingByTab.get(section.tab) ?? 0;
+                    const isActive = activeTab === section.tab;
+                    return (
+                      <button
+                        key={section.tab}
+                        onClick={() => setActiveTab(section.tab)}
+                        className={`px-2 py-1 text-[10px] rounded transition-all flex items-center gap-1 ${
+                          isActive
+                            ? "bg-bg-tertiary text-text-primary font-medium shadow-sm"
+                            : missingCount
+                              ? "text-warning hover:bg-warning/10"
+                              : "text-text-muted hover:text-text-secondary"
+                        }`}
+                      >
+                        {section.title}
+                        {missingCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold bg-warning/10 text-warning">
+                            {missingCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => setShowVolumeDialog(true)}
+                    disabled={
+                      phase !== "idle" ||
+                      !scanData?.folderVolumeMapping ||
+                      Object.keys(scanData.folderVolumeMapping).length === 0
+                    }
+                    className="h-7 px-2 text-[10px] font-black text-text-primary bg-bg-tertiary rounded-lg hover:bg-border-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    巻数管理
+                  </button>
+                  <button
+                    onClick={handleOpenScanDialog}
+                    disabled={phase !== "idle"}
+                    className="h-7 px-2 text-[10px] font-black text-accent bg-accent/10 rounded-lg hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    追加スキャン
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={phase !== "idle"}
+                    className={`h-7 px-3 text-[10px] font-black text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all ${
+                      pendingTitleLabel && workInfo.title && workInfo.label
+                        ? "bg-gradient-to-r from-success to-emerald-500 shadow-glow-success animate-pulse"
+                        : ""
+                    }`}
+                    style={
+                      !(pendingTitleLabel && workInfo.title && workInfo.label)
+                        ? {
+                            background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
+                            boxShadow: "0 4px 15px rgba(255, 90, 138, 0.22)",
+                          }
+                        : undefined
+                    }
+                  >
+                    {pendingTitleLabel && workInfo.title && workInfo.label ? "正式保存" : "保存"}
+                  </button>
                 </div>
               </div>
 

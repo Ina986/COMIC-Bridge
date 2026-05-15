@@ -10,7 +10,71 @@ import {
 import { useOpenFolder } from "../../hooks/useOpenFolder";
 import { useOpenInPhotoshop } from "../../hooks/useOpenInPhotoshop";
 
-export function TypesettingViewerPanel() {
+export function TypesettingViewerHeader() {
+  const files = usePsdStore((s) => s.files);
+  const viewerFileIndex = useTypesettingCheckStore((s) => s.viewerFileIndex);
+  const { openFolderForFile } = useOpenFolder();
+  const { openFileInPhotoshop } = useOpenInPhotoshop();
+  const viewerFile = files[viewerFileIndex] ?? files[0] ?? null;
+
+  if (files.length === 0) return null;
+
+  return (
+    <div className="px-3 py-2 border-b border-border flex-shrink-0 bg-bg-secondary">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-display font-medium text-text-primary truncate flex-1">
+          {viewerFile?.fileName}
+        </span>
+        {files.length > 1 && (
+          <span className="text-[10px] text-text-muted flex-shrink-0">
+            {viewerFileIndex + 1} / {files.length}
+          </span>
+        )}
+        {viewerFile && (
+          <button
+            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all text-text-muted hover:text-text-primary hover:bg-bg-tertiary active:scale-95"
+            onClick={() => openFolderForFile(viewerFile.filePath)}
+            title="繝輔か繝ｫ繝繧帝幕縺・(F)"
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+              />
+            </svg>
+          </button>
+        )}
+        {viewerFile && (
+          <button
+            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all text-[#31A8FF] hover:bg-[#31A8FF]/15 active:scale-95"
+            onClick={() => openFileInPhotoshop(viewerFile.filePath)}
+            title="Photoshop縺ｧ髢九￥ (P)"
+          >
+            <span className="text-sm font-bold leading-none">Ps</span>
+          </button>
+        )}
+      </div>
+      {viewerFile?.metadata && (
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[10px] text-text-muted">
+            {viewerFile.metadata.width} x {viewerFile.metadata.height}
+          </span>
+          <span className="text-[10px] text-text-muted">{viewerFile.metadata.dpi} dpi</span>
+          <span className="text-[10px] text-text-muted">{viewerFile.metadata.colorMode}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function TypesettingViewerPanel({ showHeader = true }: { showHeader?: boolean }) {
   const files = usePsdStore((s) => s.files);
   const selectedFileIds = usePsdStore((s) => s.selectedFileIds);
   const viewerFileIndex = useTypesettingCheckStore((s) => s.viewerFileIndex);
@@ -135,8 +199,9 @@ export function TypesettingViewerPanel() {
 
   return (
     <div className="flex flex-col h-full">
+      {showHeader && <TypesettingViewerHeader />}
       {/* Header */}
-      <div className="px-3 py-2 border-b border-border flex-shrink-0 bg-bg-secondary">
+      <div className="hidden">
         <div className="flex items-center gap-2">
           <span className="text-xs font-display font-medium text-text-primary truncate flex-1">
             {viewerFile?.fileName}

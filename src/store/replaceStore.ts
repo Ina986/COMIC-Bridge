@@ -138,6 +138,7 @@ const defaultSettings: ReplaceSettings = {
     replaceBackground: false,
     replaceSpecialLayer: false,
     specialLayerName: "白消し",
+    specialLayerNames: ["白消し"],
     specialLayerPartialMatch: true,
     replaceNamedGroup: false,
     namedGroupName: "棒消し",

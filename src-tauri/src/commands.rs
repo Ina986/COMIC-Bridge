@@ -3322,6 +3322,8 @@ pub struct ReplaceImageSettings {
     pub replace_special_layer: bool,
     #[serde(rename = "specialLayerName")]
     pub special_layer_name: String,
+    #[serde(rename = "specialLayerNames", default)]
+    pub special_layer_names: Vec<String>,
     #[serde(rename = "specialLayerPartialMatch")]
     pub special_layer_partial_match: bool,
     #[serde(rename = "replaceNamedGroup")]

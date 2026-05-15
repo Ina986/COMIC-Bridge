@@ -74,8 +74,17 @@ export function ScanPsdView() {
               reset();
               setMode(null);
             }}
-            className="ml-auto h-7 px-3 text-[10px] font-bold text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-tertiary transition-colors"
+            className="ml-auto h-9 px-4 text-xs font-bold text-text-secondary hover:text-text-primary rounded-xl border border-border hover:border-accent/40 hover:bg-bg-tertiary transition-colors inline-flex items-center gap-1.5"
           >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.4}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
             戻る
           </button>
         )}
@@ -89,7 +98,12 @@ export function ScanPsdView() {
           <>
             {!mode && <ScanPsdModeSelector />}
             {mode === "edit" && currentJsonFilePath && <ScanPsdEditView />}
-            {mode && !(mode === "edit" && currentJsonFilePath) && (
+            {mode === "edit" && !currentJsonFilePath && (
+              <div className="h-full overflow-hidden">
+                <ScanPsdContent />
+              </div>
+            )}
+            {mode === "new" && (
               <div className="flex h-full overflow-hidden">
                 {/* Left Panel: 5-Tab Manager */}
                 <div className="w-[400px] flex-shrink-0 border-r border-border overflow-hidden flex flex-col">

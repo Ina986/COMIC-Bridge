@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useScanPsdStore } from "../../store/scanPsdStore";
@@ -15,8 +15,6 @@ export function ScanPsdPanel() {
   const activeTab = useScanPsdStore((s) => s.activeTab);
   const setActiveTab = useScanPsdStore((s) => s.setActiveTab);
   const mode = useScanPsdStore((s) => s.mode);
-  const setMode = useScanPsdStore((s) => s.setMode);
-  const reset = useScanPsdStore((s) => s.reset);
   const currentJsonFilePath = useScanPsdStore((s) => s.currentJsonFilePath);
   const phase = useScanPsdStore((s) => s.phase);
   const workInfo = useScanPsdStore((s) => s.workInfo);
@@ -29,6 +27,13 @@ export function ScanPsdPanel() {
   const rubyList = useScanPsdStore((s) => s.rubyList);
 
   const { savePresetJson, startScan } = useScanPsdProcessor();
+  const lockResultTabs = mode === "new" && !scanData;
+
+  useEffect(() => {
+    if (lockResultTabs && activeTab > 0) {
+      setActiveTab(0);
+    }
+  }, [activeTab, lockResultTabs, setActiveTab]);
 
   // 全タブの未記入・未設定項目
   const missingFields = useMemo(
@@ -154,15 +159,6 @@ export function ScanPsdPanel() {
               {displayFileName && ` - ${displayFileName}`}
             </p>
           </div>
-          <button
-            onClick={() => {
-              reset();
-              setMode(null);
-            }}
-            className="text-[10px] text-text-muted hover:text-text-primary px-2 py-1 rounded-lg hover:bg-bg-tertiary transition-colors"
-          >
-            戻る
-          </button>
         </div>
       </div>
 
@@ -177,21 +173,35 @@ export function ScanPsdPanel() {
 
       {/* Tab Bar */}
       <div className="flex border-b border-border flex-shrink-0 bg-bg-secondary">
-        {TAB_LABELS.map((label, i) => (
-          <button
-            key={i}
-            onClick={() => setActiveTab(i as ScanPsdTab)}
-            className={`
-              flex-1 py-2 text-[10px] font-medium transition-colors relative
-              ${activeTab === i ? "text-accent" : "text-text-muted hover:text-text-secondary"}
-            `}
-          >
-            {label}
-            {activeTab === i && (
-              <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-accent rounded-full" />
-            )}
-          </button>
-        ))}
+        {TAB_LABELS.map((label, i) => {
+          const disabled = lockResultTabs && i > 0;
+
+          return (
+            <button
+              key={i}
+              onClick={() => {
+                if (!disabled) setActiveTab(i as ScanPsdTab);
+              }}
+              disabled={disabled}
+              className={`
+                flex-1 py-2 text-[10px] font-medium transition-colors relative
+                disabled:cursor-not-allowed disabled:text-text-muted/35 disabled:bg-bg-secondary/60
+                ${
+                  activeTab === i
+                    ? "text-accent"
+                    : disabled
+                      ? ""
+                      : "text-text-muted hover:text-text-secondary"
+                }
+              `}
+            >
+              {label}
+              {activeTab === i && (
+                <div className="absolute bottom-0 left-1 right-1 h-0.5 bg-accent rounded-full" />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab Content */}
