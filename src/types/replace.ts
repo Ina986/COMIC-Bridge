@@ -35,6 +35,7 @@ export interface ImageModeSettings {
   namedGroupName: string; // e.g. "棒消し"
   namedGroupPartialMatch: boolean;
   placeFromBottom: boolean; // 下から数えて同じ位置に配置
+  judgeLayerOrder: boolean; // ON時のみ元のレイヤー順を判断して配置（OFF=常に最前面）
 }
 
 // === スイッチモード設定 ===

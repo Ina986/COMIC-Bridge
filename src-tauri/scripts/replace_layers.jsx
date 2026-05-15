@@ -345,6 +345,8 @@ function main() {
     var shouldReplaceSpecial = (isImageOnlyMode && imageSettings.replaceSpecialLayer) || isBatchMode;
     var shouldReplaceImageGroup = (isImageOnlyMode && imageSettings.replaceNamedGroup) || isBatchMode;
     var usePlaceFromBottom = imageSettings.placeFromBottom;
+    // 画像差替えのレイヤー順判断: OFF(デフォルト)=常に最前面、ON=元の順序を判断して配置
+    var judgeLayerOrder = (imageSettings.judgeLayerOrder === true);
     var skipResize = generalSettings.skipResize;
     var shouldRoundFontSize = generalSettings.roundFontSize;
     var useSourceFileName = (generalSettings.saveFileName === "source");
@@ -387,6 +389,7 @@ function main() {
                 shouldReplaceSpecial: shouldReplaceSpecial,
                 shouldReplaceImageGroup: shouldReplaceImageGroup,
                 usePlaceFromBottom: usePlaceFromBottom,
+                judgeLayerOrder: judgeLayerOrder,
                 skipResize: skipResize,
                 shouldRoundFontSize: shouldRoundFontSize,
                 useSourceFileName: useSourceFileName,
@@ -930,6 +933,25 @@ function processPair(pair, opts) {
                 setActiveDocument(targetDoc);
                 var imgLayers = [];
                 collectSpecialLayers(targetDoc, imgLayers, opts.specialName, opts.specialPartialMatch);
+                if (!opts.judgeLayerOrder) {
+                    // \u30C7\u30D5\u30A9\u30EB\u30C8: \u9806\u5E8F\u3092\u5224\u65AD\u305B\u305A\u5E38\u306B\u6700\u524D\u9762\u3078\u3002
+                    // \u53CE\u96C6\u306F\u4E0A\u2192\u4E0B\u9806\u3002\u9006\u9806\u30EB\u30FC\u30D7 + PLACEATBEGINNING \u3067\u5143\u306E\u91CD\u306A\u308A\u9806\u3092\u4FDD\u6301\uFF08\u679A\u6570\u975E\u4F9D\u5B58\uFF09
+                    for (var kd = imgLayers.length - 1; kd >= 0; kd--) {
+                        var dLayer = imgLayers[kd];
+                        var dContainer = sourceDoc;
+                        try {
+                            if (dLayer.parent.typename === 'LayerSet') {
+                                var dParent = findLayerSetByName(sourceDoc, dLayer.parent.name);
+                                if (dParent) dContainer = dParent;
+                            }
+                            setActiveDocument(targetDoc);
+                            var dupD = dLayer.duplicate(dContainer, ElementPlacement.PLACEATBEGINNING);
+                            if (opts.skipResize) { setActiveDocument(sourceDoc); dupD.translate(-centerOffsetX, -centerOffsetY); }
+                            result.changes.push("  \u2192 \u30EC\u30A4\u30E4\u30FC\u300C" + dLayer.name + "\u300D");
+                            specialCount++;
+                        } catch (e) {}
+                    }
+                } else {
                 for (var k = 0; k < imgLayers.length; k++) {
                     var iLayer = imgLayers[k];
                     var iContainer = sourceDoc;
@@ -953,6 +975,7 @@ function processPair(pair, opts) {
                         result.changes.push("  \u2192 \u30EC\u30A4\u30E4\u30FC\u300C" + iLayer.name + "\u300D");
                         specialCount++;
                     } catch (e) {}
+                }
                 }
             } else {
                 // 通常方向（テキストタブ or バッチ）
@@ -1061,6 +1084,29 @@ function processPair(pair, opts) {
                         clearLayerColor(dupGroup);
                         if (opts.skipResize) { dupGroup.translate(centerOffsetX, centerOffsetY); }
                         result.changes.push("  \u2192 \u30B0\u30EB\u30FC\u30D7\u300C" + sGroup.name + "\u300D");
+                        igCount++;
+                    } catch (e) {}
+                }
+            } else if (!opts.judgeLayerOrder) {
+                // デフォルト: 順序を判断せず画像グループを常に最前面へ。
+                // 収集は上→下順。逆順ループ + PLACEATBEGINNING で元の重なり順を保持（枚数非依存）
+                setActiveDocument(targetDoc);
+                var defGroups = [];
+                collectSpecialLayerSets(targetDoc, defGroups, opts.groupName, opts.groupPartialMatch);
+                for (var dg = defGroups.length - 1; dg >= 0; dg--) {
+                    var dGroup = defGroups[dg];
+                    var dgContainer = sourceDoc;
+                    try {
+                        if (dGroup.parent.typename === 'LayerSet') {
+                            var dgParent = findLayerSetByName(sourceDoc, dGroup.parent.name);
+                            if (dgParent) dgContainer = dgParent;
+                        }
+                        setActiveDocument(targetDoc);
+                        var dupDGroup = dGroup.duplicate(dgContainer, ElementPlacement.PLACEATBEGINNING);
+                        setActiveDocument(sourceDoc);
+                        clearLayerColor(dupDGroup);
+                        if (opts.skipResize) { dupDGroup.translate(-centerOffsetX, -centerOffsetY); }
+                        result.changes.push("  → グループ「" + dGroup.name + "」");
                         igCount++;
                     } catch (e) {}
                 }

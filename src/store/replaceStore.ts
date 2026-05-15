@@ -144,6 +144,7 @@ const defaultSettings: ReplaceSettings = {
     namedGroupName: "棒消し",
     namedGroupPartialMatch: true,
     placeFromBottom: true,
+    judgeLayerOrder: false,
   },
   switchSettings: {
     subMode: "whiteToBar",

@@ -3334,6 +3334,8 @@ pub struct ReplaceImageSettings {
     pub named_group_partial_match: bool,
     #[serde(rename = "placeFromBottom")]
     pub place_from_bottom: bool,
+    #[serde(rename = "judgeLayerOrder", default)]
+    pub judge_layer_order: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

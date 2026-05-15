@@ -355,7 +355,15 @@ export function ReplacePanel() {
                   </div>
                 )}
 
-                <div className="pt-1 mt-1 border-t border-accent-secondary/15">
+                <div className="pt-1 mt-1 border-t border-accent-secondary/15 space-y-1.5">
+                  <CheckBox
+                    checked={settings.imageSettings.judgeLayerOrder}
+                    onChange={(v) => setImageSettings({ judgeLayerOrder: v })}
+                  >
+                    <span className="text-[10px] text-text-secondary">
+                      レイヤー順を判断して配置（OFF=常に最前面）
+                    </span>
+                  </CheckBox>
                   <CheckBox
                     checked={settings.generalSettings.skipResize}
                     onChange={(v) => setGeneralSettings({ skipResize: v })}
