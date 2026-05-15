@@ -122,6 +122,10 @@
 - **詳細マッチレポート**: 処理完了後に結果テーブルの各行にマッチしたレイヤー/グループ名をインラインタグバッジで表示（resultMatchMap）
 - **完了トースト通知**: モーダル閉じ後にも成功/エラー結果をReplaceToastで表示、出力フォルダを開くボタン付き
 - Photoshop JSX経由で差替え実行（`replace_layers.jsx`）
+- **レイヤー順序の保持（v1.9.19〜・順序反転バグ修正）**: `replace_layers.jsx` の複製ループは「上→下順で収集 → `PLACEATBEGINNING`（最前面）で積む」構造のため、正順 `for` だと後発レイヤーが前に来て**順序が完全反転**していた（症状: 一番上のレイヤーが最下部へ）。修正方針:
+  - **単純複製ループは逆順反復**（`for (i=len-1; i>=0; i--)`）に統一: specialLayer / namedGroup / customGroup / customLayer / **テキストフォルダ処理**（ライブコレクションを配列にスナップショットしてから逆順）/ 特定名レイヤー通常方向。逆順 + `PLACEATBEGINNING` で枚数非依存に元の重なり順を保持。`PLACEBEFORE relative`（名前基準の絶対配置）パスはループ方向に非依存で無影響
+  - **index基準のグループ配置を廃止**: `getIndexInParent`/`getElementAtIndex` はソース/ターゲットのレイヤー数が異なると別要素を掴んでズレるため撤去。テキストグループ(textタブ)=逆順+`PLACEATBEGINNING`（最前面・順序保持）、画像グループ(画像タブ逆方向)=正順+`PLACEATEND`（最下部=背景・順序保持）に統一。親グループは `findLayerSetByName` で名前マッチ維持
+  - 据え置き（順序安定・別設計）: 特定名レイヤー逆方向(`PLACEATEND`正順)、バッチ/下から配置(`getIndexFromBottom`+`PLACEATEND`縮退)、switch mode(白消し⇔棒消し)
 - **合成モード統合**（v1.9.14〜）: 独立した「合成」タブを廃止し、レイヤー差替えタブ内の `mode === "compose"` として統合
   - 5要素ルーティング（テキスト/背景/#背景#/白消し/棒消し）+ `restSource`（A/B）
   - **背景 ⇔ #原稿# の排他制御**: 片方を A/B にセットするともう一方は自動的に `exclude`（`replaceStore.setComposeElementSource` 内で処理）。UI には「(○○と排他)」バッジ表示

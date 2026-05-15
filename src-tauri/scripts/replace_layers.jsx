@@ -539,7 +539,9 @@ function composeCopyElement(fromDoc, toDoc, elem, composeOpts, result, offsetX, 
             setActiveDocument(fromDoc);
             var sLayers = [];
             collectSpecialLayers(fromDoc, sLayers, name, partial);
-            for (var si = 0; si < sLayers.length; si++) {
+            // 逆順ループ: 収集は上→下順。PLACEATBEGINNINGで積むため
+            // 下のレイヤーから処理しないと順序が反転する（枚数非依存で順序保持）
+            for (var si = sLayers.length - 1; si >= 0; si--) {
                 try {
                     var sParent = sLayers[si].parent;
                     var tContainer = toDoc;
@@ -560,7 +562,9 @@ function composeCopyElement(fromDoc, toDoc, elem, composeOpts, result, offsetX, 
             setActiveDocument(fromDoc);
             var nGroups = [];
             collectSpecialLayerSets(fromDoc, nGroups, name, partial);
-            for (var ni = 0; ni < nGroups.length; ni++) {
+            // 逆順ループ: getSmartPlacement は同じ relative の直後/最上部に積むため
+            // 正順だと後発グループが前に来て反転する
+            for (var ni = nGroups.length - 1; ni >= 0; ni--) {
                 try {
                     setActiveDocument(toDoc);
                     var smartPlace = getSmartPlacement(toDoc);
@@ -579,7 +583,8 @@ function composeCopyElement(fromDoc, toDoc, elem, composeOpts, result, offsetX, 
                 setActiveDocument(fromDoc);
                 var cGroups = [];
                 collectSpecialLayerSets(fromDoc, cGroups, name, partial);
-                for (var cgi = 0; cgi < cGroups.length; cgi++) {
+                // 逆順ループ: PLACEATBEGINNINGで積むため順序反転を防ぐ
+                for (var cgi = cGroups.length - 1; cgi >= 0; cgi--) {
                     try {
                         setActiveDocument(fromDoc);
                         var cDup = cGroups[cgi].duplicate(toDoc, ElementPlacement.PLACEATBEGINNING);
@@ -591,7 +596,8 @@ function composeCopyElement(fromDoc, toDoc, elem, composeOpts, result, offsetX, 
                 setActiveDocument(fromDoc);
                 var cLayers = [];
                 collectSpecialLayers(fromDoc, cLayers, name, partial);
-                for (var cli = 0; cli < cLayers.length; cli++) {
+                // 逆順ループ: PLACEATBEGINNINGで積むため順序反転を防ぐ
+                for (var cli = cLayers.length - 1; cli >= 0; cli--) {
                     try {
                         setActiveDocument(fromDoc);
                         var cDup2 = cLayers[cli].duplicate(toDoc, ElementPlacement.PLACEATBEGINNING);
@@ -847,8 +853,15 @@ function processPair(pair, opts) {
             var srcBottomRef = null;
             if (sourceDoc.layers.length > 0) srcBottomRef = sourceDoc.layers[sourceDoc.layers.length - 1];
 
-            for (var fIdx = 0; fIdx < sourceDoc.layerSets.length; fIdx++) {
-                var srcSet = sourceDoc.layerSets[fIdx];
+            // ライブコレクションを配列にスナップショット（枚数非依存・安定化）
+            var srcSetSnapshot = [];
+            for (var snpI = 0; snpI < sourceDoc.layerSets.length; snpI++) {
+                srcSetSnapshot.push(sourceDoc.layerSets[snpI]);
+            }
+            // 逆順ループ: 上→下順で集めたフォルダをPLACEATBEGINNINGで積むため、
+            // 下のフォルダから処理しないと順序が反転する
+            for (var fIdx = srcSetSnapshot.length - 1; fIdx >= 0; fIdx--) {
+                var srcSet = srcSetSnapshot[fIdx];
                 if (srcSet.visible && hasTextLayersInFolder(srcSet)) {
                     try {
                         var placement = ElementPlacement.PLACEATBEGINNING;
@@ -915,7 +928,9 @@ function processPair(pair, opts) {
                 setActiveDocument(sourceDoc);
                 var specialLayers = [];
                 collectSpecialLayers(sourceDoc, specialLayers, opts.specialName, opts.specialPartialMatch);
-                for (var k = 0; k < specialLayers.length; k++) {
+                // 逆順ループ: PLACEATBEGINNINGフォールバックで順序反転するのを防ぐ。
+                // PLACEBEFORE relative パスは名前基準の絶対配置なのでループ方向に依存しない
+                for (var k = specialLayers.length - 1; k >= 0; k--) {
                     var sLayer = specialLayers[k];
                     var tContainer = targetDoc;
                     var placement = ElementPlacement.PLACEATBEGINNING;
@@ -955,21 +970,19 @@ function processPair(pair, opts) {
             setActiveDocument(sourceDoc);
             var textGroups = [];
             collectSpecialLayerSets(sourceDoc, textGroups, opts.groupName, opts.groupPartialMatch);
-            for (var m = 0; m < textGroups.length; m++) {
+            // index基準（getIndexInParent/getElementAtIndex）はソースとターゲットの
+            // レイヤー数が異なると別要素を掴んで配置がズレるため廃止。
+            // 名前基準で親グループを合わせ、逆順ループ + PLACEATBEGINNING に統一
+            // （テキストは最前面に乗せつつ、収集順=元の重なり順を保持。枚数非依存）
+            for (var m = textGroups.length - 1; m >= 0; m--) {
                 var sGroup = textGroups[m];
                 var tContainer = targetDoc;
                 var placement = ElementPlacement.PLACEATBEGINNING;
                 var relative = null;
                 try {
-                    var sIndex = getIndexInParent(sGroup);
                     if (sGroup.parent.typename === 'LayerSet') {
                         var tParent = findLayerSetByName(targetDoc, sGroup.parent.name);
                         if (tParent) tContainer = tParent;
-                    }
-                    if (sIndex >= 0) {
-                        var tElement = getElementAtIndex(tContainer, sIndex);
-                        if (tElement) { relative = tElement; placement = ElementPlacement.PLACEBEFORE; }
-                        else placement = ElementPlacement.PLACEATEND;
                     }
                     setActiveDocument(sourceDoc);
                     var dupGroup = relative ? sGroup.duplicate(relative, placement) : sGroup.duplicate(tContainer, placement);
@@ -1056,21 +1069,18 @@ function processPair(pair, opts) {
                 setActiveDocument(targetDoc);
                 var imageGroups = [];
                 collectSpecialLayerSets(targetDoc, imageGroups, opts.groupName, opts.groupPartialMatch);
+                // index基準は枚数差で別要素を掴むため廃止。画像グループは
+                // 正順ループ + PLACEATEND（最下部=背景）に統一。
+                // 正順 + PLACEATEND は収集順=元の重なり順を保持し枚数非依存
                 for (var n = 0; n < imageGroups.length; n++) {
                     var iGroup = imageGroups[n];
                     var iContainer = sourceDoc;
-                    var iPlacement = ElementPlacement.PLACEATBEGINNING;
+                    var iPlacement = ElementPlacement.PLACEATEND;
                     var iRelative = null;
                     try {
-                        var iIndex = getIndexInParent(iGroup);
                         if (iGroup.parent.typename === 'LayerSet') {
                             var iParent = findLayerSetByName(sourceDoc, iGroup.parent.name);
                             if (iParent) iContainer = iParent;
-                        }
-                        if (iIndex >= 0) {
-                            var iElement = getElementAtIndex(iContainer, iIndex);
-                            if (iElement) { iRelative = iElement; iPlacement = ElementPlacement.PLACEBEFORE; }
-                            else iPlacement = ElementPlacement.PLACEATEND;
                         }
                         setActiveDocument(targetDoc);
                         var dupIGroup = iRelative ? iGroup.duplicate(iRelative, iPlacement) : iGroup.duplicate(iContainer, iPlacement);
