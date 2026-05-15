@@ -161,7 +161,9 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
                 <span className="text-[10px] text-text-muted">巻</span>
               </div>
               <p className="text-[10px] text-text-muted">
-                出力に <code className="font-mono">[{String(volumeNumber).padStart(2, "0")}巻]</code> として記録されます
+                出力に{" "}
+                <code className="font-mono">[{String(volumeNumber).padStart(2, "0")}巻]</code>{" "}
+                として記録されます
               </p>
             </div>
 
@@ -309,11 +311,7 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
                   stroke="currentColor"
                   strokeWidth={2.5}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                 </svg>
                 ProGen で開く
               </button>

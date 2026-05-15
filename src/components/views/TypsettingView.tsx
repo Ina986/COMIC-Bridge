@@ -212,7 +212,6 @@ export function TypsettingView() {
               </div>
             </>
           ))}
-
       </div>
 
       {/* JSON登録ダイアログ */}

@@ -155,16 +155,7 @@ export function TiffAutoScanDialog({
 
     onClose();
     onExecute();
-  }, [
-    jsonEnabled,
-    label,
-    title,
-    volume,
-    registerRange,
-    loadExistingJson,
-    onExecute,
-    onClose,
-  ]);
+  }, [jsonEnabled, label, title, volume, registerRange, loadExistingJson, onExecute, onClose]);
 
   // --- 検索結果から選択 ---
   const selectSearchResult = useCallback(
@@ -360,7 +351,7 @@ export function TiffAutoScanDialog({
                               onClick={() => {
                                 setTitleSource("new");
                                 setTitle("");
-                                    }}
+                              }}
                               className={`text-[9px] px-1.5 py-0.5 rounded ${titleSource === "new" ? "bg-accent-secondary/15 text-accent-secondary" : "text-text-muted hover:text-text-secondary"}`}
                             >
                               新規

@@ -58,8 +58,6 @@ function getMaxExistingVolume(): number {
 }
 
 export function ScanPsdEditView() {
-  const setMode = useScanPsdStore((s) => s.setMode);
-  const reset = useScanPsdStore((s) => s.reset);
   const activeTab = useScanPsdStore((s) => s.activeTab);
   const setActiveTab = useScanPsdStore((s) => s.setActiveTab);
   const currentJsonFilePath = useScanPsdStore((s) => s.currentJsonFilePath);
@@ -110,12 +108,8 @@ export function ScanPsdEditView() {
     return counts;
   }, [missingFields]);
 
-  const processedFiles = scanData?.processedFiles ?? 0;
   const fontCount = scanData?.fonts?.length ?? 0;
   const guideCount = scanData?.guideSets?.length ?? 0;
-  const textLayerCount = scanData?.textLayersByDoc
-    ? Object.values(scanData.textLayersByDoc).reduce((sum, layers) => sum + layers.length, 0)
-    : 0;
   const docCount = scanData?.textLayersByDoc ? Object.keys(scanData.textLayersByDoc).length : 0;
   const baseSize = scanData?.sizeStats?.mostFrequent?.size ?? null;
   const selectedGuide =
@@ -342,596 +336,265 @@ export function ScanPsdEditView() {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-bg-primary">
-      <div className="flex-1 min-h-0 grid grid-rows-[48px_1fr] overflow-hidden bg-bg-primary">
-        <div className="bg-white border-b border-border shadow-soft flex items-center gap-3 px-3 relative z-10">
-          <div className="flex items-center gap-2 pr-2 border-r border-border">
-            <div
-              className="w-7 h-7 rounded-lg grid place-items-center text-white shadow-sm"
-              style={{ background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }}
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-black text-text-primary leading-none">Scan PSD</p>
-              <p className="text-[10px] text-text-muted mt-1">JSON Editor</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 flex-1 min-w-0">
-            {sectionMeta.map((section) => (
-              <button
-                key={section.tab}
-                onClick={() => setActiveTab(section.tab)}
-                className={`px-3 py-2 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all ${
-                  activeTab === section.tab
-                    ? "text-white shadow-sm"
-                    : "text-text-secondary hover:text-text-primary hover:bg-bg-tertiary"
-                }`}
-                style={
-                  activeTab === section.tab
-                    ? { background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }
-                    : undefined
-                }
-              >
-                {section.title}
-              </button>
-            ))}
-          </div>
-
-          {pendingTitleLabel && (
-            <span className="relative text-[10px] text-transparent font-bold bg-warning/10 px-2.5 py-1 rounded-full border border-warning/20 after:content-['仮保存中'] after:absolute after:inset-0 after:grid after:place-items-center after:text-warning">
-              莉ｮ菫晏ｭ倅ｸｭ
-            </span>
-          )}
-          <button
-            onClick={() => setShowVolumeDialog(true)}
-            disabled={
-              phase !== "idle" ||
-              !scanData?.folderVolumeMapping ||
-              Object.keys(scanData.folderVolumeMapping).length === 0
-            }
-            className="relative h-8 px-3 text-[10px] font-black text-transparent bg-bg-tertiary rounded-lg hover:bg-border-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors after:content-['巻数管理'] after:absolute after:inset-0 after:grid after:place-items-center after:text-text-primary"
-          >
-            蟾ｻ謨ｰ邂｡逅・{" "}
-          </button>
-          <button
-            onClick={handleOpenScanDialog}
-            disabled={phase !== "idle"}
-            className="relative h-8 px-3 text-[10px] font-black text-transparent bg-accent/10 rounded-lg hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors after:content-['追加スキャン'] after:absolute after:inset-0 after:grid after:place-items-center after:text-accent"
-          >
-            霑ｽ蜉繧ｹ繧ｭ繝｣繝ｳ
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={phase !== "idle"}
-            className={`relative h-8 px-4 text-[10px] font-black text-transparent rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all after:content-['保存'] after:absolute after:inset-0 after:grid after:place-items-center after:text-white ${
-              pendingTitleLabel && workInfo.title && workInfo.label
-                ? "bg-gradient-to-r from-success to-emerald-500 shadow-glow-success animate-pulse"
-                : ""
-            }`}
-            style={
-              !(pendingTitleLabel && workInfo.title && workInfo.label)
-                ? {
-                    background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
-                    boxShadow: "0 4px 15px rgba(255, 90, 138, 0.22)",
-                  }
-                : undefined
-            }
-          >
-            {pendingTitleLabel && workInfo.title && workInfo.label ? "正式保存" : "保存"}
-          </button>
-          <button
-            onClick={() => {
-              reset();
-              setMode(null);
-            }}
-            className="relative h-8 px-3 text-[10px] font-bold text-transparent hover:text-transparent rounded-lg hover:bg-bg-tertiary transition-colors after:content-['戻る'] after:absolute after:inset-0 after:grid after:place-items-center after:text-text-secondary hover:after:text-text-primary"
-          >
-            謌ｻ繧・{" "}
-          </button>
-        </div>
-
-        <div className="min-h-0 grid grid-cols-[260px_minmax(0,1fr)] gap-3 p-3 overflow-hidden">
-          <aside className="min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-rows-[auto_1fr_auto]">
-            <div className="p-3 border-b border-border-light">
-              <p className="text-[10px] font-black uppercase text-text-muted tracking-wide">
-                Current JSON
-              </p>
-              <div className="mt-2 flex items-center gap-2 min-w-0 rounded-lg bg-bg-tertiary border border-border-light p-2">
-                <div className="w-7 h-7 rounded-lg grid place-items-center bg-accent/10 text-accent text-xs font-black">
-                  J
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-black text-text-primary truncate">
-                    {fileName || "untitled.json"}
-                  </p>
-                  <p className="text-[10px] text-text-muted mt-0.5 truncate">
-                    {workInfo.label || "label"} / {workInfo.title || "title"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5">
-              {sectionMeta.map((section) => {
-                const missingCount = missingByTab.get(section.tab) ?? 0;
-                const isActive = activeTab === section.tab;
-                return (
-                  <button
-                    key={section.tab}
-                    onClick={() => setActiveTab(section.tab)}
-                    className={`grid grid-cols-[28px_1fr_auto] items-center gap-2 text-left min-h-[44px] rounded-lg border p-2 transition-all ${
-                      isActive
-                        ? "bg-accent/10 border-accent/25 text-text-primary"
-                        : missingCount
-                          ? "bg-warning/5 border-transparent hover:bg-warning/10"
-                          : "bg-transparent border-transparent hover:bg-bg-tertiary/80"
-                    }`}
-                  >
-                    <span
-                      className={`w-7 h-7 rounded-lg grid place-items-center text-[11px] font-black ${
-                        isActive ? "text-white" : "text-text-primary bg-bg-tertiary"
-                      }`}
-                      style={
-                        isActive
-                          ? { background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }
-                          : undefined
-                      }
-                    >
-                      {section.icon}
-                    </span>
-                    <span className="min-w-0">
-                      <strong className="block text-xs leading-tight text-text-primary truncate">
-                        {section.title}
-                      </strong>
-                      <span className="block text-[10px] leading-tight text-[#4b5563] font-semibold truncate mt-1">
-                        {getSectionSub(section.tab)}
-                      </span>
-                    </span>
-                    <span
-                      className={`text-[9px] font-black rounded-full px-2 py-0.5 whitespace-nowrap ${
-                        missingCount ? "text-warning bg-warning/15" : "text-success bg-success/10"
-                      }`}
-                    >
-                      {missingCount ? `${missingCount}` : "OK"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="border-t border-border-light p-2.5 grid gap-2">
-              <div className="relative grid grid-cols-[1fr_auto] gap-2 items-center text-[10px] text-transparent font-bold after:content-['入力進捗'] after:absolute after:left-0 after:top-0 after:text-text-secondary">
-                <span>入力進捗</span>
-                <span className="text-text-secondary">{completion}%</span>
-                <div className="col-span-2 h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${completion}%`,
-                      background: "linear-gradient(90deg, #ff5a8a, #00c9a7)",
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </aside>
-
-          <main className="min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-rows-[auto_auto_1fr]">
-            <div className="px-4 py-3 border-b border-border-light flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <h1 className="m-0 text-[17px] leading-tight font-black text-text-primary">
-                  {activeSection.title}
-                </h1>
-                <p className="text-[11px] text-text-muted font-semibold mt-1 truncate">
-                  {getSectionSub(activeSection.tab)} / {getSectionValue(activeSection.tab)}
+      <div className="h-full flex flex-col overflow-hidden bg-bg-primary">
+        <div className="flex-1 min-h-0 grid grid-rows-[1fr] overflow-hidden bg-bg-primary">
+          <div className="min-h-0 grid grid-cols-[260px_minmax(0,1fr)] gap-3 p-3 overflow-hidden">
+            <aside className="min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-rows-[auto_1fr_auto]">
+              <div className="p-3 border-b border-border-light">
+                <p className="text-[10px] font-black uppercase text-text-muted tracking-wide">
+                  Current JSON
                 </p>
-              </div>
-              <div className="flex bg-bg-tertiary rounded-lg p-0.5 gap-0.5">
-                {sectionMeta.map((section) => (
-                  <button
-                    key={section.tab}
-                    onClick={() => setActiveTab(section.tab)}
-                    className={`px-2.5 py-1.5 rounded-md text-[10px] font-black transition-all ${
-                      activeTab === section.tab
-                        ? "bg-white text-accent shadow-sm"
-                        : "text-text-muted hover:text-text-primary"
-                    }`}
-                  >
-                    {section.icon}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {missingFields.length > 0 && (
-              <div className="px-4 py-2 border-b border-border-light bg-warning/10 flex items-center gap-2 overflow-hidden">
-                <strong className="text-[11px] text-warning whitespace-nowrap">確認が必要</strong>
-                <div className="flex gap-1.5 overflow-x-auto">
-                  {missingFields.map((f, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setActiveTab(f.tab)}
-                      className="text-[10px] px-2 py-1 rounded-full bg-white/75 border border-warning/20 text-text-secondary font-bold whitespace-nowrap hover:text-warning"
-                    >
-                      {SCAN_EDIT_LABELS[f.tab]}: {f.label}
-                    </button>
-                  ))}
+                <div className="mt-2 flex items-center gap-2 min-w-0 rounded-lg bg-bg-tertiary border border-border-light p-2">
+                  <div className="w-7 h-7 rounded-lg grid place-items-center bg-accent/10 text-accent text-xs font-black">
+                    J
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-text-primary truncate">
+                      {fileName || "untitled.json"}
+                    </p>
+                    <p className="text-[10px] text-text-muted mt-0.5 truncate">
+                      {workInfo.label || "label"} / {workInfo.title || "title"}
+                    </p>
+                  </div>
                 </div>
               </div>
-            )}
 
-            <div className="min-h-0 overflow-auto p-4 bg-bg-primary/70">
-              <div className="grid grid-cols-[minmax(0,1fr)_220px] gap-3 min-h-full">
-                <div className="min-w-0 bg-white border border-border-light rounded-lg overflow-hidden">
-                  <div className="px-3 py-2.5 border-b border-border-light flex items-center justify-between">
-                    <strong className="text-xs font-black text-text-primary">
-                      {activeSection.title}
-                    </strong>
-                    <span className="text-[10px] text-text-muted font-bold">
-                      {getSectionValue(activeSection.tab)}
-                    </span>
+              <div className="min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5">
+                {sectionMeta.map((section) => {
+                  const missingCount = missingByTab.get(section.tab) ?? 0;
+                  const isActive = activeTab === section.tab;
+                  return (
+                    <button
+                      key={section.tab}
+                      onClick={() => setActiveTab(section.tab)}
+                      className={`grid grid-cols-[28px_1fr_auto] items-center gap-2 text-left min-h-[44px] rounded-lg border p-2 transition-all ${
+                        isActive
+                          ? "bg-accent/10 border-accent/25 text-text-primary"
+                          : missingCount
+                            ? "bg-warning/5 border-transparent hover:bg-warning/10"
+                            : "bg-transparent border-transparent hover:bg-bg-tertiary/80"
+                      }`}
+                    >
+                      <span
+                        className={`w-7 h-7 rounded-lg grid place-items-center text-[11px] font-black ${
+                          isActive ? "text-white" : "text-text-primary bg-bg-tertiary"
+                        }`}
+                        style={
+                          isActive
+                            ? { background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }
+                            : undefined
+                        }
+                      >
+                        {section.icon}
+                      </span>
+                      <span className="min-w-0">
+                        <strong className="block text-xs leading-tight text-text-primary truncate">
+                          {section.title}
+                        </strong>
+                        <span className="block text-[10px] leading-tight text-[#4b5563] font-semibold truncate mt-1">
+                          {getSectionSub(section.tab)}
+                        </span>
+                      </span>
+                      <span
+                        className={`text-[9px] font-black rounded-full px-2 py-0.5 whitespace-nowrap ${
+                          missingCount ? "text-warning bg-warning/15" : "text-success bg-success/10"
+                        }`}
+                      >
+                        {missingCount ? `${missingCount}` : "OK"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="border-t border-border-light p-2.5 grid gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => setShowVolumeDialog(true)}
+                    disabled={
+                      phase !== "idle" ||
+                      !scanData?.folderVolumeMapping ||
+                      Object.keys(scanData.folderVolumeMapping).length === 0
+                    }
+                    className="h-8 px-2 text-[10px] font-black text-text-primary bg-bg-tertiary rounded-lg hover:bg-border-light disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    巻数管理
+                  </button>
+                  <button
+                    onClick={handleOpenScanDialog}
+                    disabled={phase !== "idle"}
+                    className="h-8 px-2 text-[10px] font-black text-accent bg-accent/10 rounded-lg hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    追加スキャン
+                  </button>
+                </div>
+                <button
+                  onClick={handleSave}
+                  disabled={phase !== "idle"}
+                  className={`h-8 px-4 text-[10px] font-black text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all ${
+                    pendingTitleLabel && workInfo.title && workInfo.label
+                      ? "bg-gradient-to-r from-success to-emerald-500 shadow-glow-success animate-pulse"
+                      : ""
+                  }`}
+                  style={
+                    !(pendingTitleLabel && workInfo.title && workInfo.label)
+                      ? {
+                          background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
+                          boxShadow: "0 4px 15px rgba(255, 90, 138, 0.22)",
+                        }
+                      : undefined
+                  }
+                >
+                  {pendingTitleLabel && workInfo.title && workInfo.label ? "正式保存" : "保存"}
+                </button>
+                <div className="grid grid-cols-[1fr_auto] gap-2 items-center text-[10px] font-bold text-text-secondary">
+                  <span>入力進捗</span>
+                  <span className="text-text-secondary">{completion}%</span>
+                  <div className="col-span-2 h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${completion}%`,
+                        background: "linear-gradient(90deg, #ff5a8a, #00c9a7)",
+                      }}
+                    />
                   </div>
+                </div>
+              </div>
+            </aside>
+
+            <main className="min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-rows-[auto_1fr]">
+              <div className="px-4 py-3 border-b border-border-light flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <h1 className="m-0 text-[17px] leading-tight font-black text-text-primary">
+                    {activeSection.title}
+                  </h1>
+                  <p className="text-[11px] text-text-muted font-semibold mt-1 truncate">
+                    {getSectionSub(activeSection.tab)} / {getSectionValue(activeSection.tab)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="min-h-0 overflow-auto p-4 bg-bg-primary/70">
+                <div className="min-w-0 bg-white border border-border-light rounded-lg overflow-hidden min-h-full">
+                  {activeTab !== 1 && (
+                    <div className="px-3 py-2.5 border-b border-border-light flex items-center justify-between">
+                      <strong className="text-xs font-black text-text-primary">
+                        {activeSection.title}
+                      </strong>
+                      <span className="text-[10px] text-text-muted font-bold">
+                        {getSectionValue(activeSection.tab)}
+                      </span>
+                    </div>
+                  )}
                   <div className="p-3">{renderActiveTab()}</div>
                 </div>
-
-                <div className="min-w-0 space-y-3">
-                  <div className="bg-white border border-border-light rounded-lg p-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-[58px] h-[58px] rounded-full grid place-items-center text-xs font-black text-text-primary"
-                        style={{
-                          background: `radial-gradient(circle at center, white 54%, transparent 56%), conic-gradient(#00c9a7 0deg ${
-                            completion * 3.6
-                          }deg, #f5f3f0 ${completion * 3.6}deg 360deg)`,
-                        }}
-                      >
-                        {completion}%
-                      </div>
-                      <div className="min-w-0">
-                        <strong className="relative block text-xs font-black text-transparent after:content-['編集ステータス'] after:absolute after:inset-0 after:text-text-primary">
-                          編集ステータス
-                        </strong>
-                        <span className="relative block text-[10px] leading-relaxed text-transparent font-semibold mt-1 after:absolute after:inset-0 after:text-text-secondary after:content-['保存前チェックを確認してください']">
-                          {missingFields.length > 0
-                            ? `${missingFields.length} 件の未設定項目があります`
-                            : "保存前チェックは完了しています"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <QuickStat label="Files" value={String(processedFiles)} />
-                    <QuickStat label="Fonts" value={String(fontCount)} />
-                    <QuickStat
-                      label="Base"
-                      value={baseSize ? `${baseSize}pt` : "-"}
-                      warn={!baseSize}
-                    />
-                    <QuickStat label="Ruby" value={String(rubyList.length)} />
-                    <QuickStat label="Guides" value={String(guideCount)} />
-                    <QuickStat label="Text" value={String(textLayerCount)} />
-                  </div>
-                </div>
               </div>
-            </div>
-          </main>
+            </main>
+          </div>
         </div>
-      </div>
-      {/* Header */}
-      <div className="hidden px-5 py-2.5 border-b border-border bg-white items-center gap-3 flex-shrink-0 shadow-soft">
-        <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
-          style={{ background: "linear-gradient(135deg, #ff5a8a, #7c5cff)" }}
-        >
-          <svg
-            className="w-4 h-4 text-white"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-bold text-text-primary font-display leading-tight">
-            PSDスキャナー
-          </p>
-          <p className="text-[10px] text-text-muted truncate">{fileName}</p>
-        </div>
-        {pendingTitleLabel && (
-          <span className="text-[10px] text-warning font-semibold bg-warning/10 px-2.5 py-1 rounded-full border border-warning/20">
-            仮保存中
-          </span>
+
+        {/* 追加スキャンダイアログ */}
+        {showScanDialog && (
+          <AdditionalScanDialog
+            folders={pendingFolders}
+            onAddFolder={handleDialogAddFolder}
+            onAutoDetect={handleDialogAutoDetect}
+            onRemoveFolder={handleDialogRemoveFolder}
+            onVolumeChange={handleDialogVolumeChange}
+            onConfirm={handleConfirmScan}
+            onCancel={handleCancelScanDialog}
+          />
         )}
-        <button
-          onClick={() => setShowVolumeDialog(true)}
-          disabled={
-            phase !== "idle" ||
-            !scanData?.folderVolumeMapping ||
-            Object.keys(scanData.folderVolumeMapping).length === 0
-          }
-          className="px-3 py-2 text-[11px] font-bold text-text-secondary bg-bg-tertiary/60 rounded-xl
-            hover:bg-bg-tertiary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          巻数管理
-        </button>
-        <button
-          onClick={handleOpenScanDialog}
-          disabled={phase !== "idle"}
-          className="px-3 py-2 text-[11px] font-bold text-accent bg-accent/10 rounded-xl
-            hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          追加スキャン
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={phase !== "idle"}
-          className={`btn px-4 py-2 text-[11px] font-bold text-white rounded-xl
-            disabled:opacity-40 disabled:cursor-not-allowed transition-all
-            ${
-              pendingTitleLabel && workInfo.title && workInfo.label
-                ? "bg-gradient-to-r from-success to-emerald-500 shadow-glow-success animate-pulse"
-                : ""
-            }`}
-          style={
-            !(pendingTitleLabel && workInfo.title && workInfo.label)
-              ? {
-                  background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
-                  boxShadow: "0 4px 15px rgba(255, 90, 138, 0.3)",
-                }
-              : undefined
-          }
-        >
-          {pendingTitleLabel && workInfo.title && workInfo.label ? "正式保存" : "保存"}
-        </button>
-        <button
-          onClick={() => {
-            reset();
-            setMode(null);
-          }}
-          className="text-[11px] text-text-muted hover:text-text-primary px-3 py-2 rounded-xl hover:bg-bg-tertiary transition-colors"
-        >
-          戻る
-        </button>
-      </div>
 
-      {/* 未記入・未設定項目バナー */}
-      {missingFields.length > 0 && (
-        <div className="hidden px-5 py-2.5 bg-warning/10 border-b border-warning/30 flex-shrink-0">
-          <div className="flex items-start gap-2">
-            <svg
-              className="w-4 h-4 text-warning flex-shrink-0 mt-0.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-            <div className="flex flex-wrap gap-1">
-              {missingFields.map((f, i) => (
-                <span
-                  key={i}
-                  className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning/20 text-warning font-medium"
-                >
-                  {TAB_LABELS[f.tab]}: {f.label}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+        {/* 巻数管理ダイアログ */}
+        {showVolumeDialog && scanData?.folderVolumeMapping && (
+          <VolumeManageDialog
+            folderVolumeMapping={scanData.folderVolumeMapping}
+            scannedFolders={scanData.scannedFolders}
+            onRemove={async (volume) => {
+              await removeVolumeData(volume);
+            }}
+            onClose={() => setShowVolumeDialog(false)}
+          />
+        )}
 
-      {/* Content */}
-      {false && (
-        <div className="hidden flex-1 overflow-auto bg-tone">
-          <div className="px-5 py-4">
-            <div className="grid grid-cols-3 gap-5 items-start">
-              {/* Column 1: Work Info */}
-              <div>
-                <SectionHeader icon="info" color="pink">
-                  作品情報
-                </SectionHeader>
-                <div className="bg-white rounded-2xl border border-border/60 shadow-card p-4">
-                  <WorkInfoTab />
-                </div>
-              </div>
-              {/* Column 2: Fonts + Guides */}
-              <div className="space-y-5">
-                <div>
-                  <SectionHeader icon="font" color="purple">
-                    フォント種類
-                  </SectionHeader>
-                  <div className="bg-white rounded-2xl border border-border/60 shadow-card p-4">
-                    <FontTypesTab />
-                  </div>
-                </div>
-                <div>
-                  <SectionHeader icon="guide" color="mint">
-                    ガイド線
-                  </SectionHeader>
-                  <div className="bg-white rounded-2xl border border-border/60 shadow-card p-4">
-                    <GuideLinesTab />
-                  </div>
-                </div>
-              </div>
-              {/* Column 3: Sizes + Ruby */}
-              <div className="space-y-5">
-                <div>
-                  <SectionHeader icon="size" color="warm">
-                    サイズ統計
-                  </SectionHeader>
-                  <div className="bg-white rounded-2xl border border-border/60 shadow-card p-4">
-                    <FontSizesTab />
-                  </div>
-                </div>
-                <div>
-                  <SectionHeader icon="ruby" color="sky">
-                    テキスト / ルビ
-                  </SectionHeader>
-                  <div className="bg-white rounded-2xl border border-border/60 shadow-card p-4">
-                    <TextRubyTab />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        {/* スキャン完了ダイアログ */}
+        {scanCompleteResult && (
+          <ScanCompleteDialog
+            result={scanCompleteResult}
+            onClose={() => setScanCompleteResult(null)}
+          />
+        )}
 
-      {/* 追加スキャンダイアログ */}
-      {showScanDialog && (
-        <AdditionalScanDialog
-          folders={pendingFolders}
-          onAddFolder={handleDialogAddFolder}
-          onAutoDetect={handleDialogAutoDetect}
-          onRemoveFolder={handleDialogRemoveFolder}
-          onVolumeChange={handleDialogVolumeChange}
-          onConfirm={handleConfirmScan}
-          onCancel={handleCancelScanDialog}
-        />
-      )}
-
-      {/* 巻数管理ダイアログ */}
-      {showVolumeDialog && scanData?.folderVolumeMapping && (
-        <VolumeManageDialog
-          folderVolumeMapping={scanData.folderVolumeMapping}
-          scannedFolders={scanData.scannedFolders}
-          onRemove={async (volume) => {
-            await removeVolumeData(volume);
-          }}
-          onClose={() => setShowVolumeDialog(false)}
-        />
-      )}
-
-      {/* スキャン完了ダイアログ */}
-      {scanCompleteResult && (
-        <ScanCompleteDialog
-          result={scanCompleteResult}
-          onClose={() => setScanCompleteResult(null)}
-        />
-      )}
-
-      {/* 未記入フィールド警告ダイアログ（保存時） */}
-      {showEmptyFieldsDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setShowEmptyFieldsDialog(false);
-          }}
-        >
+        {/* 未記入フィールド警告ダイアログ（保存時） */}
+        {showEmptyFieldsDialog && (
           <div
-            className="bg-white rounded-2xl shadow-xl w-[360px] overflow-hidden"
-            onMouseDown={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setShowEmptyFieldsDialog(false);
+            }}
           >
-            <div className="px-6 pt-6 pb-4 text-center">
-              <div className="w-12 h-12 mx-auto rounded-2xl bg-warning/10 flex items-center justify-center mb-3">
-                <svg
-                  className="w-6 h-6 text-warning"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-              </div>
-              <h3 className="text-sm font-bold text-text-primary mb-2">
-                未記入・未設定の項目があります
-              </h3>
-              <div className="flex flex-wrap gap-1.5 justify-center mb-3">
-                {missingFields.map((f, i) => (
-                  <span
-                    key={i}
-                    className="text-[11px] px-2 py-0.5 rounded-full bg-warning/15 text-warning font-medium"
+            <div
+              className="bg-white rounded-2xl shadow-xl w-[360px] overflow-hidden"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="px-6 pt-6 pb-4 text-center">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-warning/10 flex items-center justify-center mb-3">
+                  <svg
+                    className="w-6 h-6 text-warning"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
                   >
-                    {TAB_LABELS[f.tab]}: {f.label}
-                  </span>
-                ))}
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-bold text-text-primary mb-2">
+                  未記入・未設定の項目があります
+                </h3>
+                <div className="flex flex-wrap gap-1.5 justify-center mb-3">
+                  {missingFields.map((f, i) => (
+                    <span
+                      key={i}
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-warning/15 text-warning font-medium"
+                    >
+                      {TAB_LABELS[f.tab]}: {f.label}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[11px] text-text-muted">このまま保存しますか？</p>
               </div>
-              <p className="text-[11px] text-text-muted">このまま保存しますか？</p>
-            </div>
-            <div className="px-6 pb-5 flex gap-2">
-              <button
-                onClick={() => setShowEmptyFieldsDialog(false)}
-                className="flex-1 px-4 py-2.5 text-xs font-medium text-text-secondary bg-bg-tertiary rounded-xl hover:bg-bg-tertiary/80 transition-colors"
-              >
-                戻って入力
-              </button>
-              <button
-                onClick={handleForceSave}
-                className="flex-1 px-4 py-2.5 text-xs font-medium text-white rounded-xl transition-all"
-                style={{
-                  background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
-                }}
-              >
-                そのまま保存
-              </button>
+              <div className="px-6 pb-5 flex gap-2">
+                <button
+                  onClick={() => setShowEmptyFieldsDialog(false)}
+                  className="flex-1 px-4 py-2.5 text-xs font-medium text-text-secondary bg-bg-tertiary rounded-xl hover:bg-bg-tertiary/80 transition-colors"
+                >
+                  戻って入力
+                </button>
+                <button
+                  onClick={handleForceSave}
+                  className="flex-1 px-4 py-2.5 text-xs font-medium text-white rounded-xl transition-all"
+                  style={{
+                    background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
+                  }}
+                >
+                  そのまま保存
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
   );
 }
 
 // === スキャン完了ダイアログ ===
-
-function QuickStat({
-  label,
-  value,
-  warn = false,
-}: {
-  label: string;
-  value: string;
-  warn?: boolean;
-}) {
-  return (
-    <div className="min-h-[70px] rounded-lg bg-bg-tertiary p-3">
-      <span className="block text-[9px] font-black text-text-muted uppercase truncate">
-        {label}
-      </span>
-      <strong
-        className={`block mt-1 text-sm leading-none font-black truncate ${
-          warn ? "text-warning" : "text-text-primary"
-        }`}
-      >
-        {value}
-      </strong>
-      <span
-        className={`block w-1.5 h-1.5 rounded-full mt-2 ${warn ? "bg-warning" : "bg-accent"}`}
-      />
-    </div>
-  );
-}
 
 function ScanCompleteDialog({ result, onClose }: { result: ScanResult; onClose: () => void }) {
   const isSuccess = result.success;
@@ -1372,79 +1035,6 @@ function VolumeManageDialog({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-// === セクションヘッダー ===
-
-const SECTION_COLORS = {
-  pink: { from: "#ff5a8a", to: "#ff8ab5", bg: "rgba(255,90,138,0.08)", text: "#ff5a8a" },
-  purple: { from: "#7c5cff", to: "#a78bff", bg: "rgba(124,92,255,0.08)", text: "#7c5cff" },
-  mint: { from: "#00c9a7", to: "#5ce0c9", bg: "rgba(0,201,167,0.08)", text: "#00c9a7" },
-  warm: { from: "#ffb142", to: "#ffc875", bg: "rgba(255,177,66,0.08)", text: "#e69a00" },
-  sky: { from: "#4db8ff", to: "#85cfff", bg: "rgba(77,184,255,0.08)", text: "#2d9cdb" },
-};
-
-const SECTION_ICONS: Record<string, React.ReactNode> = {
-  info: (
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-    />
-  ),
-  font: (
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"
-    />
-  ),
-  size: (
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-    />
-  ),
-  guide: <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />,
-  ruby: (
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
-    />
-  ),
-};
-
-function SectionHeader({
-  icon,
-  color,
-  children,
-}: {
-  icon: string;
-  color: keyof typeof SECTION_COLORS;
-  children: React.ReactNode;
-}) {
-  const c = SECTION_COLORS[color];
-  return (
-    <div className="flex items-center gap-2 mb-2.5">
-      <div
-        className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ background: c.bg }}
-      >
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke={c.text} strokeWidth={2.5}>
-          {SECTION_ICONS[icon]}
-        </svg>
-      </div>
-      <span className="text-[11px] font-bold font-display tracking-wide" style={{ color: c.text }}>
-        {children}
-      </span>
-      <div
-        className="flex-1 h-px"
-        style={{ background: `linear-gradient(to right, ${c.from}30, transparent)` }}
-      />
     </div>
   );
 }

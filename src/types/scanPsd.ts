@@ -366,8 +366,7 @@ export function getAllMissingFields(opts: {
   // --- タブ4: テキスト ---
   if (opts.scanData) {
     const textLogEntries = opts.scanData.textLogByFolder ?? {};
-    if (Object.keys(textLogEntries).length === 0)
-      missing.push({ tab: 4, label: "テキストログ" });
+    if (Object.keys(textLogEntries).length === 0) missing.push({ tab: 4, label: "テキストログ" });
   }
   if (opts.rubyList.length === 0) missing.push({ tab: 4, label: "ルビ一覧" });
 

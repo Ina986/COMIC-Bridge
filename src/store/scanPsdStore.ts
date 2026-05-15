@@ -84,6 +84,19 @@ export interface ScanPsdState {
   phase: "idle" | "scanning" | "saving" | "exporting";
   progress: { current: number; total: number; message: string };
 
+  // フォント種類タブのモーダル状態（外部から開く用）
+  showManualFontAdd: boolean;
+  showUnregisteredModal: boolean;
+  showMissingFontsModal: boolean;
+
+  // フォント種類タブのステータス（FontTypesTabが更新、外部から参照）
+  fontStatus: {
+    unregisteredCount: number;
+    missingCount: number;
+    fontChecked: boolean;
+    hasScanData: boolean;
+  };
+
   // Actions - モード・ナビ
   setMode: (mode: ScanPsdMode | null) => void;
   setActiveTab: (tab: ScanPsdTab) => void;
@@ -145,6 +158,17 @@ export interface ScanPsdState {
   setPhase: (phase: "idle" | "scanning" | "saving" | "exporting") => void;
   setProgress: (current: number, total: number, message: string) => void;
 
+  // Actions - フォント種類タブモーダル
+  setShowManualFontAdd: (v: boolean) => void;
+  setShowUnregisteredModal: (v: boolean) => void;
+  setShowMissingFontsModal: (v: boolean) => void;
+  setFontStatus: (status: {
+    unregisteredCount: number;
+    missingCount: number;
+    fontChecked: boolean;
+    hasScanData: boolean;
+  }) => void;
+
   // Actions - データロード
   loadFromPresetJson: (data: PresetJsonData) => void;
   loadFromScandata: (data: ScanData) => void;
@@ -178,6 +202,15 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
   pendingTitleLabel: false,
   phase: "idle",
   progress: { current: 0, total: 0, message: "" },
+  showManualFontAdd: false,
+  showUnregisteredModal: false,
+  showMissingFontsModal: false,
+  fontStatus: {
+    unregisteredCount: 0,
+    missingCount: 0,
+    fontChecked: false,
+    hasScanData: false,
+  },
 
   // モード・ナビ
   setMode: (mode) => set({ mode }),
@@ -304,6 +337,12 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
   // 処理状態
   setPhase: (phase) => set({ phase }),
   setProgress: (current, total, message) => set({ progress: { current, total, message } }),
+
+  // フォント種類タブモーダル
+  setShowManualFontAdd: (v) => set({ showManualFontAdd: v }),
+  setShowUnregisteredModal: (v) => set({ showUnregisteredModal: v }),
+  setShowMissingFontsModal: (v) => set({ showMissingFontsModal: v }),
+  setFontStatus: (fontStatus) => set({ fontStatus }),
 
   // データロード
   loadFromPresetJson: (data) =>

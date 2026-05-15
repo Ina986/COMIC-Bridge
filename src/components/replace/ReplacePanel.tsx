@@ -463,85 +463,85 @@ export function ReplacePanel() {
                       : null;
                     const otherIsActive = otherEl && otherEl.source !== "exclude";
                     return (
-                    <div key={el.id}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-text-primary flex-1 min-w-0 truncate">
-                          {el.label}
-                          {isExclusivePair && otherIsActive && el.source === "exclude" && (
-                            <span className="text-[9px] text-text-muted ml-1">
-                              ({otherEl!.label}と排他)
-                            </span>
-                          )}
-                        </span>
-                        <SourcePill
-                          value={el.source}
-                          onChange={(s) => setComposeElementSource(el.id, s)}
-                        />
-                        {el.type === "custom" && (
-                          <button
-                            onClick={() => removeComposeElement(el.id)}
-                            className="flex-shrink-0 p-0.5 rounded text-text-muted hover:text-error transition-colors"
-                          >
-                            <svg
-                              className="w-3 h-3"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M6 18L18 6M6 6l12 12"
-                              />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Options for specialLayer / namedGroup / custom */}
-                      {(el.type === "specialLayer" ||
-                        el.type === "namedGroup" ||
-                        el.type === "custom") &&
-                        el.source !== "exclude" && (
-                          <div className="ml-4 mt-1 space-y-1">
-                            {el.type === "custom" && (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="text"
-                                  value={el.customName || ""}
-                                  onChange={(e) =>
-                                    updateComposeElement(el.id, {
-                                      customName: e.target.value,
-                                      label: e.target.value || "カスタム",
-                                    })
-                                  }
-                                  placeholder="検索名"
-                                  className="flex-1 bg-bg-elevated border border-white/10 rounded-lg px-2 py-1 text-[10px] text-text-primary focus:border-warning focus:outline-none"
-                                />
-                                <select
-                                  value={el.customKind || "layer"}
-                                  onChange={(e) =>
-                                    updateComposeElement(el.id, {
-                                      customKind: e.target.value as "layer" | "group",
-                                    })
-                                  }
-                                  className="bg-bg-elevated border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-text-primary focus:border-warning focus:outline-none"
-                                >
-                                  <option value="layer">レイヤー</option>
-                                  <option value="group">グループ</option>
-                                </select>
-                              </div>
+                      <div key={el.id}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-text-primary flex-1 min-w-0 truncate">
+                            {el.label}
+                            {isExclusivePair && otherIsActive && el.source === "exclude" && (
+                              <span className="text-[9px] text-text-muted ml-1">
+                                ({otherEl!.label}と排他)
+                              </span>
                             )}
-                            <CheckBox
-                              checked={el.partialMatch ?? true}
-                              onChange={(v) => updateComposeElement(el.id, { partialMatch: v })}
+                          </span>
+                          <SourcePill
+                            value={el.source}
+                            onChange={(s) => setComposeElementSource(el.id, s)}
+                          />
+                          {el.type === "custom" && (
+                            <button
+                              onClick={() => removeComposeElement(el.id)}
+                              className="flex-shrink-0 p-0.5 rounded text-text-muted hover:text-error transition-colors"
                             >
-                              <span className="text-[10px] text-text-secondary">部分一致</span>
-                            </CheckBox>
-                          </div>
-                        )}
-                    </div>
+                              <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Options for specialLayer / namedGroup / custom */}
+                        {(el.type === "specialLayer" ||
+                          el.type === "namedGroup" ||
+                          el.type === "custom") &&
+                          el.source !== "exclude" && (
+                            <div className="ml-4 mt-1 space-y-1">
+                              {el.type === "custom" && (
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={el.customName || ""}
+                                    onChange={(e) =>
+                                      updateComposeElement(el.id, {
+                                        customName: e.target.value,
+                                        label: e.target.value || "カスタム",
+                                      })
+                                    }
+                                    placeholder="検索名"
+                                    className="flex-1 bg-bg-elevated border border-white/10 rounded-lg px-2 py-1 text-[10px] text-text-primary focus:border-warning focus:outline-none"
+                                  />
+                                  <select
+                                    value={el.customKind || "layer"}
+                                    onChange={(e) =>
+                                      updateComposeElement(el.id, {
+                                        customKind: e.target.value as "layer" | "group",
+                                      })
+                                    }
+                                    className="bg-bg-elevated border border-white/10 rounded-lg px-1.5 py-1 text-[10px] text-text-primary focus:border-warning focus:outline-none"
+                                  >
+                                    <option value="layer">レイヤー</option>
+                                    <option value="group">グループ</option>
+                                  </select>
+                                </div>
+                              )}
+                              <CheckBox
+                                checked={el.partialMatch ?? true}
+                                onChange={(v) => updateComposeElement(el.id, { partialMatch: v })}
+                              >
+                                <span className="text-[10px] text-text-secondary">部分一致</span>
+                              </CheckBox>
+                            </div>
+                          )}
+                      </div>
                     );
                   })}
                 </div>

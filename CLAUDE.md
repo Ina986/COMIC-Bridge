@@ -214,7 +214,8 @@
 - **5タブ構成**: 作品情報(WorkInfoTab) / フォント種類(FontTypesTab) / サイズ統計(FontSizesTab) / ガイド線(GuideLinesTab) / ルビ(TextRubyTab)
 
 **FontTypesTab（フォント種類タブ）:**
-- **統合ツールバー**（v1.9.17〜）: フィルタ・ソート・機能ボタン・追加系ボタン・プリセットセレクタを単一の `space-y-1` ツールバーに集約。プリセット選択ドロップダウン（▼ + 追加/名前変更/削除のアイコンボタン）はRow 1の右側に配置。Row 2はソート＋件数バッジ＋手動纏め/自動纏め＋追加/未登録(N)/未インストール(N)。旧上部の独立プリセットボックス（p-3）と独立「プリセット」見出し行は廃止し、縦約170px→約56pxに圧縮
+- **「フォント種類」見出しバー**（v1.9.18〜）: タブ内容の最上部に `flex justify-between` の見出しバーを配置。左に「フォント種類」ラベル、右に **追加 / 未登録(N) / 未インストール(N)** の3アクションボタン（`fontHeaderActionButtons`）。旧 v1.9.17 の portal/slot 方式（`FontTabHeaderSlot.tsx` Context + `createPortal`）は timing flicker のため廃止し、JSX 直書きのインライン描画に戻した
+- **統合ツールバー**（v1.9.17〜）: フィルタ・ソート・機能ボタン・プリセットセレクタを単一の `space-y-1` ツールバーに集約。プリセット選択ドロップダウン（▼ + 追加/名前変更/削除のアイコンボタン）はRow 1の右側に配置。Row 2はソート＋件数バッジ＋手動纏め/自動纏め。旧上部の独立プリセットボックス（p-3）と独立「プリセット」見出し行は廃止
 - **プリセットセット管理**: 複数のプリセットセット（「デフォルト」「手動追加」等）を切替・追加・削除・リネーム（リネームはツールバー内インライン展開）
 - **カスタムセット作成**: ツールバーの「+」アイコンボタンでフォントピッカー付きセット作成。既存セット（デフォルト・手動追加等）や未登録フォントから選択してセットを構成
 - **手動フォント追加**（v1.9.17〜モーダル化）: ツールバーの「追加」ボタンでモーダル展開。フォント検索フォームで部分一致検索（PostScript名・表示名対応）。`search_font_names` Rustコマンドで検索→1件なら自動入力、複数件ならドロップダウンから選択、0件ならエラー表示。追加フォントは「手動追加」セットに登録
@@ -244,9 +245,16 @@
 **未記入・未設定チェック（`getAllMissingFields()`）:**
 - 全5タブの項目を横断チェックし、未記入・未設定を`MissingField[]`（タブ番号+ラベル）で返す
 - **チェック対象**: 作品情報（ジャンル/レーベル/タイトル/著者/編集者）、フォントプリセット（未登録/カテゴリ未設定）、基本フォントサイズ/サイズ一覧/ストロークサイズ、ガイド線選択/選択範囲、テキストログ/ルビ一覧
-- **バナー表示**: ScanPsdPanel・ScanPsdEditViewのヘッダー下に警告バナー。各タグバッジをクリックで該当タブに遷移
+- **バナー表示**（v1.9.18 で簡素化）: ScanPsdPanel・ScanPsdEditView の未記入リストバナー（「確認が必要」横スクロールバッジ列）と、ScanPsdEditView 右サイドの「編集ステータス」内動的件数テキストは **すべて削除**。未記入の導線は ScanPsdEditView 左サイドバーの各セクションナビ右端の件数/OKバッジと、ScanPsdView サブタブの件数バッジに集約
 - **保存時ダイアログ**: 未設定項目がある場合、保存ボタン押下時に確認ダイアログ（「戻って入力」/「そのまま保存」）
 - ScanPsdViewのサブタブバッジにも未設定項目数を表示
+
+**ScanPsdEditView レイアウト（v1.9.18〜・横幅最大化）:**
+- 旧上部ヘッダー行（Scan PSD ロゴ + 5セクションタブ「作品情報/フォント種類/…」+ 仮保存中バッジ）は左サイドバーの縦セクションナビと重複していたため **行ごと削除**。`grid-rows-[48px_1fr]` → `grid-rows-[1fr]`
+- 右サイドの統計パネル（QuickStat: Files/Fonts/Base/Ruby/Guides/Text + 編集ステータスカード）を **全削除**。`grid-cols-[minmax(0,1fr)_220px]`（2カラム）→ 単一カラム全幅。`QuickStat` コンポーネントと `processedFiles`/`textLayerCount` も削除
+- 構成は「左サイドバー(260px: Current JSON情報 / セクションナビ / 巻数管理・追加スキャン・保存ボタン / 入力進捗バー) + 全幅メイン編集エリア」の2カラム
+- 戻るボタンは ScanPsdView のサブタブ行（スキャナー/フォント帳と同じ行）右端に配置（編集モード時のみ表示）
+- フォント種類タブ（activeTab===1）では内側カードの重複見出しを非表示にし、FontTypesTab 自身の「フォント種類」見出しバーに一本化
 
 **保存ルール:**
 - ファイル名: `{title}.json` / `{title}_scandata.json`
@@ -281,7 +289,8 @@
 - `src/store/scanPsdStore.ts` — Zustandストア（persist未使用）
 - `src/types/scanPsd.ts` — ScanData, PresetJsonData, ScanGuideSet, ScanWorkInfo, FontPreset等の型定義
 - `src/components/scanPsd/ScanPsdContent.tsx` — 右パネル（モード選択、スキャンUI、サマリー、ファイルブラウザ）
-- `src/components/scanPsd/ScanPsdPanel.tsx` — 左パネル（5タブ + 保存ボタン + 未記入チェックバナー）
+- `src/components/scanPsd/ScanPsdPanel.tsx` — 左パネル（5タブ + 保存ボタン）。v1.9.18 で未記入チェックバナーを削除
+- `src/components/scanPsd/ScanPsdEditView.tsx` — JSON編集ビュー（v1.9.18: 上部ヘッダー行・右統計パネル削除で全幅化、左サイドバー2カラム構成）
 - `src/components/scanPsd/JsonFileBrowser.tsx` — basePath以下のJSON専用ファイルブラウザ
 - `src/components/scanPsd/tabs/` — 各タブコンポーネント
 - `src/components/ErrorBoundary.tsx` — React エラーバウンダリ
@@ -390,7 +399,7 @@
 - **SplitView**: 見開き分割
 - **RenameView**: リネーム（レイヤーリネーム / ファイルリネーム）
 - **TiffView**: TIFF化（3カラム: TiffSettingsPanel | TiffFileList | Center(プレビュー/一覧/ビューアータブ切替)）。TiffFileListヘッダーとTiffBatchQueueヘッダーにサブフォルダチェックを配置
-- **ScanPsdView**: Scan PSD（サブタブ: スキャナー / フォント帳）。スキャナーモードは2カラム: ScanPsdPanel(5タブ) | ScanPsdContent(モード選択/スキャン/サマリー)。フォント帳タブはFontBookViewを表示。未記入・未設定項目数をサブタブバッジで表示
+- **ScanPsdView**: Scan PSD（サブタブ: スキャナー / フォント帳）。スキャナーモードは2カラム: ScanPsdPanel(5タブ) | ScanPsdContent(モード選択/スキャン/サマリー)。フォント帳タブはFontBookViewを表示。未記入・未設定項目数をサブタブバッジで表示。v1.9.18: サブタブ行の右端に「戻る」ボタンを配置（編集モード時のみ）。編集モードでは ScanPsdEditView を全幅表示（右統計パネル・上部重複タブ行を撤去）
 
 ### レイヤーツリー (LayerPreviewPanel)
 - **タブ切替**: 「レイヤー構造」（デフォルト）/ 「ビューアー」のセグメントボタン

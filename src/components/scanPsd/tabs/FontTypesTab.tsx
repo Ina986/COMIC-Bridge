@@ -6,6 +6,7 @@ import type { FontPreset } from "../../../types/scanPsd";
 import { MISSING_FONT_COLOR } from "../../../hooks/useFontResolver";
 import type { FontResolveInfo } from "../../../hooks/useFontResolver";
 import { FontBrowserDialog } from "../../spec-checker/FontBrowserDialog";
+// (Portal-based header slot removed - buttons now render inline at top of tab content)
 
 const FONT_SHARE_PATH = "\\\\haku\\CLLENN\\■アシスタント\\★フォント\\★全フォント";
 
@@ -165,10 +166,14 @@ export function FontTypesTab() {
   const [manualSelectMode, setManualSelectMode] = useState(false);
   const [manualSelected, setManualSelected] = useState<Set<number>>(new Set());
 
-  // --- モーダル類（手動フォント追加・未登録・未インストール） ---
-  const [showManualFontAdd, setShowManualFontAdd] = useState(false);
-  const [showUnregisteredModal, setShowUnregisteredModal] = useState(false);
-  const [showMissingFontsModal, setShowMissingFontsModal] = useState(false);
+  // --- モーダル類（手動フォント追加・未登録・未インストール）— scanPsdStoreで管理 ---
+  const showManualFontAdd = useScanPsdStore((s) => s.showManualFontAdd);
+  const setShowManualFontAdd = useScanPsdStore((s) => s.setShowManualFontAdd);
+  const showUnregisteredModal = useScanPsdStore((s) => s.showUnregisteredModal);
+  const setShowUnregisteredModal = useScanPsdStore((s) => s.setShowUnregisteredModal);
+  const showMissingFontsModal = useScanPsdStore((s) => s.showMissingFontsModal);
+  const setShowMissingFontsModal = useScanPsdStore((s) => s.setShowMissingFontsModal);
+  const setFontStatus = useScanPsdStore((s) => s.setFontStatus);
   const [manualFont, setManualFont] = useState({ psName: "", displayName: "", subName: "" });
   const [manualFontResolving, setManualFontResolving] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState("");
@@ -240,6 +245,16 @@ export function FontTypesTab() {
     () => (fontChecked ? allPresetFontNames.filter((n) => !(n in fontResolveMap)) : []),
     [fontChecked, allPresetFontNames, fontResolveMap],
   );
+
+  // ステータスを親（ScanPsdEditView）に共有
+  useEffect(() => {
+    setFontStatus({
+      unregisteredCount: unregisteredFonts.length,
+      missingCount: missingFontNames.length,
+      fontChecked,
+      hasScanData: !!scanData,
+    });
+  }, [unregisteredFonts.length, missingFontNames.length, fontChecked, scanData, setFontStatus]);
 
   // --- 自動纏めプレビュー初期化 ---
   const initAutoGroups = useCallback(() => {
@@ -592,8 +607,97 @@ export function FontTypesTab() {
     return sections;
   }, [setNames, presetSets, unregisteredFonts, fontCountMap]);
 
+  const fontHeaderActionButtons = (
+    <>
+      <button
+        onClick={() => setShowManualFontAdd(true)}
+        className="text-[10px] font-medium px-2 py-0.5 rounded border bg-white text-accent-tertiary border-accent-tertiary/30 hover:bg-accent-tertiary/10 transition-all flex items-center gap-0.5"
+        title="フォントを手動で追加"
+      >
+        <svg
+          className="w-2.5 h-2.5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        追加
+      </button>
+      {scanData && (
+        <button
+          onClick={() => setShowUnregisteredModal(true)}
+          disabled={unregisteredFonts.length === 0}
+          className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all flex items-center gap-0.5 ${
+            unregisteredFonts.length === 0
+              ? "bg-white text-text-muted/40 border-border/40 cursor-not-allowed"
+              : "bg-white text-warning border-warning/30 hover:bg-warning/10"
+          }`}
+          title="未登録フォント一覧"
+        >
+          未登録
+          <span
+            className={`text-[9px] font-bold px-1 py-px rounded-full ${
+              unregisteredFonts.length === 0
+                ? "text-text-muted/40 bg-bg-tertiary"
+                : "text-warning bg-warning/15"
+            }`}
+          >
+            {unregisteredFonts.length}
+          </span>
+        </button>
+      )}
+      {fontChecked && (
+        <button
+          onClick={() => setShowMissingFontsModal(true)}
+          disabled={missingFontNames.length === 0}
+          className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all flex items-center gap-0.5 ${
+            missingFontNames.length === 0
+              ? "bg-white text-text-muted/40 border-border/40 cursor-not-allowed"
+              : "bg-white border hover:opacity-90"
+          }`}
+          style={
+            missingFontNames.length === 0
+              ? undefined
+              : {
+                  color: MISSING_FONT_COLOR,
+                  borderColor: `${MISSING_FONT_COLOR}40`,
+                  backgroundColor: `${MISSING_FONT_COLOR}08`,
+                }
+          }
+          title="未インストールフォント一覧"
+        >
+          未インストール
+          <span
+            className="text-[9px] font-bold px-1 py-px rounded-full"
+            style={
+              missingFontNames.length === 0
+                ? undefined
+                : {
+                    color: MISSING_FONT_COLOR,
+                    backgroundColor: `${MISSING_FONT_COLOR}18`,
+                  }
+            }
+          >
+            {missingFontNames.length}
+          </span>
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-2">
+      {/* === フォント種類リストの見出しバー === */}
+      <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-border-light">
+        <strong className="text-xs font-black text-text-primary whitespace-nowrap">
+          フォント種類
+        </strong>
+        <div className="flex items-center gap-1 flex-wrap justify-end">
+          {fontHeaderActionButtons}
+        </div>
+      </div>
       {/* === セット作成フォントピッカー === */}
       {showFontPicker && (
         <div className="bg-white rounded-xl border-2 border-accent/30 shadow-lg overflow-hidden">
@@ -768,9 +872,7 @@ export function FontTypesTab() {
             <FilterChip
               label="インストール済"
               active={filterInstall === "installed"}
-              onClick={() =>
-                setFilterInstall(filterInstall === "installed" ? "all" : "installed")
-              }
+              onClick={() => setFilterInstall(filterInstall === "installed" ? "all" : "installed")}
             />
             <FilterChip
               label="未インストール"
@@ -915,82 +1017,6 @@ export function FontTypesTab() {
               >
                 自動纏め
               </button>
-              <span className="w-px h-3 bg-border/40 mx-0.5" />
-              <button
-                onClick={() => setShowManualFontAdd(true)}
-                className="text-[10px] font-medium px-2 py-0.5 rounded border bg-white text-accent-tertiary border-accent-tertiary/30 hover:bg-accent-tertiary/10 transition-all flex items-center gap-0.5"
-                title="フォントを手動で追加"
-              >
-                <svg
-                  className="w-2.5 h-2.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                追加
-              </button>
-              {scanData && (
-                <button
-                  onClick={() => setShowUnregisteredModal(true)}
-                  disabled={unregisteredFonts.length === 0}
-                  className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all flex items-center gap-0.5 ${
-                    unregisteredFonts.length === 0
-                      ? "bg-white text-text-muted/40 border-border/40 cursor-not-allowed"
-                      : "bg-white text-warning border-warning/30 hover:bg-warning/10"
-                  }`}
-                  title="未登録フォント一覧"
-                >
-                  未登録
-                  <span
-                    className={`text-[9px] font-bold px-1 py-px rounded-full ${
-                      unregisteredFonts.length === 0
-                        ? "text-text-muted/40 bg-bg-tertiary"
-                        : "text-warning bg-warning/15"
-                    }`}
-                  >
-                    {unregisteredFonts.length}
-                  </span>
-                </button>
-              )}
-              {fontChecked && (
-                <button
-                  onClick={() => setShowMissingFontsModal(true)}
-                  disabled={missingFontNames.length === 0}
-                  className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-all flex items-center gap-0.5 ${
-                    missingFontNames.length === 0
-                      ? "bg-white text-text-muted/40 border-border/40 cursor-not-allowed"
-                      : "bg-white border hover:opacity-90"
-                  }`}
-                  style={
-                    missingFontNames.length === 0
-                      ? undefined
-                      : {
-                          color: MISSING_FONT_COLOR,
-                          borderColor: `${MISSING_FONT_COLOR}40`,
-                          backgroundColor: `${MISSING_FONT_COLOR}08`,
-                        }
-                  }
-                  title="未インストールフォント一覧"
-                >
-                  未インストール
-                  <span
-                    className="text-[9px] font-bold px-1 py-px rounded-full"
-                    style={
-                      missingFontNames.length === 0
-                        ? undefined
-                        : {
-                            color: MISSING_FONT_COLOR,
-                            backgroundColor: `${MISSING_FONT_COLOR}18`,
-                          }
-                    }
-                  >
-                    {missingFontNames.length}
-                  </span>
-                </button>
-              )}
             </div>
           )}
 

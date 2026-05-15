@@ -11,6 +11,8 @@ type ScanSubTab = "scanner" | "fontBook";
 
 export function ScanPsdView() {
   const mode = useScanPsdStore((s) => s.mode);
+  const setMode = useScanPsdStore((s) => s.setMode);
+  const reset = useScanPsdStore((s) => s.reset);
   const currentJsonFilePath = useScanPsdStore((s) => s.currentJsonFilePath);
   const scanData = useScanPsdStore((s) => s.scanData);
   const presetSets = useScanPsdStore((s) => s.presetSets);
@@ -19,6 +21,7 @@ export function ScanPsdView() {
   const selectionRanges = useScanPsdStore((s) => s.selectionRanges);
   const rubyList = useScanPsdStore((s) => s.rubyList);
   const [subTab, setSubTab] = useState<ScanSubTab>("scanner");
+  const showBackButton = subTab === "scanner" && mode !== null;
 
   // 全タブの未記入・未設定項目数
   const missingCount = useMemo(
@@ -65,6 +68,17 @@ export function ScanPsdView() {
             フォント帳
           </button>
         </div>
+        {showBackButton && (
+          <button
+            onClick={() => {
+              reset();
+              setMode(null);
+            }}
+            className="ml-auto h-7 px-3 text-[10px] font-bold text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-tertiary transition-colors"
+          >
+            戻る
+          </button>
+        )}
       </div>
 
       {/* Content */}
