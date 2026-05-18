@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useOpenInPhotoshop } from "../../hooks/useOpenInPhotoshop";
+import { Tooltip } from "../ui/Tooltip";
 import { CompactFileList } from "../common/CompactFileList";
 import { SpecTextGrid, type TextIssueFilter } from "../spec-checker/SpecTextGrid";
 import { SpecViewerPanel } from "../spec-checker/SpecViewerPanel";
@@ -166,26 +167,39 @@ export function TypsettingView() {
 }
 
 function SubTabBar({ subTab, setSubTab }: { subTab: SubTab; setSubTab: (t: SubTab) => void }) {
-  const tabs: { id: SubTab; label: string }[] = [
-    { id: "spec", label: "校正データ確認" },
-    { id: "viewer", label: "DTPビューアー" },
-    { id: "check", label: "テキスト仕様確認" },
+  const tabs: { id: SubTab; label: string; tooltip: string }[] = [
+    {
+      id: "spec",
+      label: "校正データ確認",
+      tooltip: "校正JSONを読み込み、正誤・提案の指摘をページ別に確認します。",
+    },
+    {
+      id: "viewer",
+      label: "DTPビューアー",
+      tooltip: "PSDプレビューと校正指摘を並べて表示し、ページごとの内容を確認します。",
+    },
+    {
+      id: "check",
+      label: "テキスト仕様確認",
+      tooltip: "PSD内のテキストレイヤーを解析し、使用フォント・サイズ・レイヤー情報を確認します。",
+    },
   ];
 
   return (
     <div className="flex bg-bg-elevated rounded-md p-0.5 border border-white/5 flex-shrink-0">
       {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          onClick={() => setSubTab(tab.id)}
-          className={`px-2 py-1 text-[10px] rounded transition-all ${
-            subTab === tab.id
-              ? "bg-bg-tertiary text-text-primary font-medium shadow-sm"
-              : "text-text-muted hover:text-text-secondary"
-          }`}
-        >
-          {tab.label}
-        </button>
+        <Tooltip key={tab.id} content={tab.tooltip} position="bottom" delay={300}>
+          <button
+            onClick={() => setSubTab(tab.id)}
+            className={`px-2 py-1 text-[10px] rounded transition-all ${
+              subTab === tab.id
+                ? "bg-bg-tertiary text-text-primary font-medium shadow-sm"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            {tab.label}
+          </button>
+        </Tooltip>
       ))}
     </div>
   );

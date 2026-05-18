@@ -3,6 +3,7 @@ import { useReplaceStore } from "../../store/replaceStore";
 import { useReplaceProcessor } from "../../hooks/useReplaceProcessor";
 import { ReplacePairingModal } from "./ReplacePairingModal";
 import { ReplaceToast } from "./ReplaceToast";
+import { Tooltip } from "../ui/Tooltip";
 import type { ReplaceMode, ComposeSource, ComposeRestSource } from "../../types/replace";
 
 export function ReplacePanel() {
@@ -170,7 +171,13 @@ export function ReplacePanel() {
                 checked={settings.subfolderSettings.mode === "advanced"}
                 onChange={(v) => setSubfolderMode(v ? "advanced" : "none")}
               >
-                <span className="text-[10px] text-text-secondary">サブフォルダ対応</span>
+                <Tooltip
+                  content="選択した親フォルダ内のサブフォルダも読み込み、同じ構成で差替え対象に含めます。"
+                  position="right"
+                  delay={300}
+                >
+                  <span className="text-[10px] text-text-secondary">サブフォルダ対応</span>
+                </Tooltip>
               </CheckBox>
             </div>
           )}
@@ -188,6 +195,7 @@ export function ReplacePanel() {
               description="植字データ → 画像データ"
               icon={<TextIcon />}
               color="accent"
+              tooltip="植字データのテキストを、画像データ側の同じページへまとめて差し替えます。"
               onSelect={setMode}
             />
             {settings.mode === "text" && (
@@ -197,21 +205,33 @@ export function ReplacePanel() {
                   onClick={() => setTextSubMode("textLayers")}
                 >
                   <RadioDot selected={settings.textSettings.subMode === "textLayers"} />
-                  <div>
-                    <span className="text-xs text-text-primary">テキストレイヤーを差替え</span>
-                    <p className="text-[10px] text-text-muted">
-                      フォルダ階層を維持、画像レイヤーは除外
-                    </p>
-                  </div>
+                  <Tooltip
+                    content="テキストレイヤーだけを対象にして差し替えます。画像レイヤーは対象外です。"
+                    position="right"
+                    delay={300}
+                  >
+                    <div>
+                      <span className="text-xs text-text-primary">テキストレイヤーを差替え</span>
+                      <p className="text-[10px] text-text-muted">
+                        フォルダ階層を維持、画像レイヤーは除外
+                      </p>
+                    </div>
+                  </Tooltip>
                 </label>
                 <label
                   className="flex items-center gap-2 cursor-pointer"
                   onClick={() => setTextSubMode("namedGroup")}
                 >
                   <RadioDot selected={settings.textSettings.subMode === "namedGroup"} />
-                  <div>
-                    <span className="text-xs text-text-primary">特定名グループを差替え</span>
-                  </div>
+                  <Tooltip
+                    content="指定した名前のフォルダを対象にして、中のレイヤーをまとめて差し替えます。"
+                    position="right"
+                    delay={300}
+                  >
+                    <div>
+                      <span className="text-xs text-text-primary">特定名グループを差替え</span>
+                    </div>
+                  </Tooltip>
                 </label>
                 {settings.textSettings.subMode === "namedGroup" && (
                   <div className="space-y-1.5">
@@ -236,9 +256,15 @@ export function ReplacePanel() {
                     checked={settings.generalSettings.roundFontSize}
                     onChange={(v) => setGeneralSettings({ roundFontSize: v })}
                   >
-                    <span className="text-[10px] text-text-secondary">
-                      小数点以下を切り捨て
-                    </span>
+                    <Tooltip
+                      content="フォントサイズなどの小数値を整数に丸めて、差替え後の数値ズレを抑えます。"
+                      position="right"
+                      delay={300}
+                    >
+                      <span className="text-[10px] text-text-secondary">
+                        小数点以下を切り捨て
+                      </span>
+                    </Tooltip>
                   </CheckBox>
                 </div>
               </div>
@@ -252,6 +278,7 @@ export function ReplacePanel() {
               description="画像データ → 植字データ"
               icon={<ImageIcon />}
               color="accent-secondary"
+              tooltip="画像データの背景や指定レイヤーを、植字データ側へまとめて差し替えます。"
               onSelect={setMode}
             />
             {settings.mode === "image" && (
@@ -382,6 +409,7 @@ export function ReplacePanel() {
               description="白消し・棒消しを一括差替え"
               icon={<BatchIcon />}
               color="accent-tertiary"
+              tooltip="白消し・棒消しフォルダを自動検出し、関連レイヤーを一括で差し替えます。"
               onSelect={setMode}
             />
             {settings.mode === "batch" && (
@@ -396,9 +424,15 @@ export function ReplacePanel() {
                     checked={settings.generalSettings.roundFontSize}
                     onChange={(v) => setGeneralSettings({ roundFontSize: v })}
                   >
-                    <span className="text-[10px] text-text-secondary">
-                      小数点以下を切り捨て
-                    </span>
+                    <Tooltip
+                      content="フォントサイズなどの小数値を整数に丸めて、差替え後の数値ズレを抑えます。"
+                      position="right"
+                      delay={300}
+                    >
+                      <span className="text-[10px] text-text-secondary">
+                        小数点以下を切り捨て
+                      </span>
+                    </Tooltip>
                   </CheckBox>
                   <CheckBox
                     checked={settings.generalSettings.skipResize}
@@ -418,6 +452,7 @@ export function ReplacePanel() {
               description="白消し ⇔ 棒消し を切り替え"
               icon={<SwitchIcon />}
               color="warning"
+              tooltip="白消しと棒消しの表示内容を入れ替え、指定した側へ切り替えます。"
               onSelect={setMode}
             />
             {settings.mode === "switch" && (
@@ -666,9 +701,15 @@ export function ReplacePanel() {
                     checked={settings.composeSettings.roundFontSize}
                     onChange={(v) => setComposeSettings({ roundFontSize: v })}
                   >
-                    <span className="text-[10px] text-text-secondary">
-                      小数点以下を切り捨て
-                    </span>
+                    <Tooltip
+                      content="フォントサイズなどの小数値を整数に丸めて、差替え後の数値ズレを抑えます。"
+                      position="right"
+                      delay={300}
+                    >
+                      <span className="text-[10px] text-text-secondary">
+                        小数点以下を切り捨て
+                      </span>
+                    </Tooltip>
                   </CheckBox>
                 </div>
               </div>
@@ -805,6 +846,7 @@ function ModeCard({
   description,
   icon,
   color,
+  tooltip,
   onSelect,
 }: {
   mode: ReplaceMode;
@@ -813,11 +855,12 @@ function ModeCard({
   description: string;
   icon: React.ReactNode;
   color: string;
+  tooltip?: string;
   onSelect: (mode: ReplaceMode) => void;
 }) {
   const isSelected = currentMode === mode;
 
-  return (
+  const card = (
     <div
       className={`
         p-2.5 rounded-xl cursor-pointer transition-all duration-200
@@ -850,6 +893,13 @@ function ModeCard({
         </div>
       </div>
     </div>
+  );
+
+  if (!tooltip) return card;
+  return (
+    <Tooltip content={tooltip} position="right" delay={300}>
+      {card}
+    </Tooltip>
   );
 }
 

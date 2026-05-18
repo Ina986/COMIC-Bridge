@@ -95,6 +95,18 @@ function processFile(fileConfig, globalSettings) {
         // 2. Unlock all layers
         unlockAllLayers(doc);
 
+        // 2.5 Detect metrics kerning BEFORE text is consolidated/rasterized
+        var metricsKerningLayers = [];
+        try {
+            metricsKerningLayers = detectMetricsKerningLayers(doc, "");
+        } catch (e_kern) { /* ignore detection errors */ }
+
+        // 2.6 Detect link group font-size issues BEFORE text is consolidated/rasterized
+        var linkGroupIssues = [];
+        try {
+            linkGroupIssues = detectLinkGroupFontSizeIssues(doc);
+        } catch (e_link) { /* ignore detection errors */ }
+
         // 3. Always find existing text group for text/background separation
         var textGroup = null;
         for (var gi = 0; gi < doc.layerSets.length; gi++) {
@@ -364,7 +376,9 @@ function processFile(fileConfig, globalSettings) {
             colorMode: finalColorMode,
             finalWidth: finalWidth,
             finalHeight: finalHeight,
-            dpi: finalDpi
+            dpi: finalDpi,
+            metricsKerningLayers: metricsKerningLayers,
+            linkGroupIssues: linkGroupIssues
         };
 
     } catch (e) {
@@ -873,6 +887,236 @@ function parseJSON(str) {
     }
 
     return parseValue();
+}
+
+/* -----------------------------------------------------
+  Linked Text Layer Font-Size Check
+  リンクされたテキストレイヤー群のフォントサイズが同一 or ちょうど1:2 のいずれにも該当しない場合を検出
+  ----
+  アプローチ: 各テキストレイヤーの `linkedLayerIDs` プロパティを直接読み取り、
+  selectLinkedLayers による選択変更を避ける（副作用なし＋失敗しにくい）。
+  Union-Find でリンクグループを構築する。
+ ----------------------------------------------------- */
+function detectLinkGroupFontSizeIssues(doc) {
+    var issues = [];
+
+    // --- テキストレイヤー一覧 + その linkedLayerIDs 収集 ---
+    var textLayerList = []; // { id, layer, linkedIds:[], maxFontSize, name }
+
+    function readLayerLinkedIds(layer) {
+        var result = { id: null, linkedIds: [] };
+        try {
+            var ref = new ActionReference();
+            ref.putIdentifier(charIDToTypeID("Lyr "), layer.id);
+            var desc = executeActionGet(ref);
+            result.id = desc.getInteger(stringIDToTypeID("layerID"));
+            if (desc.hasKey(stringIDToTypeID("linkedLayerIDs"))) {
+                var linkedList = desc.getList(stringIDToTypeID("linkedLayerIDs"));
+                for (var i = 0; i < linkedList.count; i++) {
+                    result.linkedIds.push(linkedList.getInteger(i));
+                }
+            }
+        } catch (e) {}
+        return result;
+    }
+
+    function readMaxFontSize(layer) {
+        try {
+            if (layer.kind !== LayerKind.TEXT) return null;
+            var ref = new ActionReference();
+            ref.putIdentifier(charIDToTypeID("Lyr "), layer.id);
+            var desc = executeActionGet(ref);
+            if (!desc.hasKey(stringIDToTypeID("textKey"))) return null;
+            var tk = desc.getObjectValue(stringIDToTypeID("textKey"));
+            if (!tk.hasKey(stringIDToTypeID("textStyleRange"))) return null;
+            var ranges = tk.getList(stringIDToTypeID("textStyleRange"));
+            var maxSize = null;
+            for (var r = 0; r < ranges.count; r++) {
+                var range = ranges.getObjectValue(r);
+                if (!range.hasKey(stringIDToTypeID("textStyle"))) continue;
+                var style = range.getObjectValue(stringIDToTypeID("textStyle"));
+                if (!style.hasKey(stringIDToTypeID("size"))) continue;
+                var sz;
+                try {
+                    sz = style.getUnitDoubleValue(stringIDToTypeID("size"));
+                } catch (e_size) {
+                    try { sz = style.getDouble(stringIDToTypeID("size")); } catch (e_d) { continue; }
+                }
+                if (typeof sz === "number" && !isNaN(sz)) {
+                    if (maxSize === null || sz > maxSize) maxSize = sz;
+                }
+            }
+            return maxSize;
+        } catch (e) { return null; }
+    }
+
+    function collectTextLayers(parent) {
+        for (var i = 0; i < parent.layers.length; i++) {
+            var layer = parent.layers[i];
+            try {
+                if (layer.typename === "LayerSet") {
+                    collectTextLayers(layer);
+                } else if (layer.kind === LayerKind.TEXT) {
+                    var info = readLayerLinkedIds(layer);
+                    if (info.id === null) continue;
+                    var sz = readMaxFontSize(layer);
+                    textLayerList.push({
+                        id: info.id,
+                        layer: layer,
+                        linkedIds: info.linkedIds,
+                        maxFontSize: sz,
+                        name: layer.name
+                    });
+                }
+            } catch (e) {}
+        }
+    }
+    try { collectTextLayers(doc); } catch (e) {}
+
+    if (textLayerList.length === 0) return issues;
+
+    // --- Union-Find でリンクグループ構築 ---
+    var parent = {};
+    function find(x) {
+        if (parent[x] === undefined) parent[x] = x;
+        if (parent[x] === x) return x;
+        parent[x] = find(parent[x]);
+        return parent[x];
+    }
+    function union(a, b) {
+        var ra = find(a), rb = find(b);
+        if (ra !== rb) parent[ra] = rb;
+    }
+    for (var i = 0; i < textLayerList.length; i++) {
+        find(textLayerList[i].id);
+    }
+    var textIdSet = {};
+    for (var j = 0; j < textLayerList.length; j++) textIdSet[textLayerList[j].id] = true;
+    for (var k = 0; k < textLayerList.length; k++) {
+        var tl = textLayerList[k];
+        for (var m = 0; m < tl.linkedIds.length; m++) {
+            var lid = tl.linkedIds[m];
+            if (textIdSet[lid]) union(tl.id, lid);
+        }
+    }
+    var groups = {}; // rootId -> [textLayerList item, ...]
+    for (var q = 0; q < textLayerList.length; q++) {
+        var root = find(textLayerList[q].id);
+        if (!groups[root]) groups[root] = [];
+        groups[root].push(textLayerList[q]);
+    }
+
+    // --- 各グループでフォントサイズ検証 ---
+    var groupCounter = 1;
+    for (var rootId in groups) {
+        if (!groups.hasOwnProperty(rootId)) continue;
+        var groupMembers = groups[rootId];
+        if (groupMembers.length < 2) continue; // 単独はリンクでない
+
+        var validMembers = [];
+        for (var mi = 0; mi < groupMembers.length; mi++) {
+            if (typeof groupMembers[mi].maxFontSize === "number" && groupMembers[mi].maxFontSize > 0) {
+                validMembers.push({
+                    layerName: groupMembers[mi].name,
+                    fontSize: groupMembers[mi].maxFontSize
+                });
+            }
+        }
+        if (validMembers.length < 2) continue;
+
+        var sizes = [];
+        for (var vi = 0; vi < validMembers.length; vi++) sizes.push(validMembers[vi].fontSize);
+        var maxSize = sizes[0], minSize = sizes[0];
+        for (var si = 1; si < sizes.length; si++) {
+            if (sizes[si] > maxSize) maxSize = sizes[si];
+            if (sizes[si] < minSize) minSize = sizes[si];
+        }
+
+        var EPS = 0.001;
+        var allEqual = (maxSize - minSize) <= EPS;
+        var ratio = minSize > 0 ? (maxSize / minSize) : 0;
+        var exactlyHalf = Math.abs(ratio - 2.0) <= EPS;
+        var allBigOrSmall = exactlyHalf;
+        if (exactlyHalf) {
+            for (var ni = 0; ni < sizes.length; ni++) {
+                if (Math.abs(sizes[ni] - maxSize) > EPS && Math.abs(sizes[ni] - minSize) > EPS) {
+                    allBigOrSmall = false;
+                    break;
+                }
+            }
+        }
+
+        if (!allEqual && !(exactlyHalf && allBigOrSmall)) {
+            var roundedMembers = [];
+            for (var rm = 0; rm < validMembers.length; rm++) {
+                roundedMembers.push({
+                    layerName: validMembers[rm].layerName,
+                    fontSize: Math.round(validMembers[rm].fontSize * 1000) / 1000
+                });
+            }
+            issues.push({
+                linkGroup: groupCounter,
+                members: roundedMembers,
+                maxSize: Math.round(maxSize * 1000) / 1000,
+                minSize: Math.round(minSize * 1000) / 1000,
+                ratio: Math.round(ratio * 10000) / 10000
+            });
+        }
+        groupCounter++;
+    }
+
+    return issues;
+}
+
+/* -----------------------------------------------------
+  Metrics Kerning Detection
+  全テキストレイヤーをActionManager経由で走査し、
+  textStyleRangeのautoKern値から "metricsKern" を含むものを収集する
+ ----------------------------------------------------- */
+function detectMetricsKerningLayers(container, parentPath) {
+    var results = [];
+    parentPath = parentPath || "";
+    for (var i = 0; i < container.layers.length; i++) {
+        var layer = container.layers[i];
+        var path = parentPath ? (parentPath + "/" + layer.name) : layer.name;
+        try {
+            if (layer.typename === "LayerSet") {
+                var childResults = detectMetricsKerningLayers(layer, path);
+                for (var k = 0; k < childResults.length; k++) results.push(childResults[k]);
+            } else if (layer.kind === LayerKind.TEXT) {
+                if (hasMetricsKerning(layer)) {
+                    results.push(path);
+                }
+            }
+        } catch (e) { /* skip problematic layers */ }
+    }
+    return results;
+}
+
+function hasMetricsKerning(textLayer) {
+    try {
+        var ref = new ActionReference();
+        ref.putIdentifier(charIDToTypeID("Lyr "), textLayer.id);
+        var desc = executeActionGet(ref);
+        var textKeyID = stringIDToTypeID("textKey");
+        if (!desc.hasKey(textKeyID)) return false;
+        var textKey = desc.getObjectValue(textKeyID);
+        var textStyleRangeID = stringIDToTypeID("textStyleRange");
+        if (!textKey.hasKey(textStyleRangeID)) return false;
+        var ranges = textKey.getList(textStyleRangeID);
+        var textStyleID = stringIDToTypeID("textStyle");
+        var autoKernID = stringIDToTypeID("autoKern");
+        var metricsID = stringIDToTypeID("metricsKern");
+        for (var r = 0; r < ranges.count; r++) {
+            var range = ranges.getObjectValue(r);
+            if (!range.hasKey(textStyleID)) continue;
+            var style = range.getObjectValue(textStyleID);
+            if (!style.hasKey(autoKernID)) continue;
+            var kernEnum = style.getEnumerationValue(autoKernID);
+            if (kernEnum === metricsID) return true;
+        }
+    } catch (e) { /* fallthrough */ }
+    return false;
 }
 
 /* -----------------------------------------------------

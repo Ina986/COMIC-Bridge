@@ -9,6 +9,7 @@ import {
 } from "../../store/splitStore";
 import { useSplitProcessor } from "../../hooks/useSplitProcessor";
 import { SplitResultDialog } from "./SplitResultDialog";
+import { Tooltip } from "../ui/Tooltip";
 
 export function SplitPanel() {
   const files = usePsdStore((state) => state.files);
@@ -78,6 +79,7 @@ export function SplitPanel() {
               mode="even"
               label="均等分割"
               description="中央で左右均等に分割"
+              tooltip="見開き原稿を中央で左右同じ幅に分割します。"
               currentMode={settings.mode}
               onChange={(mode) => setSettings({ mode })}
             />
@@ -85,6 +87,7 @@ export function SplitPanel() {
               mode="uneven"
               label="不均等分割"
               description="選択範囲から余白を自動計算"
+              tooltip="選択した分割位置を基準に、ノド側の余白を自動で補って左右ページを整えます。"
               currentMode={settings.mode}
               onChange={(mode) => setSettings({ mode })}
             />
@@ -92,6 +95,7 @@ export function SplitPanel() {
               mode="none"
               label="分割なし"
               description="フォーマット変換のみ"
+              tooltip="ページ分割は行わず、指定した形式への変換だけを実行します。"
               currentMode={settings.mode}
               onChange={(mode) => setSettings({ mode })}
             />
@@ -193,9 +197,15 @@ export function SplitPanel() {
             <h4 className="text-xs font-medium text-text-muted mb-2">ファイル名</h4>
             <div className="space-y-2">
               <div>
-                <label className="text-[10px] text-text-muted block mb-1">
-                  ベースネーム（空欄＝元ファイル名を使用）
-                </label>
+                <Tooltip
+                  content="出力ファイル名の先頭に使う名前を指定します。空欄の場合は元ファイル名を使います。"
+                  position="right"
+                  delay={300}
+                >
+                  <label className="text-[10px] text-text-muted block mb-1 w-fit">
+                    ベースネーム（空欄＝元ファイル名を使用）
+                  </label>
+                </Tooltip>
                 <input
                   type="text"
                   value={settings.customBaseName}
@@ -209,6 +219,7 @@ export function SplitPanel() {
                   value="rl"
                   label="_R / _L"
                   description="右ページ / 左ページ"
+                  tooltip="右ページに_R、左ページに_Lを付けて見開きの左右が分かる名前で保存します。"
                   current={settings.pageNumbering}
                   onChange={(v) => setSettings({ pageNumbering: v })}
                 />
@@ -216,6 +227,7 @@ export function SplitPanel() {
                   value="sequential"
                   label="連番 (_001, _002...)"
                   description="ファイル順で通し番号"
+                  tooltip="分割後のページをファイル順に_001, _002...の通し番号で保存します。"
                   current={settings.pageNumbering}
                   onChange={(v) => setSettings({ pageNumbering: v })}
                 />
@@ -229,12 +241,18 @@ export function SplitPanel() {
                       onChange={(e) => setSettings({ firstPageBlank: e.target.checked })}
                       className="rounded accent-accent-tertiary"
                     />
-                    <div>
-                      <span className="text-sm text-text-primary">1ファイル目の右側が白紙</span>
-                      <p className="text-[10px] text-text-muted">
-                        右ページを破棄し、左ページから_001で開始
-                      </p>
-                    </div>
+                    <Tooltip
+                      content="先頭見開きの右ページを出力せず、左ページを_001として開始します。"
+                      position="right"
+                      delay={300}
+                    >
+                      <div>
+                        <span className="text-sm text-text-primary">1ファイル目の右側が白紙</span>
+                        <p className="text-[10px] text-text-muted">
+                          右ページを破棄し、左ページから_001で開始
+                        </p>
+                      </div>
+                    </Tooltip>
                   </label>
                   <label className="flex items-center gap-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-bg-elevated/50 transition-colors">
                     <input
@@ -243,12 +261,18 @@ export function SplitPanel() {
                       onChange={(e) => setSettings({ lastPageBlank: e.target.checked })}
                       className="rounded accent-accent-tertiary"
                     />
-                    <div>
-                      <span className="text-sm text-text-primary">最終ファイルの左側が白紙</span>
-                      <p className="text-[10px] text-text-muted">
-                        最終ファイルの左ページを破棄し、右ページで終了
-                      </p>
-                    </div>
+                    <Tooltip
+                      content="最終見開きの左ページを出力せず、右ページを最後の名前として保存します。"
+                      position="right"
+                      delay={300}
+                    >
+                      <div>
+                        <span className="text-sm text-text-primary">最終ファイルの左側が白紙</span>
+                        <p className="text-[10px] text-text-muted">
+                          最終ファイルの左ページを破棄し、右ページで終了
+                        </p>
+                      </div>
+                    </Tooltip>
                   </label>
                 </div>
               )}
@@ -491,17 +515,19 @@ function ModeOption({
   mode,
   label,
   description,
+  tooltip,
   currentMode,
   onChange,
 }: {
   mode: SplitMode;
   label: string;
   description: string;
+  tooltip?: string;
   currentMode: SplitMode;
   onChange: (mode: SplitMode) => void;
 }) {
   const isSelected = currentMode === mode;
-  return (
+  const row = (
     <div
       className={`
         flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all duration-200
@@ -526,6 +552,13 @@ function ModeOption({
         <p className="text-xs text-text-muted">{description}</p>
       </div>
     </div>
+  );
+
+  if (!tooltip) return row;
+  return (
+    <Tooltip content={tooltip} position="right" delay={300}>
+      {row}
+    </Tooltip>
   );
 }
 
@@ -562,17 +595,19 @@ function PageNumberingOption({
   value,
   label,
   description,
+  tooltip,
   current,
   onChange,
 }: {
   value: PageNumbering;
   label: string;
   description: string;
+  tooltip?: string;
   current: PageNumbering;
   onChange: (v: PageNumbering) => void;
 }) {
   const isSelected = current === value;
-  return (
+  const row = (
     <label className="flex items-center gap-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-bg-elevated/50 transition-colors">
       <div
         className={`
@@ -587,6 +622,13 @@ function PageNumberingOption({
         <p className="text-[10px] text-text-muted">{description}</p>
       </div>
     </label>
+  );
+
+  if (!tooltip) return row;
+  return (
+    <Tooltip content={tooltip} position="right" delay={300}>
+      {row}
+    </Tooltip>
   );
 }
 

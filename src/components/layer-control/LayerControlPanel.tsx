@@ -8,6 +8,7 @@ import {
 } from "../../store/layerStore";
 import { usePsdStore } from "../../store/psdStore";
 import { useLayerControl } from "../../hooks/useLayerControl";
+import { Tooltip } from "../ui/Tooltip";
 import { LayerControlResultDialog } from "./LayerControlResultDialog";
 
 const LockIcon = () => (
@@ -226,6 +227,7 @@ export function LayerControlPanel() {
             <ModeButton
               mode="hide"
               label="非表示"
+              tooltip="条件に一致するレイヤーやフォルダを一括で非表示にします。元に戻せるよう復元情報も保存します。"
               icon={
                 <svg
                   className="w-3.5 h-3.5"
@@ -247,6 +249,7 @@ export function LayerControlPanel() {
             <ModeButton
               mode="show"
               label="表示"
+              tooltip="非表示にしたレイヤーやフォルダを復元し、親フォルダの表示状態もあわせて戻します。"
               icon={
                 <svg
                   className="w-3.5 h-3.5"
@@ -273,6 +276,7 @@ export function LayerControlPanel() {
             <ModeButton
               mode="custom"
               label="カスタム"
+              tooltip="プレビュー上でレイヤーごとの表示／非表示や移動を指定し、選んだ操作だけをまとめて適用します。"
               icon={
                 <svg
                   className="w-3.5 h-3.5"
@@ -297,6 +301,7 @@ export function LayerControlPanel() {
             <ModeButton
               mode="organize"
               label="格納"
+              tooltip="指定した名前のフォルダに対象レイヤーをまとめて格納し、原稿レイヤーを整理します。"
               icon={
                 <svg
                   className="w-3.5 h-3.5"
@@ -318,6 +323,7 @@ export function LayerControlPanel() {
             <ModeButton
               mode="layerMove"
               label="整理"
+              tooltip="条件に一致するレイヤーを指定フォルダへ移動し、レイヤー構成をルールに沿って整えます。"
               icon={
                 <svg
                   className="w-3.5 h-3.5"
@@ -339,6 +345,7 @@ export function LayerControlPanel() {
             <ModeButton
               mode="lock"
               label="ロック"
+              tooltip="指定条件に一致するレイヤーをロックし、誤操作で編集されないよう保護します。"
               icon={<LockIcon />}
               currentMode={actionMode}
               onChange={setActionMode}
@@ -346,6 +353,7 @@ export function LayerControlPanel() {
             <ModeButton
               mode="merge"
               label="統合"
+              tooltip="対象レイヤーやフォルダを統合し、編集後のデータを扱いやすい構造にまとめます。"
               icon={
                 <svg
                   className="w-3.5 h-3.5"
@@ -1229,12 +1237,14 @@ function ModeButton({
   mode,
   label,
   icon,
+  tooltip,
   currentMode,
   onChange,
 }: {
   mode: LayerActionMode;
   label: string;
   icon: React.ReactNode;
+  tooltip?: string;
   currentMode: LayerActionMode;
   onChange: (mode: LayerActionMode) => void;
 }) {
@@ -1255,11 +1265,11 @@ function ModeButton({
                 ? "bg-emerald-500 text-white"
                 : "bg-warning text-white";
 
-  return (
+  const btn = (
     <button
       className={`
         flex-1 px-2 py-1.5 text-[11px] font-medium rounded-lg transition-all duration-200
-        flex items-center justify-center gap-1
+        flex items-center justify-center gap-1 w-full
         ${
           isSelected
             ? selectedClass
@@ -1271,6 +1281,13 @@ function ModeButton({
       {icon}
       {label}
     </button>
+  );
+
+  if (!tooltip) return btn;
+  return (
+    <Tooltip content={tooltip} position="bottom" delay={300}>
+      <div className="flex-1">{btn}</div>
+    </Tooltip>
   );
 }
 

@@ -209,6 +209,18 @@ export const DEFAULT_TIFF_SETTINGS: TiffSettings = {
 
 // --- 処理結果 ---
 
+export interface TiffLinkGroupMember {
+  layerName: string;
+  fontSize: number;
+}
+export interface TiffLinkGroupIssue {
+  linkGroup: number;
+  members: TiffLinkGroupMember[];
+  maxSize: number;
+  minSize: number;
+  ratio: number;
+}
+
 export interface TiffResult {
   fileName: string;
   success: boolean;
@@ -218,6 +230,10 @@ export interface TiffResult {
   finalWidth?: number;
   finalHeight?: number;
   dpi?: number;
+  /** メトリクスカーニングが検出されたレイヤーパス（TIFF変換直前のPhotoshop検出結果） */
+  metricsKerningLayers?: string[];
+  /** リンクグループのフォントサイズ不整合（TIFF変換直前のPhotoshop検出結果） */
+  linkGroupIssues?: TiffLinkGroupIssue[];
 }
 
 // --- 処理フェーズ ---

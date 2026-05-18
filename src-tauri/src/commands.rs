@@ -4076,6 +4076,26 @@ pub async fn open_file_in_photoshop(file_path: String) -> Result<(), String> {
 // ============================================
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct LinkGroupMemberJson {
+    #[serde(rename = "layerName")]
+    pub layer_name: String,
+    #[serde(rename = "fontSize")]
+    pub font_size: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinkGroupIssueJson {
+    #[serde(rename = "linkGroup")]
+    pub link_group: u32,
+    pub members: Vec<LinkGroupMemberJson>,
+    #[serde(rename = "maxSize")]
+    pub max_size: f64,
+    #[serde(rename = "minSize")]
+    pub min_size: f64,
+    pub ratio: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TiffConvertResult {
     #[serde(rename = "fileName")]
     pub file_name: String,
@@ -4090,6 +4110,12 @@ pub struct TiffConvertResult {
     #[serde(rename = "finalHeight")]
     pub final_height: Option<u32>,
     pub dpi: Option<u32>,
+    /// メトリクスカーニングが検出されたレイヤーパスのリスト (Photoshop解析結果)
+    #[serde(rename = "metricsKerningLayers", default)]
+    pub metrics_kerning_layers: Option<Vec<String>>,
+    /// リンクグループのフォントサイズ不整合 (Photoshop解析結果)
+    #[serde(rename = "linkGroupIssues", default)]
+    pub link_group_issues: Option<Vec<LinkGroupIssueJson>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

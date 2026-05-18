@@ -1,5 +1,12 @@
 # COMIC-Bridge (manga-psd-manager)
 
+## v1.9.21 変更メモ
+
+- **TIFF化に2大プリフライトチェックを移植**（旧統合版から）: `tiff_convert.jsx` に `detectMetricsKerningLayers()`/`hasMetricsKerning()`（autoKern=metricsKern検出）と `detectLinkGroupFontSizeIssues()`（linkedLayerIDs を Union-Find でグループ化し「同一サイズ」「ぴったり1:2」以外を検出、EPS=0.001）を追加。unlock直後にテキスト統合前検出。Rust `TiffConvertResult` に `metrics_kerning_layers`/`link_group_issues`（+ `LinkGroupMemberJson`/`LinkGroupIssueJson`、`#[serde(default)]`）、TS `TiffResult` に `metricsKerningLayers`/`linkGroupIssues`、`TiffResultDialog` に集計useMemo＋詳細展開警告ブロック2つを追加
+- **スキャナー編集の左サイドバー復活**: `ScanPsdEditView` を単一カラム→`grid-cols-[260px_minmax(0,1fr)]` 2カラムに戻し、Current JSON情報・セクションナビ・巻数管理/追加スキャン/保存ボタン・入力進捗バーを左 `<aside>` に集約。見出し横のセクションタブ・操作ボタンは撤去。見出し下の重複小見出し行を全タブ削除し、見出し直下にコンテンツを直結
+- **FontTypesTab**: 小さい「フォント種類」見出しバーを削除し、追加/未登録/未インストールの3ボタンをツールバーRow 2末尾へ移動
+- **ツールチップ追加**（カーソルホバーで説明表示）: 共有 `Tooltip` を再利用し TopNav 8タブ / レイヤー制御7モード（`ModeButton`に`tooltip`対応） / 写植関連3サブタブ / 差替え設定8項目（`ModeCard`に`tooltip`対応） / 見開き分割8項目（`ModeOption`/`PageNumberingOption`に`tooltip`対応）に付与。`Tooltip` は `useLayoutEffect` で実寸計測→ビューポート内クランプ＋反対側フォールバック＋`max-w-[320px]`折り返しに刷新（画面外はみ出し解消）
+
 ## v1.9.19 変更メモ
 
 - 起動時のドロップゾーンにフォルダ選択ボタンを追加し、Ctrl+Oでもフォルダ選択できるようにした。開発サーバーのローカルホストは `1440` に変更。

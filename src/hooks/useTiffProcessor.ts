@@ -97,6 +97,8 @@ interface TiffConvertResult {
   finalWidth?: number;
   finalHeight?: number;
   dpi?: number;
+  metricsKerningLayers?: string[];
+  linkGroupIssues?: import("../types/tiff").TiffLinkGroupIssue[];
 }
 
 interface TiffConvertResponse {
@@ -523,6 +525,8 @@ export function useTiffProcessor() {
             finalWidth: r.finalWidth ?? undefined,
             finalHeight: r.finalHeight ?? undefined,
             dpi: r.dpi ?? undefined,
+            metricsKerningLayers: r.metricsKerningLayers ?? undefined,
+            linkGroupIssues: r.linkGroupIssues ?? undefined,
           };
           store.addResult(result);
         }

@@ -61,6 +61,35 @@ export function TiffResultDialog() {
     usePsdStore.getState().clearFiles();
   }, [setShowResultDialog]);
 
+  // メトリクスカーニング検出結果の集計（TIFF変換直前のPhotoshop解析）
+  const kerningSummary = useMemo(() => {
+    const perFile: Array<{ fileName: string; layers: string[] }> = [];
+    let totalLayers = 0;
+    for (const r of results) {
+      if (r.metricsKerningLayers && r.metricsKerningLayers.length > 0) {
+        perFile.push({ fileName: r.fileName, layers: r.metricsKerningLayers });
+        totalLayers += r.metricsKerningLayers.length;
+      }
+    }
+    return { perFile, totalLayers };
+  }, [results]);
+
+  // リンクグループ フォントサイズ不整合集計
+  const linkSummary = useMemo(() => {
+    const perFile: Array<{
+      fileName: string;
+      issues: NonNullable<(typeof results)[number]["linkGroupIssues"]>;
+    }> = [];
+    let totalGroups = 0;
+    for (const r of results) {
+      if (r.linkGroupIssues && r.linkGroupIssues.length > 0) {
+        perFile.push({ fileName: r.fileName, issues: r.linkGroupIssues });
+        totalGroups += r.linkGroupIssues.length;
+      }
+    }
+    return { perFile, totalGroups };
+  }, [results]);
+
   if (!showResultDialog || results.length === 0) return null;
 
   const successCount = results.filter((r) => r.success).length;
@@ -147,6 +176,132 @@ export function TiffResultDialog() {
             </svg>
           </button>
         </div>
+
+        {/* メトリクスカーニング検出警告 */}
+        {kerningSummary.perFile.length > 0 && (
+          <div className="px-6 py-3 border-b border-border/50 bg-warning/8">
+            <div className="flex items-start gap-2">
+              <svg
+                className="w-4 h-4 text-warning flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"
+                />
+              </svg>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-warning">
+                  メトリクスカーニング検出 ({kerningSummary.perFile.length}ファイル /{" "}
+                  {kerningSummary.totalLayers}レイヤー)
+                </p>
+                <p className="text-[10px] text-text-muted mb-1.5">
+                  TIFF変換前のテキストで「メトリクス」カーニングが使用されていました（「オプティカル」または「0（手動）」が推奨）
+                </p>
+                <details className="text-[10px]">
+                  <summary className="cursor-pointer text-warning hover:underline select-none">
+                    詳細を表示
+                  </summary>
+                  <div className="mt-1.5 max-h-40 overflow-y-auto space-y-1 bg-bg-elevated rounded p-2 border border-border/30">
+                    {kerningSummary.perFile.map((entry, i) => (
+                      <div key={i} className="text-[10px]">
+                        <div className="font-medium text-text-primary truncate">
+                          {entry.fileName}
+                        </div>
+                        <ul className="ml-2 text-text-secondary space-y-0.5">
+                          {entry.layers.slice(0, 20).map((layer, j) => (
+                            <li key={j} className="truncate">
+                              • {layer}
+                            </li>
+                          ))}
+                          {entry.layers.length > 20 && (
+                            <li className="text-text-muted">
+                              ...他 {entry.layers.length - 20}件
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* リンクグループ フォントサイズ不整合警告 */}
+        {linkSummary.perFile.length > 0 && (
+          <div className="px-6 py-3 border-b border-border/50 bg-warning/8">
+            <div className="flex items-start gap-2">
+              <svg
+                className="w-4 h-4 text-warning flex-shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v2m0 4h.01M4.93 19h14.14c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.2 16c-.77 1.33.19 3 1.73 3z"
+                />
+              </svg>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-warning">
+                  リンクグループのフォントサイズ不整合 ({linkSummary.perFile.length}ファイル /{" "}
+                  {linkSummary.totalGroups}グループ)
+                </p>
+                <p className="text-[10px] text-text-muted mb-1.5">
+                  リンク済みテキスト群のサイズが「同一」でも「ぴったり1:2」でもない構成になっています
+                </p>
+                <details className="text-[10px]">
+                  <summary className="cursor-pointer text-warning hover:underline select-none">
+                    詳細を表示
+                  </summary>
+                  <div className="mt-1.5 max-h-48 overflow-y-auto space-y-1.5 bg-bg-elevated rounded p-2 border border-border/30">
+                    {linkSummary.perFile.map((entry, i) => (
+                      <div
+                        key={i}
+                        className="text-[10px] border-b border-border/20 last:border-0 pb-1.5 last:pb-0"
+                      >
+                        <div className="font-medium text-text-primary truncate">
+                          {entry.fileName}
+                        </div>
+                        {entry.issues.map((issue, j) => (
+                          <div key={j} className="ml-2 mt-0.5">
+                            <div className="flex items-center gap-1.5 text-text-secondary">
+                              <span className="text-text-muted">Link #{issue.linkGroup}</span>
+                              <span className="ml-auto text-warning font-medium">
+                                比率 {issue.ratio.toFixed(3)}x（{issue.minSize}→{issue.maxSize}pt）
+                              </span>
+                            </div>
+                            <ul className="ml-2 mt-0.5 space-y-0.5">
+                              {issue.members.map((m, k) => (
+                                <li
+                                  key={k}
+                                  className="flex items-center gap-1 text-text-secondary"
+                                >
+                                  <span className="text-text-muted">{m.fontSize}pt</span>
+                                  <span className="text-text-muted/80 truncate">
+                                    {m.layerName}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* File List */}
         <div className="flex-1 overflow-auto">

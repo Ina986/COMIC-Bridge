@@ -3,11 +3,14 @@ import { useViewStore, type AppView } from "../../store/viewStore";
 import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
 import { useAppUpdater } from "../../hooks/useAppUpdater";
+import { Tooltip } from "../ui/Tooltip";
 
-const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
+const VIEW_TABS: { id: AppView; label: string; tooltip: string; icon: React.ReactNode }[] = [
   {
     id: "specCheck",
     label: "完成原稿チェック",
+    tooltip:
+      "PSDのサイズ・解像度・カラーモード・αチャンネルを確認し、入稿前の不備を見つけます。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -27,6 +30,8 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "layers",
     label: "レイヤー制御",
+    tooltip:
+      "テキスト・白消し・棒消しなどのレイヤーを条件指定で一括表示／非表示、整理します。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -46,6 +51,8 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "typesetting",
     label: "写植関連",
+    tooltip:
+      "写植データの差し替え、校正チェック、フォント情報の確認など写植作業をまとめて扱います。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -65,6 +72,8 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "replace",
     label: "差替え",
+    tooltip:
+      "植字データと画像データをペアリングし、テキストや背景レイヤーをまとめて差し替えます。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -84,6 +93,8 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "tiff",
     label: "TIFF化",
+    tooltip:
+      "PSDをTIFFに変換し、断ち切り、リサイズ、ぼかし、リネームをまとめて実行します。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -103,6 +114,8 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "scanPsd",
     label: "スキャナー",
+    tooltip:
+      "PSDのフォント・サイズ・ガイド情報を読み取り、作品別プリセットJSONとして管理します。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -122,6 +135,8 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "split",
     label: "見開き分割",
+    tooltip:
+      "見開き原稿やPDFを左右に分割し、連番・余白・出力形式を指定して書き出します。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -141,6 +156,8 @@ const VIEW_TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   {
     id: "rename",
     label: "リネーム",
+    tooltip:
+      "ファイル名やレイヤー名をルールで一括変更し、変更前後を確認してから実行します。",
     icon: (
       <svg
         className="w-4 h-4"
@@ -177,9 +194,9 @@ export function TopNav() {
       {/* View Tabs */}
       <div className="flex items-center gap-1 flex-1 min-w-0">
         {VIEW_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={`
+          <Tooltip key={tab.id} content={tab.tooltip} position="bottom" delay={300}>
+            <button
+              className={`
               flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
               transition-all duration-200 flex-shrink-0
               ${
@@ -188,11 +205,12 @@ export function TopNav() {
                   : "text-text-secondary hover:text-text-primary hover:bg-bg-tertiary"
               }
             `}
-            onClick={() => setActiveView(tab.id)}
-          >
-            {tab.icon}
-            <span>{tab.label}</span>
-          </button>
+              onClick={() => setActiveView(tab.id)}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          </Tooltip>
         ))}
       </div>
 

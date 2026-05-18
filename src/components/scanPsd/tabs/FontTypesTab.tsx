@@ -689,15 +689,6 @@ export function FontTypesTab() {
 
   return (
     <div className="space-y-2">
-      {/* === フォント種類リストの見出しバー === */}
-      <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-border-light">
-        <strong className="text-xs font-black text-text-primary whitespace-nowrap">
-          フォント種類
-        </strong>
-        <div className="flex items-center gap-1 flex-wrap justify-end">
-          {fontHeaderActionButtons}
-        </div>
-      </div>
       {/* === セット作成フォントピッカー === */}
       {showFontPicker && (
         <div className="bg-white rounded-xl border-2 border-accent/30 shadow-lg overflow-hidden">
@@ -1017,6 +1008,8 @@ export function FontTypesTab() {
               >
                 自動纏め
               </button>
+              <span className="w-px h-3 bg-border/40 mx-0.5" />
+              {fontHeaderActionButtons}
             </div>
           )}
 
