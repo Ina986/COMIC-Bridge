@@ -1085,10 +1085,10 @@ pub async fn run_photoshop_guide_apply(
     eprintln!("Guide apply - Script: {}", script_path_str);
     eprintln!("Guide apply - Files: {}", file_paths.len());
 
-    let _output = Command::new(&ps_path)
+    let _child = Command::new(&ps_path)
         .arg("-r")
         .arg(&script_path_str)
-        .output()
+        .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
     // Poll for results
@@ -1219,10 +1219,10 @@ pub async fn run_photoshop_prepare(
     eprintln!("Prepare - Script: {}", script_path_str);
     eprintln!("Prepare - Files: {}", settings_normalized.files.len());
 
-    let _output = Command::new(&ps_path)
+    let _child = Command::new(&ps_path)
         .arg("-r")
         .arg(&script_path_str)
-        .output()
+        .spawn()
         .map_err(|e| format!("Failed to run Photoshop: {}", e))?;
 
     // Poll for results
