@@ -4522,8 +4522,12 @@ pub async fn launch_progen(handoff_text_path: Option<String>) -> Result<(), Stri
         eprintln!("ProGen handoff written: {} -> {}", handoff_path.display(), text_path);
     }
 
-    Command::new("cmd")
-        .args(["/c", "start", "", &progen_path.to_string_lossy()])
+    let mut command = Command::new(&progen_path);
+    if let Some(ref text_path) = handoff_text_path {
+        command.arg(format!("--handoff-text={}", text_path));
+    }
+
+    command
         .spawn()
         .map_err(|e| format!("ProGen起動エラー: {}", e))?;
 
