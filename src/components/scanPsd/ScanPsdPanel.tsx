@@ -21,6 +21,7 @@ export function ScanPsdPanel() {
   const pendingTitleLabel = useScanPsdStore((s) => s.pendingTitleLabel);
 
   const scanData = useScanPsdStore((s) => s.scanData);
+  const folders = useScanPsdStore((s) => s.folders);
   const presetSets2 = useScanPsdStore((s) => s.presetSets);
   const selectedGuideIndex = useScanPsdStore((s) => s.selectedGuideIndex);
   const selectionRanges = useScanPsdStore((s) => s.selectionRanges);
@@ -64,6 +65,16 @@ export function ScanPsdPanel() {
   };
 
   const handleSave = async () => {
+    // 新規作成で「フォルダは選択済みだがスキャン未実行」なら、保存ではなくスキャンを開始する
+    // （スキャン開始／追加スキャンと同じ。完了後に正式保存できていればJSON編集へ遷移）。
+    if (mode === "new" && !scanData && folders.length > 0) {
+      const result = await startScan();
+      const s = useScanPsdStore.getState();
+      if (result?.success && s.mode === "new" && s.currentJsonFilePath) {
+        s.setMode("edit");
+      }
+      return;
+    }
     if (missingFields.length > 0) {
       setShowEmptyFieldsDialog(true);
       return;
@@ -240,7 +251,14 @@ export function ScanPsdPanel() {
           </button>
         </div>
         <button
-          onClick={startScan}
+          onClick={async () => {
+            // スキャン後、正式保存（JSON作成）済みなら新規モードからJSON編集へ自動遷移
+            const result = await startScan();
+            const s = useScanPsdStore.getState();
+            if (result?.success && s.mode === "new" && s.currentJsonFilePath) {
+              s.setMode("edit");
+            }
+          }}
           disabled={phase !== "idle"}
           className="w-full px-3 py-2 text-xs font-medium text-accent bg-accent/10
             rounded-xl hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

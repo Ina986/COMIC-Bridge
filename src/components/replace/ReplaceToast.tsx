@@ -6,6 +6,7 @@ export function ReplaceToast() {
   const phase = useReplaceStore((s) => s.phase);
   const results = useReplaceStore((s) => s.results);
   const setPhase = useReplaceStore((s) => s.setPhase);
+  const reset = useReplaceStore((s) => s.reset);
   const isModalOpen = useReplaceStore((s) => s.isModalOpen);
   const mode = useReplaceStore((s) => s.settings.mode);
 
@@ -77,6 +78,8 @@ export function ReplaceToast() {
       setToast(null);
       // モーダルが開いていなければ idle に戻す
       if (!useReplaceStore.getState().isModalOpen) {
+        reset();
+      } else {
         setPhase("idle");
       }
     }, 300);

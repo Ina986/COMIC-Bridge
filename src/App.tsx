@@ -10,7 +10,7 @@ import type { ProofreadingCheckItem } from "./types/typesettingCheck";
 function App() {
   const { loadFiles } = usePsdLoader();
 
-  // KENBAN等の外部アプリからの「COMIC-Bridge写植で開く」起動（--shashoku <path>）を処理
+  // 外部アプリからの「COMIC-Bridge写植で開く」起動（--shashoku <path>）を処理
   useEffect(() => {
     const unlistenPromise = listen<string>("open-shashoku", async (event) => {
       const filePath = event.payload;
@@ -29,7 +29,7 @@ function App() {
     };
   }, [loadFiles]);
 
-  // ProGenからのCLI引数経由で校正データJSONを自動ロード
+  // 外部ツールからのCLI引数経由で校正データJSONを自動ロード
   useEffect(() => {
     const unlistenPromise = listen<string>("open-proofreading-json", async (event) => {
       const filePath = event.payload;

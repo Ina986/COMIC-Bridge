@@ -1,4 +1,4 @@
-// Photoshop JSX Script for Applying Guides to PSD Files
+﻿// Photoshop JSX Script for Applying Guides to PSD Files
 // Based on ガイド線コピペ改.jsx patterns
 
 #target photoshop
@@ -9,8 +9,8 @@ app.displayDialogs = DialogModes.NO;
   Main Processing
  ----------------------------------------------------- */
 function main() {
-    var tempFolder = Folder.temp;
-    var settingsFile = new File(tempFolder + "/psd_guide_settings.json");
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_guide_settings.json");
 
     if (!settingsFile.exists) {
         alert("Settings file not found: " + settingsFile.fsName);

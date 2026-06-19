@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readDir } from "@tauri-apps/plugin-fs";
 import { usePsdLoader } from "./usePsdLoader";
@@ -25,10 +26,19 @@ export function useGlobalDragDrop() {
       const fn = await currentWindow.onDragDropEvent(async (event) => {
         const activeView = useViewStore.getState().activeView;
         if (activeView === "replace" || activeView === "rename") return;
+        // フォント帳サブタブ表示中はファイルD&Dを「画像追加」としてフォント帳側が処理する
+        if (useViewStore.getState().fontBookDropActive) return;
+        // 簡易スキャンのダイアログ表示中はD&Dを「PSD追加」としてダイアログ側が処理する
+        if (useViewStore.getState().simpleScanDropActive) return;
 
         if (event.payload.type === "drop") {
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
+
+          // 読み込んだファイル/フォルダのフォルダを許可リストへ登録(書き込み操作の事前許可)。
+          // 個別ファイルのD&Dではフォルダが未許可のままになり、後続のリネーム/保存等が
+          // forbidden path で失敗するのを防ぐ。best-effort。
+          void invoke("register_user_paths", { paths }).catch(() => {});
 
           // ドロップされたフォルダパスを記録（サブフォルダ再スキャン用）
           const folderPaths: string[] = [];

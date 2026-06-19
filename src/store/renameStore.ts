@@ -312,6 +312,14 @@ export const useRenameStore = create<RenameState>((set) => ({
   setFileEntries: (fileEntries) => set({ fileEntries }),
   addFileEntries: (entries) =>
     set((s) => {
+      const incomingFolders = new Set(entries.map((e) => e.folderPath));
+      const existingFolders = new Set(s.fileEntries.map((e) => e.folderPath));
+      const hasFolderOverlap = [...incomingFolders].some((folderPath) =>
+        existingFolders.has(folderPath),
+      );
+      if (s.fileEntries.length > 0 && incomingFolders.size > 0 && !hasFolderOverlap) {
+        return { fileEntries: entries };
+      }
       // 重複パス除外
       const existingPaths = new Set(s.fileEntries.map((e) => e.filePath));
       const newEntries = entries.filter((e) => !existingPaths.has(e.filePath));

@@ -7,9 +7,13 @@ export function RenameResultDialog() {
   const results = useRenameStore((s) => s.results);
   const showResultDialog = useRenameStore((s) => s.showResultDialog);
   const setShowResultDialog = useRenameStore((s) => s.setShowResultDialog);
+  const clearResults = useRenameStore((s) => s.clearResults);
   const subMode = useRenameStore((s) => s.subMode);
 
-  const close = () => setShowResultDialog(false);
+  const close = () => {
+    setShowResultDialog(false);
+    clearResults();
+  };
 
   // ESC to close
   useEffect(() => {

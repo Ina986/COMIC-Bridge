@@ -1,9 +1,28 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useScanPsdStore } from "../../store/scanPsdStore";
+import { usePsdStore } from "../../store/psdStore";
 import { useScanPsdProcessor } from "../../hooks/useScanPsdProcessor";
 import { JsonFileBrowser } from "./JsonFileBrowser";
+
+/** 読込済みPSD(本体)から、PSDを含む親フォルダ(=巻フォルダ)を重複なく抽出する。 */
+function deriveFoldersFromLoadedPsds(
+  files: { filePath?: string }[],
+): { path: string; name: string }[] {
+  const seen = new Set<string>();
+  const out: { path: string; name: string }[] = [];
+  for (const f of files) {
+    const p = (f.filePath || "").replace(/\\/g, "/");
+    const idx = p.lastIndexOf("/");
+    if (idx <= 0) continue;
+    const dir = p.slice(0, idx);
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    out.push({ path: dir, name: dir.split("/").pop() || dir });
+  }
+  return out;
+}
 
 export function ScanPsdContent() {
   const mode = useScanPsdStore((s) => s.mode);
@@ -22,7 +41,35 @@ export function ScanPsdContent() {
 
   const { startScan, loadPresetJson } = useScanPsdProcessor();
 
+  const loadedPsds = usePsdStore((s) => s.files);
+
   const [startVolume, setStartVolume] = useState(1);
+
+  // 既に本体でPSDがフォルダ読み込みされている場合、新規スキャンの対象フォルダとして
+  // 自動で取り込む（新規/追加の対象に最初から選択されている状態にする）。
+  // フォルダ一覧が空のとき＝まだ手動追加していないときだけ実行し、ユーザーが消した後は
+  // 再追加しない（mode が new から外れたら再取り込みを許可）。
+  const autoImportedRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "new") {
+      autoImportedRef.current = false;
+      return;
+    }
+    if (autoImportedRef.current || folders.length > 0) return;
+    const derived = deriveFoldersFromLoadedPsds(loadedPsds);
+    if (derived.length === 0) return;
+    autoImportedRef.current = true;
+    derived.forEach((d, i) => addFolder(d.path, d.name, startVolume + i));
+  }, [mode, loadedPsds, folders.length, addFolder, startVolume]);
+
+  // スキャン実行：完了して正式保存（JSON作成）まで済んだら、そのJSONをJSON編集で開く
+  const handleStartScan = async () => {
+    const result = await startScan();
+    const s = useScanPsdStore.getState();
+    if (result?.success && s.mode === "new" && s.currentJsonFilePath) {
+      s.setMode("edit");
+    }
+  };
 
   // 個別フォルダ追加
   const handleAddFolder = async () => {
@@ -342,7 +389,7 @@ export function ScanPsdContent() {
                 </p>
               )}
               <button
-                onClick={startScan}
+                onClick={handleStartScan}
                 disabled={!workInfo.label || !workInfo.title}
                 className="w-full py-3 text-sm font-medium text-white bg-gradient-to-r from-accent to-accent-secondary
                   rounded-xl hover:-translate-y-0.5 transition-all shadow-md

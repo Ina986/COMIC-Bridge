@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { getAddress } from "../../lib/addressRef";
 import { useLayerStore } from "../../store/layerStore";
 
 interface MatchItem {
@@ -99,16 +100,16 @@ export function LayerControlResultDialog() {
     }
   }, [lastMergeOutputFolder]);
 
-  const handleOpenKenban = useCallback(async () => {
+  const handleOpenDiffTool = useCallback(async () => {
     if (!lastMergeSourceFolder || !lastMergeOutputFolder) return;
     try {
-      await invoke("launch_kenban_diff", {
+      await invoke("launch_diff_tool", {
         folderA: lastMergeSourceFolder.replace(/\//g, "\\"),
         folderB: lastMergeOutputFolder.replace(/\//g, "\\"),
         mode: "psd",
       });
     } catch (e) {
-      console.error("Failed to launch KENBAN:", e);
+      console.error("Failed to launch diff tool:", e);
     }
   }, [lastMergeSourceFolder, lastMergeOutputFolder, clearLastResults]);
 
@@ -454,7 +455,7 @@ export function LayerControlResultDialog() {
               </button>
               {lastMergeSourceFolder && (
                 <button
-                  onClick={handleOpenKenban}
+                  onClick={handleOpenDiffTool}
                   className="px-4 py-2.5 text-sm font-medium rounded-xl text-white bg-gradient-to-r from-blue-500 to-indigo-500 shadow-[0_4px_15px_rgba(59,130,246,0.3)] hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-1.5"
                 >
                   <svg
@@ -466,7 +467,7 @@ export function LayerControlResultDialog() {
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
-                  KENBANで差分確認
+                  {getAddress("apps.diffTool.displayName")}で差分確認
                 </button>
               )}
             </>

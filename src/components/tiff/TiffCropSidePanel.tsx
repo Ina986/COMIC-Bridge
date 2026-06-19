@@ -72,14 +72,16 @@ export function TiffCropSidePanel() {
         guideCount: f.metadata?.guides?.length ?? 0,
         guides: f.metadata?.guides ?? [],
       }));
-      console.log("[TiffCropSidePanel] PSD Guide Debug:", {
-        totalFiles: psdFiles.length,
-        refIdx,
-        referenceFileIndex,
-        hasPsdGuides,
-        guideSource: guideSource?.fileName ?? "none",
-        guideCounts,
-      });
+      if (import.meta.env.DEV) {
+        console.log("[TiffCropSidePanel] PSD Guide Debug:", {
+          totalFiles: psdFiles.length,
+          refIdx,
+          referenceFileIndex,
+          hasPsdGuides,
+          guideSource: guideSource?.fileName ?? "none",
+          guideCounts,
+        });
+      }
     }
   }, [psdFiles, refIdx, referenceFileIndex, hasPsdGuides, guideSource]);
 
@@ -93,7 +95,7 @@ export function TiffCropSidePanel() {
     const hPositions = psdGuides.filter((g) => g.direction === "horizontal").map((g) => g.position);
     const vPositions = psdGuides.filter((g) => g.direction === "vertical").map((g) => g.position);
 
-    // tachimi準拠: ドキュメント中心±1pxのガイドを除外し、最適範囲を算出
+    // 参照ツール準拠: ドキュメント中心±1pxのガイドを除外し、最適範囲を算出
     const getOptimalRange = (positions: number[], docSize: number): [number, number] | null => {
       const center = docSize / 2;
       const filtered = positions.filter((p) => Math.abs(p - center) > 1);

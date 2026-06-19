@@ -9,7 +9,8 @@ import {
 } from "../../hooks/useFontResolver";
 import { FontBrowserDialog } from "./FontBrowserDialog";
 
-const FONT_SHARE_PATH = "\\\\haku\\CLLENN\\■アシスタント\\★フォント\\★全フォント";
+// 共有フォントフォルダ(UNC)は直打ちせず、参照アドレスリストから実行時に解決する
+import { FONT_SHARE_PATH } from "../../lib/addressRef";
 
 const AA_LABELS: Record<string, string> = {
   // ag-psd format

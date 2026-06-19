@@ -8,7 +8,8 @@ import type { FontResolveInfo } from "../../../hooks/useFontResolver";
 import { FontBrowserDialog } from "../../spec-checker/FontBrowserDialog";
 // (Portal-based header slot removed - buttons now render inline at top of tab content)
 
-const FONT_SHARE_PATH = "\\\\haku\\CLLENN\\■アシスタント\\★フォント\\★全フォント";
+// 共有フォントフォルダ(UNC)は直打ちせず、参照アドレスリストから実行時に解決する
+import { FONT_SHARE_PATH } from "../../../lib/addressRef";
 
 // --- 定数 ---
 const SUB_NAME_ORDER: Record<string, number> = {};

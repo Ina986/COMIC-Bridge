@@ -14,7 +14,7 @@ interface TiffAutoScanDialogProps {
 
 /** cropSourceJsonPathからレーベル・タイトルを推測する */
 function inferFromJsonPath(jsonPath: string): { label: string; title: string } | null {
-  // パス例: G:/.../JSONフォルダ/コイパレ/作品名.json
+  // パス例: G:/.../JSONフォルダ/〇〇レーベル/作品名.json
   const normalized = jsonPath.replace(/\\/g, "/");
   const match = normalized.match(/\/([^/]+)\/([^/]+)\.json$/);
   if (!match) return null;

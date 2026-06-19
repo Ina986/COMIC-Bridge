@@ -1,8 +1,9 @@
 [package]
 name = "comic-bridge"
-version = "1.9.22"
+version = "1.9.58"
 description = "漫画原稿の入稿チェック・差替え・分割を行うデスクトップアプリ"
-authors = ["Ina986"]
+# 作者名(固有名詞)はソースに直打ちしない。正式な値は参照アドレスリスト(cargo.author)を参照。
+authors = []
 edition = "2021"
 
 [lib]
@@ -11,6 +12,8 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# ビルド時にリソース(scripts/*.jsx, pdfium.dll)の SHA-256 を算出して exe へ焼き込む(門番の鍵)
+sha2 = "0.10"
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
@@ -20,6 +23,18 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# 参照アドレスリスト(addresses.json)の復号(割符方式)。アプリは復号のみ。
+# 暗号化は別ツール(comicbridge\ツール\seal-addresses)が行う。
+aes-gcm = "0.10"
+sha2 = "0.10"
+
+# 既定アプリでファイルを開く(Windowsは ShellExecuteW を使用＝cmdシェル非経由でメタ文字注入を回避)
+opener = "0.7"
+
+# G:共有からの更新(GitHub非依存)の minisign 署名検証。updater プラグインと同じ信頼基盤。
+minisign-verify = "0.2"
+base64 = "0.21"
 
 # Image processing
 image = "0.25"

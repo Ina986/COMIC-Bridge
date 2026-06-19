@@ -402,13 +402,25 @@ export const useTiffStore = create<TiffState>((set) => ({
         .map((g) => g.position)
         .sort((a, b) => a - b);
 
+      // 高さは上下ガイド必須（高さ優先で比率を厳守する）
       if (hGuides.length < 2 || vGuides.length < 2) return state;
 
+      // 高さ優先：上下ガイド間を高さとし、幅は目標比率から算出。
+      // 算出幅が左右ガイド間より広い場合は左右ガイドを「突き抜けて」範囲を確定する
+      // （比率がずれるのを防ぐ。中心は左右ガイドの中点に合わせる）。
+      const top = Math.round(hGuides[0]);
+      const bottom = Math.round(hGuides[hGuides.length - 1]);
+      const height = bottom - top;
+      const { w: rw, h: rh } = state.settings.crop.aspectRatio;
+      const width = rh > 0 ? Math.round(height * (rw / rh)) : vGuides[vGuides.length - 1] - vGuides[0];
+      const centerX = (vGuides[0] + vGuides[vGuides.length - 1]) / 2;
+      const left = Math.round(centerX - width / 2);
+
       const bounds: TiffCropBounds = {
-        left: Math.round(vGuides[0]),
-        top: Math.round(hGuides[0]),
-        right: Math.round(vGuides[vGuides.length - 1]),
-        bottom: Math.round(hGuides[hGuides.length - 1]),
+        left,
+        top,
+        right: left + width,
+        bottom,
       };
 
       // Push current bounds to history before applying
@@ -514,6 +526,7 @@ export const useTiffStore = create<TiffState>((set) => ({
       totalFiles: 0,
       currentFile: null,
       results: [],
+      perFileEditTarget: null,
     }),
 
   resetAfterConvert: () =>
@@ -537,6 +550,7 @@ export const useTiffStore = create<TiffState>((set) => ({
         referenceImageSize: null,
         cropStep: "select",
         cropMethod: "drag",
+        perFileEditTarget: null,
       };
     }),
 }));

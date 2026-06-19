@@ -1,4 +1,4 @@
-// Photoshop JSX Script for Layer/Group Rename
+﻿// Photoshop JSX Script for Layer/Group Rename
 // Integrated with app's config/result JSON pattern
 
 #target photoshop
@@ -9,8 +9,8 @@ app.displayDialogs = DialogModes.NO;
    Main
  ===================================================== */
 function main() {
-    var tempFolder = Folder.temp;
-    var settingsFile = new File(tempFolder + "/psd_rename_settings.json");
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_rename_settings.json");
 
     if (!settingsFile.exists) {
         alert("Settings file not found: " + settingsFile.fsName);
@@ -150,9 +150,10 @@ function processFile(filePath, opts) {
         if (opts.fileOutput && opts.fileOutput.enabled) {
             // Save with sequential naming
             var numberStr = zfill(opts.currentNumber, opts.fileOutput.padding || 3);
-            var sep = opts.fileOutput.separator || "_";
-            var baseName = opts.fileOutput.baseName || "";
-            var newFileName = baseName + sep + numberStr + ".psd";
+            var sep = sanitizeFileName(opts.fileOutput.separator || "_", "_");
+            if (sep.length > 8) sep = sep.substring(0, 8);
+            var baseName = sanitizeFileName(opts.fileOutput.baseName || "", "output");
+            var newFileName = sanitizeFileName(baseName + sep + numberStr, "output_" + numberStr) + ".psd";
             var saveFile = new File(opts.outputDir.fsName + "/" + newFileName);
 
             var psdOpts = new PhotoshopSaveOptions();
@@ -163,7 +164,7 @@ function processFile(filePath, opts) {
             result.changes.push("保存: " + newFileName);
         } else if (docModified) {
             // Save with original name to output directory
-            var originalName = decodeURI(file.name);
+            var originalName = sanitizeFileName(decodeURI(file.name), "output.psd");
             var saveFile = new File(opts.outputDir.fsName + "/" + originalName);
 
             var psdOpts = new PhotoshopSaveOptions();
@@ -308,6 +309,15 @@ function zfill(num, len) {
         s = "0" + s;
     }
     return s;
+}
+
+function sanitizeFileName(name, fallback) {
+    var value = String(name || "").replace(/^\s+|\s+$/g, "");
+    value = value.replace(/[\\\/:\*\?"<>\|\x00-\x1F]/g, "_");
+    value = value.replace(/\.+$/g, "");
+    if (!value || /^\.+$/.test(value)) value = fallback || "output";
+    if (value.length > 180) value = value.substring(0, 180);
+    return value;
 }
 
 /**

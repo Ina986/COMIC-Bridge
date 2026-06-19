@@ -1,4 +1,4 @@
-// Photoshop JSX Script for Layer Replacement
+﻿// Photoshop JSX Script for Layer Replacement
 // Ported from swatta_ver1.94.jsx, integrated with app's config/result pattern
 
 #target photoshop
@@ -298,8 +298,8 @@ function getBottomLayer(doc) {
    Main Processing
  ===================================================== */
 function main() {
-    var tempFolder = Folder.temp;
-    var settingsFile = new File(tempFolder + "/psd_replace_settings.json");
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_replace_settings.json");
 
     if (!settingsFile.exists) {
         alert("Settings file not found: " + settingsFile.fsName);
@@ -372,7 +372,7 @@ function main() {
 
     // Initial heartbeat: signal script has started
     try {
-        var pf = new File(tempFolder + "/psd_replace_progress.txt");
+        var pf = new File((typeof COMIC_BRIDGE_PROGRESS_PATH !== "undefined" && COMIC_BRIDGE_PROGRESS_PATH) ? COMIC_BRIDGE_PROGRESS_PATH : tempFolder + "/psd_replace_progress.txt");
         pf.open("w"); pf.write("0/" + String(pairs.length)); pf.close();
     } catch (e_hb0) {}
 
@@ -410,7 +410,7 @@ function main() {
 
             // Heartbeat: write progress so Rust knows we are still alive
             try {
-                var progressFile = new File(tempFolder + "/psd_replace_progress.txt");
+                var progressFile = new File((typeof COMIC_BRIDGE_PROGRESS_PATH !== "undefined" && COMIC_BRIDGE_PROGRESS_PATH) ? COMIC_BRIDGE_PROGRESS_PATH : tempFolder + "/psd_replace_progress.txt");
                 progressFile.open("w");
                 progressFile.write(String(i + 1) + "/" + String(pairs.length));
                 progressFile.close();
@@ -1289,6 +1289,7 @@ function processPair(pair, opts) {
         var outputFileName = opts.useSourceFileName
             ? decodeURI(sourceFile.name)
             : decodeURI(targetFile.name);
+        outputFileName = sanitizeFileName(outputFileName, "output.psd");
         var saveFile = new File(outputDir.fsName + "/" + outputFileName);
 
         if (opts.isReverseDirection) {
@@ -1336,6 +1337,15 @@ function createFolderRecursive(folder) {
     var parent = folder.parent;
     if (!parent.exists) createFolderRecursive(parent);
     return folder.create();
+}
+
+function sanitizeFileName(name, fallback) {
+    var value = String(name || "").replace(/^\s+|\s+$/g, "");
+    value = value.replace(/[\\\/:\*\?"<>\|\x00-\x1F]/g, "_");
+    value = value.replace(/\.+$/g, "");
+    if (!value || /^\.+$/.test(value)) value = fallback || "output";
+    if (value.length > 180) value = value.substring(0, 180);
+    return value;
 }
 
 /* =====================================================

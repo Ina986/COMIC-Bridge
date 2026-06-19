@@ -1,4 +1,4 @@
-// Photoshop JSX Script for Spread Page Split
+﻿// Photoshop JSX Script for Spread Page Split
 // Based on bunkatsu_ver1.13.jsx patterns, integrated with app's config/result pattern
 
 #target photoshop
@@ -10,8 +10,8 @@ app.preferences.rulerUnits = Units.PIXELS;
   Main Processing
  ----------------------------------------------------- */
 function main() {
-    var tempFolder = Folder.temp;
-    var settingsFile = new File(tempFolder + "/psd_split_settings.json");
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_split_settings.json");
 
     if (!settingsFile.exists) {
         alert("Settings file not found: " + settingsFile.fsName);
@@ -421,11 +421,21 @@ function deleteOffCanvasTextLayers(doc, side) {
     } catch (e) {}
 }
 
+function sanitizeFileName(name, fallback) {
+    var value = String(name || "").replace(/^\s+|\s+$/g, "");
+    value = value.replace(/[\\\/:\*\?"<>\|\x00-\x1F]/g, "_");
+    value = value.replace(/\.+$/g, "");
+    if (!value || /^\.+$/.test(value)) value = fallback || "output";
+    if (value.length > 180) value = value.substring(0, 180);
+    return value;
+}
+
 /* -----------------------------------------------------
   Save Document
  ----------------------------------------------------- */
 function saveDocument(doc, folder, baseName, settings) {
     app.activeDocument = doc;
+    baseName = sanitizeFileName(baseName, "split_output");
 
     if (settings.outputFormat === "jpg") {
         var jpgFile = new File(folder + "/" + baseName + ".jpg");

@@ -128,13 +128,18 @@ export const useSplitStore = create<SplitState>((set) => ({
   setShowResultDialog: (show) => set({ showResultDialog: show }),
 
   reset: () =>
-    set({
+    set((state) => ({
+      settings: { ...state.settings, selectionBounds: null },
       isProcessing: false,
       progress: 0,
       totalFiles: 0,
       currentFile: null,
       results: [],
-    }),
+      processingDurationMs: null,
+      showResultDialog: false,
+      selectionHistory: [],
+      selectionFuture: [],
+    })),
 
   pushSelectionHistory: () =>
     set((state) => ({

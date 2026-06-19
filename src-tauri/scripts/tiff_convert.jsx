@@ -1,5 +1,5 @@
-// Photoshop JSX Script for TIFF Conversion
-// Based on TIPPY v2.92 processing pipeline, integrated with COMIC-Bridge config/result pattern
+﻿// Photoshop JSX Script for TIFF Conversion
+// Processing pipeline integrated with COMIC-Bridge config/result pattern
 
 #target photoshop
 
@@ -16,9 +16,9 @@ var TEXT_GROUP_NAMES = ["#text#", "text", "\u5199\u690D", "\u30BB\u30EA\u30D5", 
   Main Processing
  ----------------------------------------------------- */
 function main() {
-    var tempFolder = Folder.temp;
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
 
-    var settingsFile = new File(tempFolder + "/psd_tiff_settings.json");
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_tiff_settings.json");
 
     if (!settingsFile.exists) {
         alert("Settings file not found: " + settingsFile.fsName);
@@ -48,7 +48,7 @@ function main() {
 
     // Initial heartbeat: signal script has started
     try {
-        var pf = new File(tempFolder + "/psd_tiff_progress.txt");
+        var pf = new File((typeof COMIC_BRIDGE_PROGRESS_PATH !== "undefined" && COMIC_BRIDGE_PROGRESS_PATH) ? COMIC_BRIDGE_PROGRESS_PATH : tempFolder + "/psd_tiff_progress.txt");
         pf.open("w"); pf.write("0/" + String(config.files.length)); pf.close();
     } catch (e_hb0) {}
 
@@ -59,7 +59,7 @@ function main() {
 
         // Heartbeat: write progress so Rust knows we are still alive
         try {
-            var progressFile = new File(tempFolder + "/psd_tiff_progress.txt");
+            var progressFile = new File((typeof COMIC_BRIDGE_PROGRESS_PATH !== "undefined" && COMIC_BRIDGE_PROGRESS_PATH) ? COMIC_BRIDGE_PROGRESS_PATH : tempFolder + "/psd_tiff_progress.txt");
             progressFile.open("w");
             progressFile.write(String(i + 1) + "/" + String(config.files.length));
             progressFile.close();
@@ -67,11 +67,14 @@ function main() {
     }
 
     // Write results
-    var resultFile = new File(tempFolder + "/psd_tiff_results.json");
+    var resultFile = (typeof COMIC_BRIDGE_OUTPUT_PATH !== "undefined" && COMIC_BRIDGE_OUTPUT_PATH) ? new File(COMIC_BRIDGE_OUTPUT_PATH) : new File(tempFolder + "/psd_tiff_results.json");
     resultFile.open("w");
     resultFile.encoding = "UTF-8";
     resultFile.write(valueToJSON({ results: results }));
     resultFile.close();
+
+    // 診断ファイルを書き出す（白消し再表示の原因調査用）
+    cbDiagWrite();
 
     app.displayDialogs = originalDialogs;
 }
@@ -91,6 +94,35 @@ function processFile(fileConfig, globalSettings) {
         }
 
         var doc = app.open(file);
+
+        // ★ app.open 直後の「正しい可視性」を id 単位で記録（この後の処理で化けても復元できる）。
+        var __origVis = {};
+        cbCaptureVis(doc, __origVis);
+
+        // === 診断: app.open 直後（purge/unlock 前）の可視性を DOM と AM で読み比べる ===
+        cbDiag("=== RAW OPEN: " + fileName + " ===");
+        try {
+            for (var __ri = 0; __ri < doc.layers.length; __ri++) {
+                var __rl = doc.layers[__ri];
+                var __dom = "?"; try { __dom = __rl.visible; } catch (e) {}
+                var __amIx = cbVisByAMIndex(__ri + 1);
+                var __amId = "?"; try { __amId = cbVisByAMId(__rl.id); } catch (e) {}
+                var __nm = "?"; try { __nm = __rl.name; } catch (e) {}
+                cbDiag("  [" + __ri + '] name="' + __nm + '" DOM.visible=' + __dom
+                    + " AM.byIndex=" + __amIx + " AM.byId=" + __amId);
+            }
+        } catch (e) { cbDiag("  (raw read error: " + e + ")"); }
+        // 先頭レイヤー(白消し想定)の全AMプロパティキーをダンプ（可視性の別手掛かり探索）
+        try {
+            var __r0 = new ActionReference();
+            __r0.putIndex(charIDToTypeID("Lyr "), 1);
+            var __d0 = executeActionGet(__r0);
+            var __keys = [];
+            for (var __k = 0; __k < __d0.count; __k++) {
+                try { __keys.push(typeIDToStringID(__d0.getKey(__k))); } catch (e) {}
+            }
+            cbDiag("  [layer0 AM keys] " + __keys.join(","));
+        } catch (e) { cbDiag("  (AM keys error: " + e + ")"); }
 
         // 2. Unlock all layers
         unlockAllLayers(doc);
@@ -130,57 +162,107 @@ function processFile(fileConfig, globalSettings) {
             }
         }
 
-        // Move text group to top of layer stack (matching Tippy)
-        if (textGroup) {
-            try { textGroup.move(doc, ElementPlacement.PLACEATBEGINNING); } catch (e) {}
-        }
+        // === 診断: オープン直後の構成とテキストグループ検出 ===
+        cbDiag("=== FILE: " + fileName + " ===");
+        cbDiag("[OPEN] top-level layers=" + doc.layers.length);
+        cbDiagDumpLayers(doc, "  ");
+        cbDiag("[TEXTGROUP] found=" + (textGroup ? "true" : "false")
+            + (textGroup ? (' name="' + textGroup.name + '"') : "")
+            + " reorganizeText=" + (globalSettings.reorganizeText ? "true" : "false"));
 
-        // 4. Separate text and background, convert both to smart objects
-        var backgroundSO = null;
-        var textSO = null;
+        // ★ SO化の直前に、app.open 直後に記録した「正しい可視性」を復元する。
+        // （purge/unlock/各種検出で白消し等の visible が true に化けるのを打ち消す）
+        var __restored = cbRestoreVis(doc, __origVis);
+        cbDiag("[RESTORE VIS] restored=" + __restored + " layers=" + doc.layers.length);
+        cbDiagDumpLayers(doc, "  ");
 
-        if (doc.layers.length > 1) {
-            var bgLayers = collectNonTextLayers(doc, textGroup);
+        // テキストを最上位へ移動しない（順番維持）。上/テキスト/下の3区画で個別SO化する。
 
-            // Background: Select all non-text layers -> convert to SO
-            if (bgLayers.length > 0) {
-                // Save visibility state before selection (selectLayers may alter hidden layers)
-                var bgVisibility = [];
-                for (var vi = 0; vi < bgLayers.length; vi++) {
-                    bgVisibility.push(bgLayers[vi].visible);
+        // 4. Separate into above-text / text / below-text, convert each to smart objects
+        var backgroundSO = null;   // below text
+        var textSO = null;         // text
+        var topmostSO = null;      // above text
+        var topmostHadVisible = false;
+        var backgroundHadVisible = false;
+
+        if (textGroup && doc.layers.length > 1) {
+            var __textIdx = -1;
+            for (var __ti = 0; __ti < doc.layers.length; __ti++) {
+                if (doc.layers[__ti].id === textGroup.id) { __textIdx = __ti; break; }
+            }
+            var __aboveIds = [];
+            var __belowIds = [];
+            if (__textIdx >= 0) {
+                for (var __li = 0; __li < doc.layers.length; __li++) {
+                    if (__li < __textIdx) {
+                        __aboveIds.push(doc.layers[__li].id);
+                        try { if (doc.layers[__li].visible) topmostHadVisible = true; } catch (e) {}
+                    } else if (__li > __textIdx) {
+                        __belowIds.push(doc.layers[__li].id);
+                        try { if (doc.layers[__li].visible) backgroundHadVisible = true; } catch (e) {}
+                    }
                 }
-
-                selectLayers(bgLayers);
-
-                // Restore visibility after selection, before SO creation
-                for (var vi = 0; vi < bgLayers.length; vi++) {
-                    try { bgLayers[vi].visible = bgVisibility[vi]; } catch (e) {}
-                }
-
-                backgroundSO = convertToSmartObject();
-                if (backgroundSO) backgroundSO.name = "\u80CC\u666F";
             }
 
-            // Text: Select text group with all children -> convert to SO
-            if (textGroup) {
+            // above-text -> topmost SO（非表示も含む。元が全部非表示ならSOごと非表示で保持＝出力に出ない）
+            if (__aboveIds.length > 0) {
+                var __aboveLayers = idsToLayers(doc, __aboveIds);
+                if (__aboveLayers.length > 0) {
+                    try {
+                        selectLayers(__aboveLayers);
+                        topmostSO = convertToSmartObject();
+                        if (topmostSO) {
+                            topmostSO.name = "最上位";
+                            try { topmostSO.visible = topmostHadVisible; } catch (e) {}
+                        }
+                    } catch (e) { topmostSO = null; }
+                }
+            }
+
+            // text -> text SO
+            var __tg2 = findTopLevelById(doc, textGroup.id);
+            if (__tg2) {
                 try {
-                    // Save text group visibility
-                    var textGroupVisible = textGroup.visible;
-
-                    selectLayerWithChildren(textGroup);
-
-                    // Restore text group visibility
-                    try { textGroup.visible = textGroupVisible; } catch (e) {}
-
+                    selectLayerWithChildren(__tg2);
                     textSO = convertToSmartObject();
-                    if (textSO) textSO.name = "\u30C6\u30AD\u30B9\u30C8";
-                } catch (e) {
-                    textSO = null;
+                    if (textSO) textSO.name = "テキスト";
+                } catch (e) { textSO = null; }
+            }
+
+            // below-text -> background SO（非表示も含む）
+            if (__belowIds.length > 0) {
+                var __belowLayers = idsToLayers(doc, __belowIds);
+                if (__belowLayers.length > 0) {
+                    try {
+                        selectLayers(__belowLayers);
+                        backgroundSO = convertToSmartObject();
+                        if (backgroundSO) {
+                            backgroundSO.name = "背景";
+                            try { backgroundSO.visible = backgroundHadVisible; } catch (e) {}
+                        }
+                    } catch (e) { backgroundSO = null; }
                 }
             }
+        } else if (!textGroup && doc.layers.length > 1) {
+            // テキストグループ無し: 従来どおり全レイヤーを1つの背景SOに（非表示も含む）
+            var __allLayers = [];
+            for (var __ali = 0; __ali < doc.layers.length; __ali++) __allLayers.push(doc.layers[__ali]);
+            try {
+                selectLayers(__allLayers);
+                backgroundSO = convertToSmartObject();
+                if (backgroundSO) backgroundSO.name = "背景";
+            } catch (e) { backgroundSO = null; }
         }
 
-        // 5. Rasterize both smart objects (DOM method matching Tippy)
+
+
+        // === 診断: 3区画SO化の直後（各SOの可視性・構成） ===
+        cbDiag("[AFTER SPLIT] topmostHadVisible=" + topmostHadVisible
+            + " backgroundHadVisible=" + backgroundHadVisible
+            + " layers=" + doc.layers.length);
+        cbDiagDumpLayers(doc, "  ");
+
+        // 5. Rasterize both smart objects (DOM method 参照パイプライン準拠)
         var textLayer = null;
         if (textSO) {
             try {
@@ -228,7 +310,7 @@ function processFile(fileConfig, globalSettings) {
             saveIntermediatePsd(doc, fileConfig, globalSettings);
         }
 
-        // 10. Apply Gaussian blur to background only (Tippy v2.92 pattern)
+        // 10. Apply Gaussian blur to background only (参照パイプライン準拠)
         // Check for page-specific partial blur settings
         var currentPartialBlurSettings = null;
         if (fileConfig.partialBlur && fileConfig.partialBlur.blurRadius !== undefined) {
@@ -267,7 +349,11 @@ function processFile(fileConfig, globalSettings) {
             try { textSOFinal.visible = true; } catch (e) {}
         }
 
-        // 12. Final merge: re-acquire layers by name -> SO (matching Tippy)
+        // === 診断: 最終統合の直前（flatten/SO化前の構成） ===
+        cbDiag("[BEFORE FINAL] topmostSO=" + (topmostSO ? "exists" : "null") + " layers=" + doc.layers.length);
+        cbDiagDumpLayers(doc, "  ");
+
+        // 12. Final merge: re-acquire layers by name -> SO (参照パイプライン準拠)
         var layersToMerge = [];
         if (textSOFinal) {
             try { layersToMerge.push(doc.layers.getByName("\u30C6\u30AD\u30B9\u30C8")); } catch (e) {}
@@ -276,7 +362,13 @@ function processFile(fileConfig, globalSettings) {
             try { layersToMerge.push(doc.layers.getByName("\u80CC\u666F")); } catch (e) {}
         }
 
-        if (layersToMerge.length > 0) {
+        if (topmostSO) {
+            // 3区画構成（上/テキスト/下）。flatten で「見た目どおり」に1枚へ。
+            // flatten は表示中レイヤーを合成し非表示を破棄するので、
+            //   - 非表示の最上位(白消し) → 出力に出ない（クリッピング等はSO内に保持済み・処理では省いていない）
+            //   - 表示中の最上位 → テキストの上に正しく残る
+            try { doc.flatten(); } catch (e) {}
+        } else if (layersToMerge.length > 0) {
             try {
                 selectLayers(layersToMerge);
                 convertToSmartObject();
@@ -320,8 +412,9 @@ function processFile(fileConfig, globalSettings) {
         // 16. Save
         var outputDir = new Folder(fileConfig.outputPath);
         if (!outputDir.exists) outputDir.create();
-        var outputFile = new File(fileConfig.outputPath + "/" + fileConfig.outputName);
-        var baseName = fileConfig.outputName.replace(/\.[^.]+$/, "");
+        var safeOutputName = sanitizeFileName(fileConfig.outputName, "output.tif");
+        var outputFile = new File(fileConfig.outputPath + "/" + safeOutputName);
+        var baseName = sanitizeFileName(safeOutputName.replace(/\.[^.]+$/, ""), "output");
 
         if (globalSettings.proceedAsTiff) {
             // TIFF with LZW compression
@@ -507,6 +600,95 @@ function checkAllText(container, onNonText) {
 function collectTextLayers(doc, textGroup) {
     if (!textGroup) return [];
     return [textGroup];
+}
+
+// ===== 診断（白消し再表示の原因調査用） =====
+// 可視性を Action Manager 経由で読む（DOM の layer.visible と一致するか確認用）
+function cbVisByAMIndex(idx1based) {
+    try {
+        var r = new ActionReference();
+        r.putProperty(charIDToTypeID("Prpr"), stringIDToTypeID("visible"));
+        r.putIndex(charIDToTypeID("Lyr "), idx1based);
+        return executeActionGet(r).getBoolean(stringIDToTypeID("visible"));
+    } catch (e) { return "err"; }
+}
+function cbVisByAMId(id) {
+    try {
+        var r = new ActionReference();
+        r.putProperty(charIDToTypeID("Prpr"), stringIDToTypeID("visible"));
+        r.putIdentifier(charIDToTypeID("Lyr "), id);
+        return executeActionGet(r).getBoolean(stringIDToTypeID("visible"));
+    } catch (e) { return "err"; }
+}
+// app.open 直後の正しい可視性を id 単位で記録し、後で復元する。
+// （app.purge / unlockAllLayers 等が一部PSDで可視性を勝手に true へ化けさせるため）
+function cbCaptureVis(container, map) {
+    for (var i = 0; i < container.layers.length; i++) {
+        var L = container.layers[i];
+        try { map[L.id] = L.visible; } catch (e) {}
+        if (L.typename === "LayerSet") { try { cbCaptureVis(L, map); } catch (e) {} }
+    }
+}
+function cbRestoreVis(container, map) {
+    var changed = 0;
+    for (var i = 0; i < container.layers.length; i++) {
+        var L = container.layers[i];
+        try {
+            if (map[L.id] !== undefined && L.visible !== map[L.id]) {
+                L.visible = map[L.id];
+                changed++;
+            }
+        } catch (e) {}
+        if (L.typename === "LayerSet") { try { changed += cbRestoreVis(L, map); } catch (e) {} }
+    }
+    return changed;
+}
+
+var __CB_DIAG = [];
+function cbDiag(msg) { try { __CB_DIAG.push(String(msg)); } catch (e) {} }
+function cbDiagDumpLayers(container, prefix) {
+    try {
+        for (var i = 0; i < container.layers.length; i++) {
+            var L = container.layers[i];
+            var s = prefix + "[" + i + "]";
+            try { s += ' name="' + L.name + '"'; } catch (e) { s += " name=?"; }
+            try { s += " visible=" + L.visible; } catch (e) {}
+            try { s += " type=" + L.typename; } catch (e) {}
+            try { s += " kind=" + L.kind; } catch (e) {}
+            try { s += " grouped=" + L.grouped; } catch (e) {} // 下のレイヤーにクリップ
+            try { s += " opacity=" + Math.round(L.opacity); } catch (e) {}
+            cbDiag(s);
+            if (L.typename === "LayerSet") cbDiagDumpLayers(L, prefix + "    ");
+        }
+    } catch (e) { cbDiag(prefix + "(dump error: " + e + ")"); }
+}
+function cbDiagWrite() {
+    try {
+        var dir = Folder.temp.fsName + "/COMIC-Bridge";
+        var f = new Folder(dir);
+        if (!f.exists) { try { f.create(); } catch (ce) {} }
+        var out = new File(dir + "/tiff_diagnostics.txt");
+        out.encoding = "UTF-8";
+        out.open("w");
+        out.write(__CB_DIAG.join("\r\n"));
+        out.close();
+    } catch (e) {}
+}
+
+// top-level レイヤーを id で取り直す（SO化で参照が無効化されるため）。
+function findTopLevelById(doc, id) {
+    for (var i = 0; i < doc.layers.length; i++) {
+        if (doc.layers[i].id === id) return doc.layers[i];
+    }
+    return null;
+}
+function idsToLayers(doc, ids) {
+    var out = [];
+    for (var i = 0; i < ids.length; i++) {
+        var l = findTopLevelById(doc, ids[i]);
+        if (l) out.push(l);
+    }
+    return out;
 }
 
 function collectNonTextLayers(doc, textGroup) {
@@ -724,7 +906,7 @@ function applyRegionsBlur(doc, activeLayer, defaultBlurRadius, fallbackBlurRadiu
  ----------------------------------------------------- */
 function saveIntermediatePsd(doc, fileConfig, globalSettings) {
     try {
-        var baseName = decodeURI(new File(fileConfig.path).name).replace(/\.[^.]+$/, "");
+        var baseName = sanitizeFileName(decodeURI(new File(fileConfig.path).name).replace(/\.[^.]+$/, ""), "output");
         var suffix = globalSettings.mergeAfterColor ? "_merged" : "_color";
         var psdDir = new Folder(fileConfig.outputPath + "/../Processed_PSD");
         if (!psdDir.exists) psdDir.create();
@@ -744,6 +926,15 @@ function saveIntermediatePsd(doc, fileConfig, globalSettings) {
 /* -----------------------------------------------------
   Helpers
  ----------------------------------------------------- */
+function sanitizeFileName(name, fallback) {
+    var value = String(name || "").replace(/^\s+|\s+$/g, "");
+    value = value.replace(/[\\\/:\*\?"<>\|\x00-\x1F]/g, "_");
+    value = value.replace(/\.+$/g, "");
+    if (!value || /^\.+$/.test(value)) value = fallback || "output";
+    if (value.length > 180) value = value.substring(0, 180);
+    return value;
+}
+
 function getExpectedChannelCount(doc) {
     // RGB=3, Grayscale=1, CMYK=4
     switch (doc.mode) {
@@ -1127,7 +1318,7 @@ try {
 } catch (e) {
     // Write error to temp file for Rust to read
     try {
-        var errFile = new File(Folder.temp + "/psd_tiff_script_error.txt");
+        var errFile = new File(Folder.temp.fsName + "/COMIC-Bridge/convert/psd_tiff_script_error.txt");
         errFile.open("w");
         errFile.write("JSX Error: " + (e.message || String(e)) + " (line: " + (e.line || "?") + ")");
         errFile.close();

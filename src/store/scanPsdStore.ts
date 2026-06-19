@@ -13,13 +13,9 @@ import type {
 import { DEFAULT_WORK_INFO, normalizeRubyEntries } from "../types/scanPsd";
 
 // --- デフォルトパス ---
-const DEFAULT_JSON_FOLDER_PATH =
-  "G:/共有ドライブ/CLLENN/編集部フォルダ/編集企画部/編集企画_C班(AT業務推進)/DTP制作部/JSONフォルダ";
-const DEFAULT_SAVE_DATA_BASE_PATH =
-  "G:/共有ドライブ/CLLENN/編集部フォルダ/編集企画部/編集企画_C班(AT業務推進)/DTP制作部/作品情報";
-const DEFAULT_TEXT_LOG_FOLDER_PATH =
-  "G:/共有ドライブ/CLLENN/編集部フォルダ/編集企画部/写植・校正用テキストログ/テキスト抽出";
-
+// 共有ドライブパスは直打ちせず、参照アドレスリストから実行時に注入する
+// (lib/initAddresses.ts → hydrateDefaultPaths)。localStorage にユーザー上書きが
+// あればそちらを優先。ロード完了前 / 未解決時は空文字。
 function loadPath(key: string, fallback: string): string {
   try {
     return localStorage.getItem(key) || fallback;
@@ -62,7 +58,7 @@ export interface ScanPsdState {
   rubyList: RubyEntry[];
   rubySortMode: "order" | "ruby" | "parent" | "volumePage";
 
-  // TIPPY範囲選択
+  // 範囲選択
   selectionRanges: SelectionRange[];
   lastUsedLabel: string | null;
 
@@ -127,6 +123,8 @@ export interface ScanPsdState {
   setSelectedGuideIndex: (index: number | null) => void;
   toggleExcludedGuide: (index: number) => void;
   setExcludedGuideIndices: (indices: Set<number>) => void;
+  removeGuideSet: (index: number) => void;
+  renameGuideSet: (index: number, label: string) => void;
 
   // Actions - ルビ
   setRubyList: (list: RubyEntry[]) => void;
@@ -135,9 +133,11 @@ export interface ScanPsdState {
   updateRuby: (id: string, partial: Partial<RubyEntry>) => void;
   setRubySortMode: (mode: "order" | "ruby" | "parent" | "volumePage") => void;
 
-  // Actions - TIPPY範囲選択
+  // Actions - 範囲選択
   setSelectionRanges: (ranges: SelectionRange[]) => void;
   setLastUsedLabel: (label: string | null) => void;
+  removeSelectionRange: (index: number) => void;
+  renameSelectionRange: (index: number, label: string) => void;
 
   // Actions - サイズ統計編集
   updateSizeStats: (partial: Partial<ScanSizeStats>) => void;
@@ -146,6 +146,12 @@ export interface ScanPsdState {
   setJsonFolderPath: (path: string) => void;
   setSaveDataBasePath: (path: string) => void;
   setTextLogFolderPath: (path: string) => void;
+  /** 参照アドレスリストから既定パスを注入(未設定フィールドのみ。localStorage非永続)。 */
+  hydrateDefaultPaths: (defaults: {
+    jsonFolderPath?: string;
+    saveDataBasePath?: string;
+    textLogFolderPath?: string;
+  }) => void;
 
   // Actions - ファイル参照
   setCurrentJsonFilePath: (path: string | null) => void;
@@ -192,9 +198,9 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
   rubySortMode: "volumePage",
   selectionRanges: [],
   lastUsedLabel: null,
-  jsonFolderPath: loadPath("scanPsd_jsonFolderPath", DEFAULT_JSON_FOLDER_PATH),
-  saveDataBasePath: loadPath("scanPsd_saveDataBasePath", DEFAULT_SAVE_DATA_BASE_PATH),
-  textLogFolderPath: loadPath("scanPsd_textLogFolderPath", DEFAULT_TEXT_LOG_FOLDER_PATH),
+  jsonFolderPath: loadPath("scanPsd_jsonFolderPath", ""),
+  saveDataBasePath: loadPath("scanPsd_saveDataBasePath", ""),
+  textLogFolderPath: loadPath("scanPsd_textLogFolderPath", ""),
   currentJsonFilePath: null,
   currentScandataFilePath: null,
   tempJsonFilePath: null,
@@ -290,6 +296,31 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
       return { excludedGuideIndices: next };
     }),
   setExcludedGuideIndices: (indices) => set({ excludedGuideIndices: indices }),
+  removeGuideSet: (index) =>
+    set((s) => {
+      if (!s.scanData) return {};
+      const guideSets = s.scanData.guideSets.filter((_, i) => i !== index);
+      // selectedGuideIndex / excludedGuideIndices を削除に合わせて再マップ
+      let selectedGuideIndex = s.selectedGuideIndex;
+      if (selectedGuideIndex === index) selectedGuideIndex = null;
+      else if (selectedGuideIndex != null && selectedGuideIndex > index) selectedGuideIndex -= 1;
+      const excluded = new Set<number>();
+      s.excludedGuideIndices.forEach((i) => {
+        if (i === index) return;
+        excluded.add(i > index ? i - 1 : i);
+      });
+      return {
+        scanData: { ...s.scanData, guideSets },
+        selectedGuideIndex,
+        excludedGuideIndices: excluded,
+      };
+    }),
+  renameGuideSet: (index, label) =>
+    set((s) => {
+      if (!s.scanData) return {};
+      const guideSets = s.scanData.guideSets.map((gs, i) => (i === index ? { ...gs, label } : gs));
+      return { scanData: { ...s.scanData, guideSets } };
+    }),
 
   // ルビ
   setRubyList: (rubyList) => set({ rubyList }),
@@ -301,9 +332,15 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
     })),
   setRubySortMode: (rubySortMode) => set({ rubySortMode }),
 
-  // TIPPY範囲選択
+  // 範囲選択
   setSelectionRanges: (selectionRanges) => set({ selectionRanges }),
   setLastUsedLabel: (lastUsedLabel) => set({ lastUsedLabel }),
+  removeSelectionRange: (index) =>
+    set((s) => ({ selectionRanges: s.selectionRanges.filter((_, i) => i !== index) })),
+  renameSelectionRange: (index, label) =>
+    set((s) => ({
+      selectionRanges: s.selectionRanges.map((r, i) => (i === index ? { ...r, label } : r)),
+    })),
 
   // サイズ統計編集
   updateSizeStats: (partial) =>
@@ -326,6 +363,14 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
     savePath("scanPsd_textLogFolderPath", path);
     set({ textLogFolderPath: path });
   },
+  hydrateDefaultPaths: (defaults) =>
+    set((s) => {
+      const next: Partial<ScanPsdState> = {};
+      if (!s.jsonFolderPath && defaults.jsonFolderPath) next.jsonFolderPath = defaults.jsonFolderPath;
+      if (!s.saveDataBasePath && defaults.saveDataBasePath) next.saveDataBasePath = defaults.saveDataBasePath;
+      if (!s.textLogFolderPath && defaults.textLogFolderPath) next.textLogFolderPath = defaults.textLogFolderPath;
+      return next;
+    }),
 
   // ファイル参照
   setCurrentJsonFilePath: (currentJsonFilePath) => set({ currentJsonFilePath }),
@@ -348,7 +393,7 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
   loadFromPresetJson: (data) =>
     set((s) => {
       const pd = data.presetData || {};
-      // je-nsonman互換: parent/ruby → parentText/rubyText, volume文字列→数値
+      // 外部スクリプト互換: parent/ruby → parentText/rubyText, volume文字列→数値
       const rawRuby = pd.rubyList as unknown[] | undefined;
       const normalizedRuby =
         rawRuby && rawRuby.length > 0 ? normalizeRubyEntries(rawRuby) : undefined;
@@ -371,7 +416,7 @@ export const useScanPsdStore = create<ScanPsdState>((set) => ({
         selectedGuideSetIndex?: number;
         excludedGuideIndices?: number[];
       };
-      // je-nsonman互換: parent/ruby → parentText/rubyText, volume文字列→数値
+      // 外部スクリプト互換: parent/ruby → parentText/rubyText, volume文字列→数値
       const rawRuby = data.editedRubyList as unknown[] | undefined;
       const normalizedRuby =
         rawRuby && rawRuby.length > 0 ? normalizeRubyEntries(rawRuby) : undefined;

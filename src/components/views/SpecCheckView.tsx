@@ -2,6 +2,7 @@ import { useMemo, useEffect, useState, useRef } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { useSpecStore } from "../../store/specStore";
 import { useGuideStore } from "../../store/guideStore";
+import { getAddress } from "../../lib/addressRef";
 import { useSpecChecker } from "../../hooks/useSpecChecker";
 import { usePhotoshopConverter } from "../../hooks/usePhotoshopConverter";
 import { usePreparePsd } from "../../hooks/usePreparePsd";
@@ -48,7 +49,7 @@ export function SpecCheckView() {
   const [showResults, setShowResults] = useState(false);
   const [showGuidePrompt, setShowGuidePrompt] = useState(false);
   const [viewMode, setViewMode] = useState<"thumbnails" | "layers" | "layerCheck">("thumbnails");
-  const [tachimiError, setTachimiError] = useState<string | null>(null);
+  const [pdfToolError, setPdfToolError] = useState<string | null>(null);
 
   const guidePromptRef = useRef<HTMLDivElement>(null);
 
@@ -162,15 +163,15 @@ export function SpecCheckView() {
     }
   };
 
-  // Tachimi起動（PDF化連携）
-  const handleLaunchTachimi = async () => {
-    setTachimiError(null);
+  // 外部PDF作成ツール起動（PDF化連携）
+  const handleLaunchPdfTool = async () => {
+    setPdfToolError(null);
     try {
       const filePaths = files.map((f) => f.filePath).filter(Boolean);
       if (filePaths.length === 0) return;
-      await invoke("launch_tachimi", { filePaths });
+      await invoke("launch_pdf_tool", { filePaths });
     } catch (e) {
-      setTachimiError(String(e));
+      setPdfToolError(String(e));
     }
   };
 
@@ -747,15 +748,15 @@ export function SpecCheckView() {
             )}
             {viewMode === "thumbnails" && (
               <>
-                {/* PDF化ボタン（Tachimi連携） */}
+                {/* PDF化ボタン（外部PDF作成ツール連携） */}
                 <button
                   className={`h-16 min-w-[220px] px-8 text-lg font-bold rounded-2xl shadow-2xl transition-all duration-200 flex items-center justify-center gap-3 bg-bg-secondary active:scale-[0.97] ${
                     allPassed
                       ? "border-2 border-[#ff8a6b]/60 text-[#ff8a6b] hover:bg-bg-elevated hover:border-[#ff8a6b]/80 hover:shadow-[0_6px_20px_rgba(255,138,107,0.25)]"
                       : "border-2 border-[#c8806a]/30 text-[#c8806a]/70 hover:bg-bg-elevated hover:border-[#c8806a]/50 hover:text-[#c8806a]"
                   }`}
-                  onClick={handleLaunchTachimi}
-                  title="Tachimiを起動してPDF作成"
+                  onClick={handleLaunchPdfTool}
+                  title={`${getAddress("apps.pdfTool.displayName")}を起動してPDF作成`}
                 >
                   <svg
                     className="w-5 h-5"
@@ -779,11 +780,11 @@ export function SpecCheckView() {
                     {files.length}
                   </span>
                 </button>
-                {/* Tachimi起動エラー */}
-                {tachimiError && (
+                {/* 外部PDF作成ツール起動エラー */}
+                {pdfToolError && (
                   <div className="px-4 py-2 rounded-xl bg-error/10 border border-error/30 text-xs text-error max-w-xs">
-                    {tachimiError}
-                    <button onClick={() => setTachimiError(null)} className="ml-2 underline">
+                    {pdfToolError}
+                    <button onClick={() => setPdfToolError(null)} className="ml-2 underline">
                       閉じる
                     </button>
                   </div>

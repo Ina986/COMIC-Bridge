@@ -1,13 +1,51 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type DragEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { useFontBookStore } from "../../store/fontBookStore";
 import { useScanPsdStore } from "../../store/scanPsdStore";
+import { useViewStore } from "../../store/viewStore";
 import { SUB_NAME_PALETTE, FONT_SUB_NAME_MAP } from "../../types/scanPsd";
-import type { FontPreset, PresetJsonData } from "../../types/scanPsd";
+import type { FontPreset } from "../../types/scanPsd";
 import type { FontBookEntry } from "../../types/fontBook";
 import { JsonFileBrowser } from "../scanPsd/JsonFileBrowser";
-import { performPresetJsonSave } from "../../hooks/useScanPsdProcessor";
+import { performPresetJsonSave, performLoadPresetJson } from "../../hooks/useScanPsdProcessor";
+
+/** 画像Blobを長辺 maxDim までに縮小し、白背景でJPEGバイト列にする（フォント帳用の自動サイズ調整）。 */
+async function resizeImageToJpegBytes(blob: Blob, maxDim = 1600, quality = 0.9): Promise<Uint8Array> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("画像を読み込めませんでした"));
+      im.src = url;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height || 1));
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvasコンテキストを取得できません");
+    // 透過画像は白地に合成してから書き出す（JPEGは透過非対応＝黒つぶれ防止）
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+    const out = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality),
+    );
+    if (!out) throw new Error("JPEGへの変換に失敗しました");
+    return new Uint8Array(await out.arrayBuffer());
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff"];
+const isImagePath = (p: string) => IMAGE_EXTS.includes(p.split(".").pop()?.toLowerCase() || "");
 
 // カテゴリ一覧（FONT_SUB_NAME_MAPから重複排除）
 const ALL_SUB_NAMES: string[] = [];
@@ -33,6 +71,7 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
   const updateEntry = useFontBookStore((s) => s.updateEntry);
   const reorderEntries = useFontBookStore((s) => s.reorderEntries);
   const loadFontBook = useFontBookStore((s) => s.loadFontBook);
+  const addEntry = useFontBookStore((s) => s.addEntry);
 
   const currentJsonFilePath = useScanPsdStore((s) => s.currentJsonFilePath);
   const presetSets = useScanPsdStore((s) => s.presetSets);
@@ -233,14 +272,12 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
   }, [groupedByFont]);
 
   // JSON選択ハンドラ
+  // 共有ローダ(performLoadPresetJson)を使い、scanPsdStore.currentJsonFilePath を設定して
+  // スキャナー・ガイド/断ち切り・他タブと同じJSONを共有する（連動scandata/ガイド/ルビも復元）。
   const handleJsonSelect = useCallback(async (filePath: string) => {
     setShowJsonBrowser(false);
     try {
-      const content = await invoke<string>("read_text_file", { filePath });
-      const data = JSON.parse(content) as PresetJsonData;
-      const store = useScanPsdStore.getState();
-      store.loadFromPresetJson(data);
-      store.setCurrentJsonFilePath(filePath);
+      await performLoadPresetJson(filePath);
     } catch (e) {
       console.error("Failed to load JSON:", e);
     }
@@ -271,34 +308,204 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
     }
   }, []);
 
+  // === 画像追加（選択 / Ctrl+V / D&D・自動サイズ調整） ===
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dropFontKey, setDropFontKey] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickTargetRef = useRef<FontPreset | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 2600);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  // 指定フォントへ画像(Blob配列)を縮小して追加する
+  const addImagesToFont = useCallback(
+    async (font: FontPreset, blobs: Blob[]) => {
+      if (!fontBookDir) {
+        setNotice("先に作品のJSONを読み込んでください");
+        return;
+      }
+      const imgs = blobs.filter((b) => b.size > 0);
+      if (imgs.length === 0) {
+        setNotice("画像が見つかりませんでした");
+        return;
+      }
+      let added = 0;
+      for (const b of imgs) {
+        try {
+          const bytes = await resizeImageToJpegBytes(b);
+          const entry: FontBookEntry = {
+            id: crypto.randomUUID(),
+            fontPostScript: font.font,
+            fontDisplayName: font.name,
+            subName: font.subName || "",
+            sourceFile: b instanceof File && b.name ? b.name : "(貼り付け)",
+            capturedAt: new Date().toISOString(),
+          };
+          await addEntry(entry, bytes);
+          added++;
+        } catch (err) {
+          console.error("Failed to add font book image:", err);
+        }
+      }
+      if (added > 0) {
+        setActiveFontKey(font.font);
+        setNotice(`${font.name} に ${added} 枚追加しました`);
+      } else {
+        setNotice("画像の追加に失敗しました");
+      }
+    },
+    [fontBookDir, addEntry],
+  );
+
+  // ファイル選択（「画像を追加」ボタン）
+  const openFilePicker = useCallback((font: FontPreset) => {
+    pickTargetRef.current = font;
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const font = pickTargetRef.current;
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      e.target.value = ""; // 同じファイルを再選択できるようにリセット
+      if (font && files.length > 0) await addImagesToFont(font, files);
+    },
+    [addImagesToFont],
+  );
+
+  // Ctrl+V 貼り付け：選択中フォント(activeFontKey)へ追加
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      if (!currentJsonFilePath) return;
+      // 入力欄編集中はテキスト貼り付けを優先
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const blobs: Blob[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) blobs.push(f);
+        }
+      }
+      if (blobs.length === 0) return;
+      e.preventDefault();
+      const group = activeFontKey ? groupedByFont.get(activeFontKey) : null;
+      if (!group) {
+        setNotice("貼り付け先のフォントを左の一覧で選択してください");
+        return;
+      }
+      await addImagesToFont(group.font, blobs);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [currentJsonFilePath, activeFontKey, groupedByFont, addImagesToFont]);
+
+  // ファイルD&D：Tauriのネイティブdrag-dropでパスを受け取り、ドロップ位置のフォントカードへ追加。
+  // フォント帳表示中はグローバルD&D(PSD読込)を抑止する（fontBookDropActive）。
+  useEffect(() => {
+    const view = useViewStore.getState();
+    view.setFontBookDropActive(true);
+    let unlisten: (() => void) | undefined;
+    let mounted = true;
+    (async () => {
+      const win = getCurrentWindow();
+      const fn = await win.onDragDropEvent(async (event) => {
+        if (event.payload.type === "over") {
+          // ドロップ位置のフォントカードをハイライト
+          const pos = event.payload.position;
+          const dpr = window.devicePixelRatio || 1;
+          const el = document.elementFromPoint(pos.x / dpr, pos.y / dpr);
+          const card = el?.closest("[data-fontkey]") as HTMLElement | null;
+          setDropFontKey(card?.dataset.fontkey ?? null);
+          return;
+        }
+        if (event.payload.type === "leave") {
+          setDropFontKey(null);
+          return;
+        }
+        if (event.payload.type !== "drop") return;
+        const paths = (event.payload.paths || []).filter(isImagePath);
+        setDropFontKey(null);
+        if (paths.length === 0) {
+          if ((event.payload.paths || []).length > 0)
+            setNotice("画像ファイルをドロップしてください");
+          return;
+        }
+        // ドロップ位置のフォントカード → 無ければ選択中フォント
+        const pos = event.payload.position;
+        const dpr = window.devicePixelRatio || 1;
+        const el = document.elementFromPoint(pos.x / dpr, pos.y / dpr);
+        const card = el?.closest("[data-fontkey]") as HTMLElement | null;
+        const fontKey = card?.dataset.fontkey ?? activeFontKey;
+        const group = fontKey ? (groupedByFont.get(fontKey) ?? null) : null;
+        if (!group) {
+          setNotice("追加先のフォントを左の一覧で選択するか、フォントカードへドロップしてください");
+          return;
+        }
+        // 読み取り許可を付与してからバイトを読む
+        await invoke("register_user_paths", { paths }).catch(() => {});
+        const blobs: Blob[] = [];
+        for (const p of paths) {
+          try {
+            const bytes = await readFile(p);
+            blobs.push(new File([bytes], p.split(/[\\/]/).pop() || "image"));
+          } catch (err) {
+            console.error("Failed to read dropped file:", err);
+          }
+        }
+        if (blobs.length === 0) {
+          setNotice("ドロップした画像を読み込めませんでした");
+          return;
+        }
+        await addImagesToFont(group.font, blobs);
+      });
+      if (mounted) unlisten = fn;
+      else fn();
+    })();
+    return () => {
+      mounted = false;
+      view.setFontBookDropActive(false);
+      setDropFontKey(null);
+      if (unlisten) unlisten();
+    };
+  }, [activeFontKey, groupedByFont, addImagesToFont]);
+
   // JSON未読込
   if (!currentJsonFilePath) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4">
-        <div className="text-center space-y-2">
+      <div className="flex flex-col items-center justify-center h-full text-center p-8">
+        <div className="w-20 h-20 mb-5 rounded-3xl flex items-center justify-center bg-bg-tertiary">
           <svg
-            className="w-12 h-12 mx-auto text-text-muted/30"
+            className="w-10 h-10 text-text-muted"
             fill="none"
-            viewBox="0 0 24 24"
             stroke="currentColor"
-            strokeWidth={1}
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
           >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
-              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
             />
           </svg>
-          <p className="text-sm text-text-muted">作品のJSONを読み込んでください</p>
-          <p className="text-[10px] text-text-muted/60">
-            DTPビューアーでスクショを撮ってフォントと紐づけられます
-          </p>
         </div>
+        <p className="text-lg font-display font-medium text-text-primary mb-1">
+          作品のJSONを選択してください
+        </p>
+        <p className="text-xs text-text-muted mb-5">
+          読み込んだJSONはスキャナー・ガイド／断ち切り・他タブと共有されます
+        </p>
         <button
           className="px-4 py-2 text-xs font-medium text-white bg-gradient-to-r from-accent to-accent-secondary rounded-xl hover:-translate-y-0.5 transition-all shadow-sm"
           onClick={() => setShowJsonBrowser(true)}
         >
-          JSON読み込み
+          JSONを選択
         </button>
 
         {showJsonBrowser && (
@@ -324,6 +531,21 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* 画像追加用の隠しファイル入力（フォントヘッダーの「画像」ボタンから起動） */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+      {/* 操作結果トースト */}
+      {notice && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[10000] px-4 py-2 rounded-xl bg-bg-elevated border border-border shadow-lg text-xs text-text-primary">
+          {notice}
+        </div>
+      )}
       {/* Header */}
       <div className="px-4 py-2.5 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -428,12 +650,6 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
                 保存先
               </button>
             )}
-            <button
-              className="text-[10px] px-2 py-1 rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-tertiary transition-colors"
-              onClick={() => setShowJsonBrowser(true)}
-            >
-              別の作品を開く
-            </button>
           </div>
         </div>
 
@@ -477,7 +693,7 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
       </div>
 
       {/* Main content: sidebar + cards */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Font sidebar */}
         <div className="w-[200px] flex-shrink-0 border-r border-border overflow-y-auto select-none">
           <div className="py-1">
@@ -558,10 +774,14 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
                   <div
                     key={group.font.font}
                     id={`fontbook-${group.font.font}`}
-                    className={`bg-bg-secondary border rounded-lg overflow-hidden flex flex-col ${
-                      activeFontKey === group.font.font
-                        ? "border-accent/40 shadow-sm"
-                        : "border-border"
+                    data-fontkey={group.font.font}
+                    onClick={() => setActiveFontKey(group.font.font)}
+                    className={`bg-bg-secondary border rounded-lg overflow-hidden flex flex-col transition-all cursor-pointer ${
+                      dropFontKey === group.font.font
+                        ? "border-accent ring-2 ring-accent/40"
+                        : activeFontKey === group.font.font
+                          ? "border-accent/40 shadow-sm"
+                          : "border-border"
                     }`}
                   >
                     {/* Font header */}
@@ -737,16 +957,73 @@ export function FontBookView({ onNavigateToViewer }: FontBookViewProps = {}) {
                         ))}
                       </div>
                     ) : (
-                      <div className="py-3 text-center text-[9px] text-text-muted/40">
-                        スクショなし
+                      <div className="flex-1 flex flex-col items-center justify-center py-6 text-center gap-1">
+                        <span
+                          className={`text-xs ${
+                            activeFontKey === group.font.font
+                              ? "text-accent font-medium"
+                              : "text-text-muted/60"
+                          }`}
+                        >
+                          ctrl+Vで貼り付け
+                        </span>
+                        <span className="text-[9px] text-text-muted/40">
+                          画像をここへドロップ／下のボタンで選択
+                        </span>
                       </div>
                     )}
+
+                    {/* 画像を添付（下部・大きめ） */}
+                    <div className="p-1.5 border-t border-border/40 flex-shrink-0">
+                      <button
+                        className="w-full py-2 text-xs font-bold rounded-lg text-accent bg-accent/10 hover:bg-accent/20 transition-colors flex items-center justify-center gap-1.5"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveFontKey(group.font.font);
+                          openFilePicker(group.font);
+                        }}
+                        title="画像を選択（選択 / このカードへドロップ / 選択中はCtrl+V）"
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        画像を選択
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
         </div>
+
+        {/* JSON読み込み（全タブ共有）— 右下フローティング。ビューアーのボタンと同寸 */}
+        <button
+          className="absolute bottom-6 right-6 z-10 flex items-center gap-2.5 px-5 py-3 text-base font-medium rounded-xl bg-bg-secondary/80 text-text-secondary backdrop-blur-md border border-border/40 shadow-[0_2px_12px_rgba(0,0,0,0.08)] hover:bg-bg-secondary/95 hover:text-text-primary hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all duration-200"
+          onClick={() => setShowJsonBrowser(true)}
+          title="JSONを読み込む（スキャナー・ガイド／断ち切り・他タブと共有）"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+            />
+          </svg>
+          JSON読み込み
+        </button>
       </div>
 
       {/* Expanded image modal */}

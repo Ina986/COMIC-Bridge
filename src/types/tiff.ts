@@ -1,6 +1,6 @@
 // ============================================================
 // TIFF化タブ 型定義
-// TIPPY v2.92 全機能 + アプリ拡張（バッチキュー・クロップエディタ）
+// 全機能 + アプリ拡張（バッチキュー・クロップエディタ）
 // ============================================================
 
 // --- カラーモード ---
@@ -60,7 +60,7 @@ export type TiffCropStep = "select" | "confirm" | "apply";
 /** クロップ操作方法 */
 export type TiffCropMethod = "drag" | "guide";
 
-/** クロップ範囲プリセット（Tachimi互換 JSON保存用） */
+/** クロップ範囲プリセット（外部ツール互換 JSON保存用） */
 export interface TiffCropPreset {
   label: string; // "基本範囲_640x909"
   units: string; // always "px"
@@ -78,7 +78,7 @@ export interface TiffCropSettings {
   aspectRatio: { w: number; h: number }; // 640:909
 }
 
-// --- JSON Scandata（CLLENN互換） ---
+// --- JSON Scandata（共有仕様互換） ---
 
 export interface TiffScandataWorkInfo {
   genre: string;
@@ -96,19 +96,20 @@ export interface TiffScandataFile {
   saveDataPath?: string; // トップレベルのsaveDataPath（互換）
 }
 
-/** ジャンル→レーベル階層（Tachimi LABELS_BY_GENRE 互換） */
-export const GENRE_LABELS: Record<string, string[]> = {
-  一般女性: ["Ropopo!", "コイパレ", "キスカラ", "カルコミ", "ウーコミ!", "シェノン"],
-  TL: ["TLオトメチカ", "LOVE FLICK", "乙女チック", "ウーコミkiss!", "シェノン+", "@夜噺"],
-  BL: ["NuPu", "spicomi", "MooiComics", "BLオトメチカ", "BOYS FAN"],
-  一般男性: ["DEDEDE", "GG-COMICS", "コミックREBEL"],
-  メンズ: ["カゲキヤコミック", "もえスタビースト", "@夜噺＋"],
-  タテコミ: ["GIGATOON"],
-};
+/** ジャンル→レーベル階層。実体は scanPsd.ts のライブバインディングを再エクスポート
+ *  (固有名詞を含むため参照アドレスリスト content.genreLabels から実行時注入)。 */
+export { GENRE_LABELS } from "./scanPsd";
 
-/** JSON検索ベースパス（Tachimi互換） */
-export const JSON_BASE_PATH =
-  "G:/共有ドライブ/CLLENN/編集部フォルダ/編集企画部/編集企画_C班(AT業務推進)/DTP制作部/JSONフォルダ";
+/**
+ * JSON検索ベースパス。直打ちせず参照アドレスリストから実行時に設定される
+ * (lib/initAddresses.ts が __setJsonBasePath で代入)。アプリ起動時のロード
+ * 完了前は空文字。
+ */
+export let JSON_BASE_PATH = "";
+
+export function __setJsonBasePath(value: string): void {
+  JSON_BASE_PATH = value;
+}
 
 // --- リサイズ ---
 

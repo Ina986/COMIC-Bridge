@@ -570,5 +570,39 @@ export function useTiffProcessor() {
     await processFiles(files);
   }, [processFiles]);
 
-  return { convertSelectedFiles, convertAllFiles };
+  // 範囲（クロップ範囲）のみをJSONに保存する（画像出力なし）。
+  // 通常のTIFF/JPG変換は行わず、選択範囲を currentJsonFilePath（＋連動scandata）へ追記するだけ。
+  const saveSelectionRangeOnly = useCallback(async (
+    targetJsonPath?: string,
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    jsonPath?: string;
+  }> => {
+    const tiffState = useTiffStore.getState();
+    const bounds = tiffState.settings.crop.bounds;
+    if (!bounds) {
+      return { success: false, error: "クロップ範囲が設定されていません。" };
+    }
+    // 保存先: 明示指定(targetJsonPath)を最優先 → 範囲読込元(cropSourceJsonPath) → 現在のJSON。
+    // ガイド／断ち切りタブはガイド保存と同じJSONを明示指定して逸れを防ぐ。
+    const jsonPath =
+      targetJsonPath || tiffState.cropSourceJsonPath || useScanPsdStore.getState().currentJsonFilePath;
+    if (!jsonPath) {
+      return {
+        success: false,
+        error: "保存先のJSONがありません。先に「JSONから読込」でクロップ範囲のJSONを読み込んでください。",
+      };
+    }
+    try {
+      const effectiveBlur = tiffState.settings.blur.enabled ? tiffState.settings.blur.radius : 0;
+      const docSize = tiffState.referenceImageSize ?? tiffState.cropSourceDocumentSize;
+      await appendSelectionRangeToJson(jsonPath, bounds, docSize, effectiveBlur);
+      return { success: true, jsonPath };
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }, []);
+
+  return { convertSelectedFiles, convertAllFiles, saveSelectionRangeOnly };
 }

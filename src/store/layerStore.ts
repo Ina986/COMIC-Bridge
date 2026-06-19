@@ -62,6 +62,13 @@ export const PRESET_CONDITIONS: HideCondition[] = [
     value: "白消し",
     partialMatch: true,
   },
+  {
+    id: "nombre",
+    name: "「ノンブル」レイヤー",
+    type: "layerName",
+    value: "ノンブル",
+    partialMatch: true,
+  },
 ];
 
 // 処理結果（ファイルごと）
@@ -75,6 +82,21 @@ export interface LayerControlResult {
 
 // 保存モード
 export type LayerSaveMode = "overwrite" | "copyToFolder";
+
+function filterMapByFileIds<T>(map: Map<string, T>, validFileIds: Set<string>) {
+  let changed = false;
+  const filtered = new Map<string, T>();
+
+  for (const [fileId, value] of map.entries()) {
+    if (validFileIds.has(fileId)) {
+      filtered.set(fileId, value);
+    } else {
+      changed = true;
+    }
+  }
+
+  return { changed, map: changed ? filtered : map };
+}
 
 interface LayerVisibilityState {
   // ファイルごとの変更されたレイヤー可視性を追跡
@@ -136,6 +158,7 @@ interface LayerVisibilityState {
   // アクション
   setLayerVisibility: (fileId: string, layerPath: string, visible: boolean) => void;
   clearPendingChanges: (fileId?: string) => void;
+  pruneFileState: (validFileIds: string[]) => void;
   setActionMode: (mode: LayerActionMode) => void;
   setSaveMode: (mode: LayerSaveMode) => void;
   toggleCondition: (conditionId: string) => void;
@@ -240,6 +263,27 @@ export const useLayerStore = create<LayerVisibilityState>((set, get) => ({
         return { pendingChanges: newPendingChanges };
       }
       return { pendingChanges: new Map() };
+    });
+  },
+
+  pruneFileState: (validFileIds) => {
+    const validFileIdSet = new Set(validFileIds);
+    set((state) => {
+      const pending = filterMapByFileIds(state.pendingChanges, validFileIdSet);
+      const customVisibility = filterMapByFileIds(state.customVisibilityOps, validFileIdSet);
+      const customMove = filterMapByFileIds(state.customMoveOps, validFileIdSet);
+      const customOpsChanged = customVisibility.changed || customMove.changed;
+
+      if (!pending.changed && !customOpsChanged) {
+        return {};
+      }
+
+      return {
+        pendingChanges: pending.map,
+        customVisibilityOps: customVisibility.map,
+        customMoveOps: customMove.map,
+        _customOpsHistory: customOpsChanged ? [] : state._customOpsHistory,
+      };
     });
   },
 

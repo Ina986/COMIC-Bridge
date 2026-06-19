@@ -62,6 +62,8 @@ export interface ScanGuideSet {
   docNames: string[];
   docWidth: number;
   docHeight: number;
+  /** 任意の表示名（ユーザーが付け替え可能。未設定なら H/V 件数で表示） */
+  label?: string;
 }
 
 // --- テキストレイヤー ---
@@ -83,7 +85,7 @@ export interface TextLogEntry {
   linkGroupId: string | null;
 }
 
-// --- TIPPY範囲選択 ---
+// --- 範囲選択 ---
 export interface SelectionRange {
   label: string;
   bounds: { left: number; top: number; right: number; bottom: number };
@@ -138,14 +140,14 @@ export type ScanPsdMode = "new" | "edit" | "scandata";
 export type ScanPsdTab = 0 | 1 | 2 | 3 | 4;
 
 // --- 定数 ---
-export const GENRE_LABELS: Record<string, string[]> = {
-  一般女性: ["Ropopo!", "コイパレ", "キスカラ", "カルコミ", "ウーコミ!", "シェノン"],
-  TL: ["TLオトメチカ", "LOVE FLICK", "乙女チック", "ウーコミkiss!", "シェノン+", "@夜噺"],
-  BL: ["NuPu", "spicomi", "MooiComics", "BLオトメチカ", "BOYS FAN"],
-  一般男性: ["DEDEDE", "GG-COMICS", "コミックREBEL"],
-  メンズ: ["カゲキヤコミック", "もえスタビースト", "@夜噺＋"],
-  タテコミ: ["GIGATOON"],
-};
+// ジャンル→レーベル名のマッピングは固有名詞(レーベル名)を含むため、ソースに
+// 直書きせず参照アドレスリスト(content.genreLabels)から実行時に注入する。
+// lib/initAddresses.ts が __setGenreLabels でロード後に代入する。ロード完了前は空。
+export let GENRE_LABELS: Record<string, string[]> = {};
+
+export function __setGenreLabels(map: Record<string, string[]>): void {
+  GENRE_LABELS = map;
+}
 
 export const FONT_SUB_NAME_MAP: { keywords: string[]; subName: string }[] = [
   { keywords: ["f910", "コミックw4", "comicw4"], subName: "セリフ" },
@@ -242,8 +244,8 @@ export const TAB_LABELS = [
 ] as const;
 
 /**
- * je-nsonman形式のルビエントリをCOMIC-Bridge形式に正規化する。
- * je-nsonman: { parent, ruby, volume (string "01"), page, order }
+ * 外部スクリプト形式のルビエントリをCOMIC-Bridge形式に正規化する。
+ * 外部スクリプト: { parent, ruby, volume (string "01"), page, order }
  * COMIC-Bridge: { id, parentText, rubyText, volume (number), page, order }
  */
 export function normalizeRubyEntries(raw: unknown[]): RubyEntry[] {

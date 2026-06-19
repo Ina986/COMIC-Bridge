@@ -5,9 +5,10 @@ import { TiffResultDialog } from "./TiffResultDialog";
 import { TiffPartialBlurModal } from "./TiffPartialBlurModal";
 import { TiffPageRulesEditor } from "./TiffPageRulesEditor";
 import { TiffAutoScanDialog } from "./TiffAutoScanDialog";
-import { CropJsonLoadDialog } from "./TiffCropSidePanel";
+import { CropJsonLoadDialog, CropJsonRegisterDialog } from "./TiffCropSidePanel";
 import { useTiffProcessor } from "../../hooks/useTiffProcessor";
 import { useCanvasSizeCheck } from "../../hooks/useCanvasSizeCheck";
+import { isCropRatioValid, cropGuideOverflow } from "../../lib/cropRatio";
 import type { TiffColorMode, TiffCropPreset } from "../../types/tiff";
 import type { LayerNode } from "../../types";
 
@@ -91,9 +92,84 @@ export function TiffSettingsPanel() {
   const applyCropGuidesToBounds = useTiffStore((s) => s.applyCropGuidesToBounds);
   const setCropStep = useTiffStore((s) => s.setCropStep);
 
-  const { convertSelectedFiles, convertAllFiles } = useTiffProcessor();
+  const { convertSelectedFiles, convertAllFiles, saveSelectionRangeOnly } = useTiffProcessor();
+
+  // クロップ比率が目標からズレている＝実行ブロック（横が足りない等で比率が崩れた範囲を弾く）
+  const cropRatioInvalid = useMemo(() => {
+    if (!settings.crop.enabled || !settings.crop.bounds) return false;
+    return !isCropRatioValid(
+      settings.crop.bounds,
+      settings.crop.aspectRatio.w,
+      settings.crop.aspectRatio.h,
+      ASPECT_TOLERANCE,
+    );
+  }, [settings.crop.enabled, settings.crop.bounds, settings.crop.aspectRatio]);
+
+  // 変換実行 → 完了後にクロップが「原稿(PSD)のガイド線」を突き抜けていればポップアップで通知。
+  // PSD埋め込みガイドが無い場合のみクロップエディタで引いたガイドで判定する。
+  const runConvertWithGuideWarn = useCallback(
+    (mode: "selected" | "all") => async () => {
+      const st = useTiffStore.getState();
+      const cropOn = st.settings.crop.enabled;
+      const bounds = st.settings.crop.bounds;
+      // 原稿のガイド: 基準ファイル → 無ければ最初にガイドを持つファイル
+      const psdFiles = usePsdStore.getState().files;
+      const has2 = (gs?: { direction: string; position: number }[]) => !!gs && gs.length >= 2;
+      const idx = Math.max(0, Math.min(st.referenceFileIndex - 1, psdFiles.length - 1));
+      let g = psdFiles[idx]?.metadata?.guides as
+        | { direction: string; position: number }[]
+        | undefined;
+      if (!has2(g)) {
+        g = psdFiles.find((f) => has2(f.metadata?.guides))?.metadata?.guides;
+      }
+      const refGuides = has2(g)
+        ? g!.map((x) => ({
+            direction: x.direction as "horizontal" | "vertical",
+            position: x.position,
+          }))
+        : st.cropGuides;
+      if (mode === "selected") await convertSelectedFiles();
+      else await convertAllFiles();
+      if (cropOn && bounds) {
+        const ov = cropGuideOverflow(bounds, refGuides);
+        if (ov.any) {
+          const dirs = [ov.left && "左", ov.right && "右", ov.top && "上", ov.bottom && "下"]
+            .filter(Boolean)
+            .join("・");
+          const ar = st.settings.crop.aspectRatio;
+          window.alert(
+            `クロップ範囲が原稿のガイド線を突き抜けています（${dirs}）。\n` +
+              `比率 ${ar.w}:${ar.h} を保つため、ガイドの外側まで範囲を広げて出力しました。`,
+          );
+        }
+      }
+    },
+    [convertSelectedFiles, convertAllFiles],
+  );
 
   const hasResults = results.length > 0;
+  const [isSavingRange, setIsSavingRange] = useState(false);
+  const [rangeSaveMsg, setRangeSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+
+  const handleSaveSelectionRange = async () => {
+    setIsSavingRange(true);
+    setRangeSaveMsg(null);
+    try {
+      const res = await saveSelectionRangeOnly();
+      if (res.success) {
+        const name = res.jsonPath
+          ?.split(/[\\/]/)
+          .pop()
+          ?.replace(/\.json$/, "");
+        setRangeSaveMsg({ ok: true, text: `範囲をJSONに保存しました${name ? `（${name}）` : ""}` });
+      } else {
+        setRangeSaveMsg({ ok: false, text: res.error ?? "保存に失敗しました。" });
+      }
+    } finally {
+      setIsSavingRange(false);
+    }
+  };
   const [showPartialBlurModal, setShowPartialBlurModal] = useState(false);
   const [showPageRulesEditor, setShowPageRulesEditor] = useState(false);
   const [showAutoScanDialog, setShowAutoScanDialog] = useState<"selected" | "all" | null>(null);
@@ -161,19 +237,21 @@ export function TiffSettingsPanel() {
   // デバッグ: ガイド検出状況
   useEffect(() => {
     if (files.length > 0) {
-      console.log("[TiffSettingsPanel] PSD Guide Debug:", {
-        totalFiles: files.length,
-        refIdx,
-        referenceFileIndex,
-        hasPsdGuides,
-        guideSource: guideSource?.fileName ?? "none",
-        fileSamples: files.slice(0, 3).map((f) => ({
-          name: f.fileName,
-          hasMetadata: !!f.metadata,
-          hasGuides: !!f.metadata?.hasGuides,
-          guideCount: f.metadata?.guides?.length ?? 0,
-        })),
-      });
+      if (import.meta.env.DEV) {
+        console.log("[TiffSettingsPanel] PSD Guide Debug:", {
+          totalFiles: files.length,
+          refIdx,
+          referenceFileIndex,
+          hasPsdGuides,
+          guideSource: guideSource?.fileName ?? "none",
+          fileSamples: files.slice(0, 3).map((f) => ({
+            name: f.fileName,
+            hasMetadata: !!f.metadata,
+            hasGuides: !!f.metadata?.hasGuides,
+            guideCount: f.metadata?.guides?.length ?? 0,
+          })),
+        });
+      }
     }
   }, [files, refIdx, referenceFileIndex, hasPsdGuides, guideSource]);
 
@@ -208,9 +286,12 @@ export function TiffSettingsPanel() {
     let right = vRange ? vRange[1] : docWidth;
     let bottom = hRange ? hRange[1] : docHeight;
 
-    // 640:909アスペクト比に調整（縦を維持、左上基点で横幅を調整）
+    // 640:909アスペクト比に調整（縦を維持、横幅を比率から算出）。
+    // はみ出す場合もガイド範囲の中心を基準に左右へ均等に広げる。
     const height = bottom - top;
     const targetWidth = Math.round(height * (ASPECT_W / ASPECT_H));
+    const centerX = (left + right) / 2;
+    left = Math.round(centerX - targetWidth / 2);
     right = left + targetWidth;
 
     pushCropHistory();
@@ -1161,11 +1242,68 @@ export function TiffSettingsPanel() {
             <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
             処理中...
           </button>
+        ) : !settings.output.proceedAsTiff && !settings.output.outputJpg ? (
+          // TIFF・JPG 両方オフ＝画像を出力しない → 範囲をJSONに保存する操作に切替
+          <div className="space-y-1">
+            <button
+              onClick={handleSaveSelectionRange}
+              disabled={files.length === 0 || isSavingRange}
+              className="w-full px-3 py-3 text-sm font-medium rounded-xl text-white bg-gradient-to-r from-accent to-accent-secondary shadow-[0_3px_12px_rgba(255,90,138,0.25)] hover:shadow-[0_5px_16px_rgba(255,90,138,0.35)] hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-4 4m0 0L8 3m4 4V3"
+                />
+              </svg>
+              {isSavingRange ? "保存中..." : "範囲をJSONに保存（読込済み）"}
+            </button>
+            <button
+              onClick={() => setShowRegisterDialog(true)}
+              disabled={files.length === 0 || !settings.crop.bounds}
+              className="w-full px-3 py-2 text-xs font-medium rounded-xl text-accent bg-accent/10 border border-accent/30 hover:bg-accent/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              title="レーベル・タイトルを指定して新しいJSONを作成し、範囲を保存します"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              新規JSONに保存
+            </button>
+            {rangeSaveMsg && (
+              <p
+                className={`text-[11px] text-center ${
+                  rangeSaveMsg.ok ? "text-success" : "text-error"
+                }`}
+              >
+                {rangeSaveMsg.text}
+              </p>
+            )}
+          </div>
         ) : (
-          <div className="flex gap-2">
+          <div className="space-y-1.5">
+            {cropRatioInvalid && (
+              <p className="text-[11px] text-error text-center leading-snug">
+                クロップ比率が目標（{settings.crop.aspectRatio.w}:{settings.crop.aspectRatio.h}
+                ）からずれています。範囲を修正してください。
+              </p>
+            )}
+            <div className="flex gap-2">
             <button
               onClick={() => setShowAutoScanDialog("selected")}
-              disabled={selectedFileIds.length === 0}
+              disabled={selectedFileIds.length === 0 || cropRatioInvalid}
               className="flex-1 px-3 py-3 text-sm font-medium rounded-xl bg-bg-tertiary text-text-primary border border-accent-warm/40 hover:bg-accent-warm/10 hover:border-accent-warm/60 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <svg
@@ -1185,7 +1323,7 @@ export function TiffSettingsPanel() {
             </button>
             <button
               onClick={() => setShowAutoScanDialog("all")}
-              disabled={files.length === 0}
+              disabled={files.length === 0 || cropRatioInvalid}
               className="flex-1 px-3 py-3 text-sm font-medium rounded-xl text-white bg-gradient-to-r from-accent-warm to-accent shadow-[0_3px_12px_rgba(255,177,66,0.25)] hover:shadow-[0_5px_16px_rgba(255,177,66,0.35)] hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
             >
               <svg
@@ -1203,6 +1341,7 @@ export function TiffSettingsPanel() {
               </svg>
               全て実行 ({files.length})
             </button>
+            </div>
           </div>
         )}
         <div className="flex items-center justify-center text-[10px] text-text-muted">
@@ -1261,6 +1400,9 @@ export function TiffSettingsPanel() {
           }}
           onClose={() => setShowJsonLoadDialog(false)}
         />
+      )}
+      {showRegisterDialog && (
+        <CropJsonRegisterDialog onClose={() => setShowRegisterDialog(false)} />
       )}
       {blurDiffConfirm && (
         <div
@@ -1417,7 +1559,7 @@ export function TiffSettingsPanel() {
         <TiffAutoScanDialog
           mode={showAutoScanDialog}
           fileCount={showAutoScanDialog === "selected" ? selectedFileIds.length : files.length}
-          onExecute={showAutoScanDialog === "selected" ? convertSelectedFiles : convertAllFiles}
+          onExecute={runConvertWithGuideWarn(showAutoScanDialog === "selected" ? "selected" : "all")}
           onClose={() => setShowAutoScanDialog(null)}
         />
       )}

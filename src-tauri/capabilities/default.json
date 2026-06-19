@@ -9,16 +9,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
-    "fs:default",
-    "fs:read-all",
-    "fs:write-all",
-    {
-      "identifier": "fs:scope",
-      "allow": [{ "path": "**" }]
-    },
     "dialog:default",
-    "dialog:allow-open",
-    "dialog:allow-save",
     "updater:default",
     "process:default"
   ]

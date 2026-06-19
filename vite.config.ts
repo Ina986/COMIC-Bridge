@@ -1,10 +1,18 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 
 const host = process.env.TAURI_DEV_HOST;
+const secureTauriPath = fileURLToPath(new URL("./src/lib/secureTauri.ts", import.meta.url));
 
 export default defineConfig(async () => ({
   plugins: [react()],
+  resolve: {
+    alias: {
+      "@tauri-apps/plugin-dialog": secureTauriPath,
+      "@tauri-apps/plugin-fs": secureTauriPath,
+    },
+  },
   clearScreen: false,
   server: {
     port: 1440,
@@ -24,9 +32,12 @@ export default defineConfig(async () => ({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          "ag-psd": ["ag-psd"],
-          vendor: ["react", "react-dom"],
+        manualChunks(id) {
+          if (id.includes("node_modules/ag-psd")) return "ag-psd";
+          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
+            return "vendor";
+          }
+          return undefined;
         },
       },
     },

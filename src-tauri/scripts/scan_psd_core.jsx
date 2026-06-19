@@ -136,13 +136,64 @@ function writeJsonFile(path, data) {
 }
 
 // Progress file path (global)
-var TEMP_DIR = Folder.temp.fsName.replace(/\\/g, "/");
-var PROGRESS_PATH = TEMP_DIR + "/psd_scan_progress.json";
-var RESULTS_PATH = TEMP_DIR + "/psd_scan_results.json";
-var SETTINGS_PATH = TEMP_DIR + "/psd_scan_settings.json";
+var __TEMP_DIR_F = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!__TEMP_DIR_F.exists) { __TEMP_DIR_F.create(); }
+var TEMP_DIR = __TEMP_DIR_F.fsName.replace(/\\/g, "/");
+var PROGRESS_PATH = (typeof COMIC_BRIDGE_PROGRESS_PATH !== "undefined" && COMIC_BRIDGE_PROGRESS_PATH) ? COMIC_BRIDGE_PROGRESS_PATH : TEMP_DIR + "/psd_scan_progress.json";
+var RESULTS_PATH = (typeof COMIC_BRIDGE_OUTPUT_PATH !== "undefined" && COMIC_BRIDGE_OUTPUT_PATH) ? COMIC_BRIDGE_OUTPUT_PATH : TEMP_DIR + "/psd_scan_results.json";
+var SETTINGS_PATH = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? COMIC_BRIDGE_SETTINGS_PATH : TEMP_DIR + "/psd_scan_settings.json";
 
 function writeProgress(current, total, message) {
     writeJsonFile(PROGRESS_PATH, { current: current, total: total, message: message || "" });
+}
+
+function getLayerDocument(layer) {
+    try {
+        var parent = layer;
+        while (parent && parent.typename !== "Document") {
+            parent = parent.parent;
+        }
+        return parent && parent.typename === "Document" ? parent : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function ensureDocumentActive(doc) {
+    try {
+        if (!doc || app.documents.length === 0) return false;
+        app.activeDocument = doc;
+        try {
+            if (app.activeDocument === doc) return true;
+        } catch (e) {}
+        try {
+            if (app.activeDocument.fullName && doc.fullName) {
+                return app.activeDocument.fullName.fsName === doc.fullName.fsName;
+            }
+        } catch (e) {}
+        try {
+            return app.activeDocument.name === doc.name;
+        } catch (e) {}
+        return false;
+    } catch (e) {
+        return false;
+    }
+}
+
+function requireDocumentActive(doc, context) {
+    if (!ensureDocumentActive(doc)) {
+        throw new Error((context || "PSD scan") + ": target PSD document is no longer active or available.");
+    }
+}
+
+function activateLayerInOwnDocument(layer, fallbackDoc) {
+    var doc = getLayerDocument(layer) || fallbackDoc || null;
+    if (doc && !ensureDocumentActive(doc)) return false;
+    try {
+        app.activeDocument.activeLayer = layer;
+        return true;
+    } catch (e) {
+        return false;
+    }
 }
 
 // ========== Photoshop scanning functions ==========
@@ -160,7 +211,7 @@ function getFontDisplayName(postScriptName) {
 
 function getLayerStrokeSize(layer) {
     try {
-        app.activeDocument.activeLayer = layer;
+        if (!activateLayerInOwnDocument(layer, null)) return null;
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
         var desc = executeActionGet(ref);
@@ -316,6 +367,7 @@ function deleteImageLayers(doc) {
 
 // ========== Core scanner ==========
 function scanSingleDocument(doc, usedFonts, allFontSizes, strokeStats, textLayerList, guideSets) {
+    requireDocumentActive(doc, "scanSingleDocument");
     var docName = doc.name;
 
     function scanLayers(parent, result) {
@@ -409,12 +461,13 @@ function scanSingleDocument(doc, usedFonts, allFontSizes, strokeStats, textLayer
 // ========== Text log collection with link detection ==========
 function detectLinkedLayerGroups(doc) {
     var linkedMap = {};
+    if (!ensureDocumentActive(doc)) return linkedMap;
     var processedLayerIds = {};
     var groupCounter = 1;
 
     function getLayerId(layer) {
         try {
-            app.activeDocument.activeLayer = layer;
+            if (!activateLayerInOwnDocument(layer, doc)) return null;
             var ref = new ActionReference();
             ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
             var desc = executeActionGet(ref);
@@ -458,8 +511,7 @@ function detectLinkedLayerGroups(doc) {
                 } else if (layer.kind === LayerKind.TEXT) {
                     var layerId = getLayerId(layer);
                     if (layerId && !processedLayerIds[layerId]) {
-                        app.activeDocument.activeLayer = layer;
-                        if (selectLinkedLayers()) {
+                        if (activateLayerInOwnDocument(layer, doc) && selectLinkedLayers()) {
                             var selectedIds = getSelectedLayerIds();
                             if (selectedIds.length > 1) {
                                 var groupId = "linkGroup_" + groupCounter;
@@ -484,7 +536,7 @@ function detectLinkedLayerGroups(doc) {
 function getLayerLinkInfo(layer) {
     var result = { isLinked: false, linkGroupId: null };
     try {
-        app.activeDocument.activeLayer = layer;
+        if (!activateLayerInOwnDocument(layer, null)) return result;
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
         var desc = executeActionGet(ref);
@@ -517,7 +569,7 @@ function collectTextForLog(doc) {
 
     function getLayerId(layer) {
         try {
-            app.activeDocument.activeLayer = layer;
+            if (!activateLayerInOwnDocument(layer, doc)) return null;
             var ref = new ActionReference();
             ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
             var desc = executeActionGet(ref);
@@ -707,15 +759,18 @@ function processFolders(settings) {
 
             try {
                 var doc = app.open(psdFile);
-                app.activeDocument = doc;
+                requireDocumentActive(doc, "open PSD");
                 var docName = doc.name;
 
+                requireDocumentActive(doc, "before deleteImageLayers");
                 deleteImageLayers(doc);
 
                 var textLayerList = [];
+                requireDocumentActive(doc, "before scanSingleDocument");
                 scanSingleDocument(doc, folderUsedFonts, folderFontSizes, folderStrokeStats, textLayerList, folderGuideSets);
                 allTextLayersByDoc[docName] = textLayerList;
 
+                requireDocumentActive(doc, "before collectTextForLog");
                 textLogByFolder[folderName][docName] = collectTextForLog(doc);
 
                 try { doc.close(SaveOptions.DONOTSAVECHANGES); } catch (e) {}

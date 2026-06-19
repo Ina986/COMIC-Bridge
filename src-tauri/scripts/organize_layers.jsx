@@ -1,9 +1,9 @@
-#target photoshop
+﻿#target photoshop
 app.displayDialogs = DialogModes.NO;
 
 function main() {
-    var tempFolder = Folder.temp;
-    var settingsFile = new File(tempFolder + "/psd_layer_organize_settings.json");
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_layer_organize_settings.json");
 
     if (!settingsFile.exists) {
         alert("Settings file not found: " + settingsFile.fsName);

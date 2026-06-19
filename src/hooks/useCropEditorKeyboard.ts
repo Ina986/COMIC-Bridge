@@ -10,9 +10,9 @@ interface CropEditorKeyboardOptions {
   onDeleteGuide: () => void;
   onDeleteRange: () => void;
   onEscape: () => void;
-  /** ガイド移動: 1px / Shift+10px（Tachimi互換） */
+  /** ガイド移動: 1px / Shift+10px（外部ツール互換） */
   onNudgeGuide: (dx: number, dy: number) => void;
-  /** 範囲移動: 10px / Shift+1px（Tachimi互換 — ガイドと逆） */
+  /** 範囲移動: 10px / Shift+1px（外部ツール互換 — ガイドと逆） */
   onNudgeRange: (dx: number, dy: number, isFirst: boolean) => void;
   /** ガイドが選択されているか（矢印キーの振り分けに使用） */
   hasSelectedGuide: boolean;
@@ -68,7 +68,7 @@ export function useCropEditorKeyboard(options: CropEditorKeyboardOptions) {
         return;
       }
 
-      // Ctrl+= or Ctrl++ or Ctrl+;: Zoom in (Tachimi互換)
+      // Ctrl+= or Ctrl++ or Ctrl+;: Zoom in (外部ツール互換)
       if (ctrl && (e.key === "=" || e.key === "+" || e.key === ";")) {
         e.preventDefault();
         opts.onZoomIn();
@@ -110,7 +110,7 @@ export function useCropEditorKeyboard(options: CropEditorKeyboardOptions) {
         return;
       }
 
-      // Arrow keys: ガイド移動 or 範囲移動（Tachimi互換 — ステップ値が逆）
+      // Arrow keys: ガイド移動 or 範囲移動（外部ツール互換 — ステップ値が逆）
       if (
         e.key === "ArrowUp" ||
         e.key === "ArrowDown" ||
@@ -126,7 +126,7 @@ export function useCropEditorKeyboard(options: CropEditorKeyboardOptions) {
           const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
           opts.onNudgeGuide(dx, dy);
         } else if (opts.hasRange) {
-          // 範囲移動: 10px / Shift+1px（Tachimiと同じ — ガイドと逆）
+          // 範囲移動: 10px / Shift+1px（外部ツールと同じ — ガイドと逆）
           const step = e.shiftKey ? 1 : 10;
           const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
           const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;

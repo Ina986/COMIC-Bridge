@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useTiffStore } from "../../store/tiffStore";
 import { usePsdStore } from "../../store/psdStore";
 import { invoke } from "@tauri-apps/api/core";
+import { getAddress } from "../../lib/addressRef";
 
 export function TiffResultDialog() {
   const showResultDialog = useTiffStore((state) => state.showResultDialog);
@@ -16,7 +17,7 @@ export function TiffResultDialog() {
   const psdFolderPath = usePsdStore((state) => state.currentFolderPath);
   const psdFiles = usePsdStore((state) => state.files);
 
-  // results の outputPath からユニークなサブフォルダを抽出（2つの場合のみKENBAN差分比較可能）
+  // results の outputPath からユニークなサブフォルダを抽出（2つの場合のみ差分比較ツールで比較可能）
   const subfolderDirs = useMemo(() => {
     if (!lastOutputDir || results.length === 0) return [];
     const dirs = new Set<string>();
@@ -435,18 +436,18 @@ export function TiffResultDialog() {
             <button
               onClick={async () => {
                 try {
-                  await invoke("launch_kenban_diff", {
+                  await invoke("launch_diff_tool", {
                     folderA: subfolderDirs[0],
                     folderB: subfolderDirs[1],
                     mode: "tiff",
                   });
                 } catch (e) {
-                  alert(`KENBAN起動エラー: ${e}`);
+                  alert(`${getAddress("apps.diffTool.displayName")}起動エラー: ${e}`);
                 }
               }}
               className="px-4 py-2 text-sm font-medium text-accent bg-accent/10 border border-accent/30 rounded-xl hover:bg-accent/20 transition-colors"
             >
-              KENBANで差分比較
+              {getAddress("apps.diffTool.displayName")}で差分比較
             </button>
           )}
           {tiffOutputDir && (
@@ -467,19 +468,19 @@ export function TiffResultDialog() {
                   if (psdPaths.length > 0) jsonPayload.filesA = psdPaths;
                   if (tiffPaths.length > 0) jsonPayload.filesB = tiffPaths;
 
-                  await invoke("launch_kenban_diff", {
+                  await invoke("launch_diff_tool", {
                     folderA: effectivePsdFolder,
                     folderB: tiffOutputDir,
                     mode: "psd-tiff",
                     selectionJson: JSON.stringify(jsonPayload),
                   });
                 } catch (e) {
-                  alert(`KENBAN起動エラー: ${e}`);
+                  alert(`${getAddress("apps.diffTool.displayName")}起動エラー: ${e}`);
                 }
               }}
               className="px-4 py-2 text-sm font-medium text-accent bg-accent/10 border border-accent/30 rounded-xl hover:bg-accent/20 transition-colors"
             >
-              KENBANで差分比較
+              {getAddress("apps.diffTool.displayName")}で差分比較
             </button>
           )}
           {lastOutputDir && (

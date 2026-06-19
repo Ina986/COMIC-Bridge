@@ -2,11 +2,12 @@ import { useState, useCallback } from "react";
 import { usePsdStore } from "../../store/psdStore";
 import { invoke } from "@tauri-apps/api/core";
 import { desktopDir } from "@tauri-apps/api/path";
+import { getAddress } from "../../lib/addressRef";
 import type { LayerNode, PsdFile } from "../../types";
 
 /**
  * テキスト抽出フローティングボタン
- * PSDファイルのテキストレイヤーからテキストを抽出し、COMIC-POT互換フォーマットで保存する
+ * PSDファイルのテキストレイヤーからテキストを抽出し、互換フォーマット(連携先依存)で保存する
  */
 export function TextExtractButton({ compact = false }: { compact?: boolean }) {
   const files = usePsdStore((s) => s.files);
@@ -292,14 +293,14 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
           {result.success && result.filePath ? (
             <div className="px-4 py-3 space-y-2">
               <p className="text-xs text-text-secondary leading-snug">
-                抽出したテキストを ProGen で開いて植字作業を続けますか？
+                抽出したテキストを {getAddress("apps.typesetTool.displayName")} で開いて植字作業を続けますか？
               </p>
               <button
                 onClick={async () => {
                   try {
-                    await invoke("launch_progen", { handoffTextPath: result.filePath });
+                    await invoke("launch_typeset_tool", { handoffTextPath: result.filePath });
                   } catch (err) {
-                    console.error("ProGen launch failed:", err);
+                    console.error("External tool launch failed:", err);
                   }
                 }}
                 className="w-full px-4 py-2.5 rounded-lg bg-accent-secondary text-white font-bold text-sm shadow-md hover:bg-accent-secondary/90 hover:shadow-lg active:scale-[0.97] transition-all flex items-center justify-center gap-2"
@@ -313,7 +314,7 @@ export function TextExtractButton({ compact = false }: { compact?: boolean }) {
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                 </svg>
-                ProGen で開く
+                {getAddress("apps.typesetTool.displayName")} で開く
               </button>
               <button
                 onClick={() => setResult(null)}
@@ -377,7 +378,7 @@ function collectTextLayers(
 }
 
 /**
- * COMIC-POT互換フォーマットでテキストを生成
+ * 互換フォーマット(連携先依存)でテキストを生成
  */
 function generateText(
   files: PsdFile[],
@@ -388,7 +389,7 @@ function generateText(
   const lines: string[] = [];
 
   // ヘッダー
-  lines.push(`[COMIC-POT:${sortMode}]`);
+  lines.push(`[${getAddress("formats.textMarker")}:${sortMode}]`);
   const vol = Math.max(1, Math.min(99, Math.floor(volumeNumber)));
   lines.push(`[${String(vol).padStart(2, "0")}巻]`);
 

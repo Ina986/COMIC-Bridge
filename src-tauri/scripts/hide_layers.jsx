@@ -1,4 +1,4 @@
-// Photoshop JSX Script for Layer Visibility Control
+﻿// Photoshop JSX Script for Layer Visibility Control
 // Based on hihyouji_ver1.2.jsx patterns, integrated with app's config/result pattern
 
 #target photoshop
@@ -15,8 +15,8 @@ var TEXT_FOLDER_PATTERNS = ["text", "写植", "セリフ", "テキスト", "セ�
   Main Processing
  ----------------------------------------------------- */
 function main() {
-    var tempFolder = Folder.temp;
-    var settingsFile = new File(tempFolder + "/psd_layer_visibility_settings.json");
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_layer_visibility_settings.json");
 
     if (!settingsFile.exists) {
         alert("Settings file not found: " + settingsFile.fsName);

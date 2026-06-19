@@ -1,7 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { readDir } from "@tauri-apps/plugin-fs";
 import { usePsdStore } from "../../store/psdStore";
 import { useScanPsdStore } from "../../store/scanPsdStore";
+import { useViewStore } from "../../store/viewStore";
+import { usePsdLoader } from "../../hooks/usePsdLoader";
+import { isSupportedFile } from "../../types";
+import { naturalCompare } from "../../lib/naturalSort";
 import {
   performLoadPresetJson,
   performPresetJsonSave,
@@ -10,11 +16,32 @@ import {
 import { buildScanDataFromFiles, mergeScanData } from "../../lib/agPsdScanner";
 import { getAutoSubName } from "../../types/scanPsd";
 import { GENRE_LABELS, JSON_BASE_PATH } from "../../types/tiff";
-import type { LayerNode } from "../../types";
+import type { LayerNode, PsdFile } from "../../types";
+import type { ScanData } from "../../types/scanPsd";
 import type { FontResolveInfo } from "../../hooks/useFontResolver";
 
 interface SpecScanJsonDialogProps {
   onClose: () => void;
+}
+
+/**
+ * 読み込み済みPSDを「親フォルダ（サブフォルダ）」単位でグループ化する。
+ * 簡易スキャンで各フォルダを1巻として連番で一括登録するために使う。
+ *
+ * 並びは「ファイル名（パス）順」: 先に全ファイルを自然順に並べてから出現順で
+ * フォルダをまとめる。これにより各フォルダ＝1巻の並びがファイル名順になり、
+ * 最初に選んだ巻数からそのまま連番で振れる。
+ */
+function groupFilesByFolder(files: PsdFile[]): { folder: string; files: PsdFile[] }[] {
+  const sorted = [...files].sort((a, b) => naturalCompare(a.filePath, b.filePath));
+  const map = new Map<string, PsdFile[]>();
+  for (const f of sorted) {
+    const dir = f.filePath.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+    const arr = map.get(dir);
+    if (arr) arr.push(f);
+    else map.set(dir, [f]); // Map は挿入順（＝ファイル名順での初出順）を保持
+  }
+  return [...map.entries()].map(([folder, fs]) => ({ folder, files: fs }));
 }
 
 export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
@@ -23,6 +50,69 @@ export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
   const [volumeStr, setVolumeStr] = useState("1");
   const volume = parseInt(volumeStr) || 1;
   const [titleSource, setTitleSource] = useState<"existing" | "new">("new");
+
+  // 読込済みPSDをサブフォルダ単位でグループ化（各フォルダ＝1巻で連番登録）
+  const allFiles = usePsdStore((s) => s.files);
+  const folderGroups = useMemo(() => groupFilesByFolder(allFiles), [allFiles]);
+
+  // --- ファイル/フォルダのドラッグ＆ドロップで「どんどん追加」 ---
+  const { appendFiles, appendFolderWithSubfolders } = usePsdLoader();
+  const [dragOver, setDragOver] = useState(false);
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    // ダイアログ表示中はグローバルD&D（PSD読込＝置き換え）を抑止し、ここで「追加」処理する
+    useViewStore.getState().setSimpleScanDropActive(true);
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    let mounted = true;
+
+    (async () => {
+      const fn = await win.onDragDropEvent(async (event) => {
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setDragOver(true);
+          return;
+        }
+        if (event.payload.type === "leave") {
+          setDragOver(false);
+          return;
+        }
+        if (event.payload.type !== "drop") return;
+        setDragOver(false);
+        const paths = event.payload.paths;
+        if (!paths || paths.length === 0) return;
+
+        void invoke("register_user_paths", { paths }).catch(() => {});
+
+        const folderPaths: string[] = [];
+        const imageFiles: string[] = [];
+        for (const path of paths) {
+          try {
+            await readDir(path);
+            folderPaths.push(path); // readDir成功 = フォルダ
+          } catch {
+            if (isSupportedFile(path)) imageFiles.push(path);
+          }
+        }
+
+        setAdding(true);
+        try {
+          if (folderPaths.length > 0) await appendFolderWithSubfolders(folderPaths);
+          if (imageFiles.length > 0) await appendFiles(imageFiles);
+        } finally {
+          setAdding(false);
+        }
+      });
+      if (mounted) unlisten = fn;
+      else fn();
+    })();
+
+    return () => {
+      mounted = false;
+      if (unlisten) unlisten();
+      useViewStore.getState().setSimpleScanDropActive(false);
+    };
+  }, [appendFiles, appendFolderWithSubfolders]);
 
   // 既存タイトル一覧
   const [titles, setTitles] = useState<string[]>([]);
@@ -146,20 +236,35 @@ export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
           : {};
 
       // 4. ScanData構築（ag-psdベース、Photoshop不要）
+      //    サブフォルダ毎に1巻として、指定巻数から連番で一括スキャンする。
       const scanPsdState = useScanPsdStore.getState();
       const existingScanData = scanPsdState.scanData;
-      let scanData = buildScanDataFromFiles(allFiles, {
-        fontResolveMap,
-        volume,
-        existingWorkInfo: scanPsdState.workInfo.title ? scanPsdState.workInfo : undefined,
+      const baseWorkInfo = scanPsdState.workInfo.title ? scanPsdState.workInfo : undefined;
+      const groups = groupFilesByFolder(allFiles);
+      let scanData: ScanData | null = null;
+      groups.forEach((g, idx) => {
+        const sd = buildScanDataFromFiles(g.files, {
+          fontResolveMap,
+          volume: volume + idx,
+          existingWorkInfo: baseWorkInfo,
+        });
+        scanData = scanData ? mergeScanData(scanData, sd) : sd;
       });
+      if (!scanData) {
+        // フォルダ判定不能（パス無し等）の保険：全体を1巻として構築
+        scanData = buildScanDataFromFiles(allFiles, {
+          fontResolveMap,
+          volume,
+          existingWorkInfo: baseWorkInfo,
+        });
+      }
 
       // 既存JSONから読み込んだscanDataがあれば蓄積マージ（フォント・サイズ等を累積）
       if (existingScanData) {
         scanData = mergeScanData(existingScanData, scanData);
       }
 
-      // 5. scanPsdStore にデータ反映
+      // 5. scanPsdストアにデータ反映（巻数は開始巻に戻す）
       scanPsdState.setScanData(scanData);
       scanPsdState.setWorkInfo({ volume });
 
@@ -226,9 +331,13 @@ export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
       }
 
       const savedPath = useScanPsdStore.getState().currentJsonFilePath;
+      const volSummary =
+        groups.length > 1
+          ? `\n${groups.length}フォルダを ${volume}〜${volume + groups.length - 1}巻 として登録`
+          : "";
       setScanResult({
         success: true,
-        message: `JSON保存完了（${scanData.fonts.length}フォント, ${scanData.guideSets.length}ガイドセット）${textLogSaved ? " + テキストログ出力" : ""}${savedPath ? `\n${savedPath.split(/[\\/]/).pop()}` : ""}`,
+        message: `JSON保存完了（${scanData.fonts.length}フォント, ${scanData.guideSets.length}ガイドセット）${textLogSaved ? " + テキストログ出力" : ""}${volSummary}${savedPath ? `\n${savedPath.split(/[\\/]/).pop()}` : ""}`,
       });
     } catch (e) {
       setScanResult({
@@ -264,7 +373,7 @@ export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
   );
 
   const isReady = !!label && !!title && !scanning;
-  const fileCount = usePsdStore.getState().files.length;
+  const fileCount = allFiles.length;
 
   return (
     <div
@@ -274,7 +383,7 @@ export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
       <div className="bg-bg-secondary rounded-2xl shadow-2xl w-[400px] max-h-[80vh] flex flex-col border border-border/50 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
-          <h3 className="text-sm font-bold text-text-primary">JSON登録</h3>
+          <h3 className="text-sm font-bold text-text-primary">簡易スキャン</h3>
           <button
             onClick={onClose}
             className="p-1 rounded-lg hover:bg-bg-tertiary transition-colors"
@@ -298,6 +407,32 @@ export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
             <span className="bg-accent/10 text-accent px-2.5 py-1 rounded-full font-medium">
               {fileCount}件のPSDファイル
             </span>
+          </div>
+
+          {/* D&D追加ゾーン（ファイル/フォルダをドラッグして対象をどんどん追加） */}
+          <div
+            className={`rounded-xl border-2 border-dashed px-3 py-4 text-center transition-colors ${
+              dragOver
+                ? "border-accent-tertiary bg-accent-tertiary/10"
+                : "border-border/60 bg-bg-tertiary/40"
+            }`}
+          >
+            {adding ? (
+              <span className="inline-flex items-center gap-2 text-[11px] text-text-secondary">
+                <span className="w-3 h-3 rounded-full border-2 border-accent-tertiary/30 border-t-accent-tertiary animate-spin" />
+                追加読み込み中...
+              </span>
+            ) : (
+              <>
+                <p className="text-[11px] text-text-secondary">
+                  ここに PSD ファイル／フォルダをドラッグして
+                  <span className="text-accent-tertiary font-medium">追加</span>
+                </p>
+                <p className="text-[10px] text-text-muted mt-0.5">
+                  フォルダはサブフォルダも取り込み、各フォルダを1巻として連番登録できます
+                </p>
+              </>
+            )}
           </div>
 
           {/* モードタブ */}
@@ -485,7 +620,22 @@ export function SpecScanJsonDialog({ onClose }: SpecScanJsonDialogProps) {
                   className="w-16 px-2 py-1.5 text-xs bg-bg-elevated border border-border/50 rounded-lg text-text-primary focus:outline-none focus:border-accent-secondary/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                 />
                 <span className="text-xs text-text-muted">巻</span>
+                {folderGroups.length > 1 && (
+                  <span className="text-[10px] text-text-muted">
+                    （開始巻）
+                  </span>
+                )}
               </div>
+
+              {/* 複数フォルダ検出時：各フォルダを1巻として連番登録する旨を表示 */}
+              {folderGroups.length > 1 && (
+                <div className="rounded-lg bg-accent-tertiary/8 border border-accent-tertiary/20 px-2.5 py-1.5 text-[10px] text-text-secondary leading-relaxed">
+                  <span className="text-accent-tertiary font-medium">
+                    {folderGroups.length}フォルダ
+                  </span>{" "}
+                  を検出 → {volume}〜{volume + folderGroups.length - 1}巻として連番一括登録します。
+                </div>
+              )}
 
               {/* JSON読み込み状態 */}
               {jsonLoading && (

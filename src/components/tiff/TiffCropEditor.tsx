@@ -633,7 +633,7 @@ export function TiffCropEditor({ onSwitchToQueue }: TiffCropEditorProps) {
     [isSpacePressed, zoom],
   );
 
-  // --- キーボードショートカット (Tachimi互換) ---
+  // --- キーボードショートカット (外部ツール互換) ---
   useCropEditorKeyboard({
     isActive: true,
     onZoomIn: () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.25)),

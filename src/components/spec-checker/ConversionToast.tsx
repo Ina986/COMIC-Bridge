@@ -5,6 +5,7 @@ import { useSpecStore } from "../../store/specStore";
 export function ConversionToast() {
   const isConverting = useSpecStore((state) => state.isConverting);
   const conversionResults = useSpecStore((state) => state.conversionResults);
+  const clearConversionResults = useSpecStore((state) => state.clearConversionResults);
 
   const [toast, setToast] = useState<{
     type: "success" | "error";
@@ -43,11 +44,14 @@ export function ConversionToast() {
       // 成功は6秒で自動消滅。エラーはユーザーが内容を読めるよう自動消滅させない
       // （手動クローズのみ）。短時間で消えると原因特定ができないため。
       if (errorCount === 0) {
-        toastTimerRef.current = setTimeout(() => setToast(null), 6000);
+        toastTimerRef.current = setTimeout(() => {
+          setToast(null);
+          clearConversionResults();
+        }, 6000);
       }
     }
     prevIsConvertingRef.current = isConverting;
-  }, [isConverting, conversionResults]);
+  }, [isConverting, conversionResults, clearConversionResults]);
 
   useEffect(() => {
     return () => {
@@ -129,7 +133,10 @@ export function ConversionToast() {
       {/* Close */}
       <button
         className="flex-shrink-0 p-1 rounded-lg hover:bg-bg-tertiary transition-colors"
-        onClick={() => setToast(null)}
+        onClick={() => {
+          setToast(null);
+          clearConversionResults();
+        }}
       >
         <svg className="w-3.5 h-3.5 text-text-muted" fill="currentColor" viewBox="0 0 20 20">
           <path

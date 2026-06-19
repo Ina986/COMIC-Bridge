@@ -230,10 +230,16 @@ export function TopNav() {
         </div>
       </div>
 
-      {/* Version + Update */}
+      {/* Version + Update（バージョンをクリックで手動チェック） */}
       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
         {updater.appVersion && (
-          <span className="text-[10px] text-text-muted/60 font-mono">v{updater.appVersion}</span>
+          <button
+            onClick={() => updater.checkForUpdate(false)}
+            title="クリックで更新を確認"
+            className="text-[10px] text-text-muted/60 font-mono hover:text-accent-tertiary transition-colors"
+          >
+            v{updater.appVersion}
+          </button>
         )}
         {updater.phase === "available" ? (
           <button
@@ -241,24 +247,27 @@ export function TopNav() {
             className="relative flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-accent-tertiary bg-accent-tertiary/10 rounded-lg hover:bg-accent-tertiary/20 transition-colors"
           >
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent-tertiary animate-pulse" />
-            v{updater.updateInfo?.version}
+            更新 v{updater.updateInfo?.version}
           </button>
         ) : updater.phase === "checking" ? (
-          <svg
-            className="w-3.5 h-3.5 text-text-muted animate-spin"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
+          <span className="flex items-center gap-1 text-[10px] text-text-muted">
+            <svg
+              className="w-3.5 h-3.5 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            確認中
+          </span>
         ) : updater.phase === "up-to-date" ? (
-          <span className="text-[10px] text-accent-tertiary">
+          <span className="flex items-center gap-0.5 text-[10px] text-accent-tertiary">
             <svg
               className="w-3 h-3 inline"
               fill="none"
@@ -268,7 +277,16 @@ export function TopNav() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
+            最新
           </span>
+        ) : updater.phase === "error" ? (
+          <button
+            onClick={() => updater.checkForUpdate(false)}
+            title={updater.error ?? "更新の確認に失敗しました"}
+            className="text-[10px] text-error cursor-help hover:underline"
+          >
+            更新確認エラー
+          </button>
         ) : null}
       </div>
 
@@ -346,9 +364,13 @@ export function TopNav() {
                       d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                     />
                   </svg>
-                  <h3 className="text-base font-bold text-text-primary">アップデート中...</h3>
+                  <h3 className="text-base font-bold text-text-primary">更新しています...</h3>
                   <p className="text-xs text-text-muted">
-                    ダウンロードしています。しばらくお待ちください。
+                    自動でインストールしています（セットアップ画面は出ません）。
+                    <br />
+                    完了すると、アプリが自動的に再起動します。
+                    <br />
+                    そのままお待ちください。
                   </p>
                 </>
               )}

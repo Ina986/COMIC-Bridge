@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useScanPsdStore } from "../store/scanPsdStore";
+import { useTiffStore } from "../store/tiffStore";
 import type {
   ScanData,
   ScanGuideSet,
@@ -115,7 +116,7 @@ function autoSelectGuideSet(guideSets: ScanGuideSet[]): number | null {
 }
 
 /**
- * 内部 sizeStats を je-nsonman 互換のエクスポート形式に変換
+ * 内部 sizeStats を 外部スクリプト 互換のエクスポート形式に変換
  * - mostFrequent: {size,count} → 数値 (size のみ)
  * - sizes: {size,count}[] → 数値配列 (昇順)
  * - top10Sizes: 上位10件を {size,count}[] で別途出力
@@ -151,7 +152,7 @@ function convertSizeStatsForExport(
 }
 
 /**
- * 内部 strokeStats.sizes を je-nsonman 互換のエクスポート形式に変換
+ * 内部 strokeStats.sizes を 外部スクリプト 互換のエクスポート形式に変換
  * - count フィールドを除去、fontSizes のみ出力
  */
 function convertStrokeSizesForExport(
@@ -165,7 +166,7 @@ function convertStrokeSizesForExport(
 }
 
 /**
- * プリセットを je-nsonman 互換のエクスポート形式に変換
+ * プリセットを 外部スクリプト 互換のエクスポート形式に変換
  * - subName が空なら省略
  * - description に「使用回数:」を含む場合は省略
  */
@@ -193,7 +194,7 @@ function convertPresetsForExport(
 }
 
 /**
- * スキャン完了後に検出フォントを自動的にプリセットに追加（je-nsonman準拠）
+ * スキャン完了後に検出フォントを自動的にプリセットに追加（外部スクリプト準拠）
  * scanData.fonts に含まれるが presetSets に未登録のフォントを自動追加する
  */
 function autoRegisterDetectedFonts(scanData: ScanData): void {
@@ -272,11 +273,16 @@ export async function performPresetJsonSave(): Promise<boolean> {
     selectedGuideSetIndex: store.selectedGuideIndex ?? undefined,
     excludedGuideIndices: undefined,
     rubyList: undefined,
-    selectionRanges: existingData.presetData?.selectionRanges,
+    // JSONを編集セッションで開いている（currentJsonFilePath あり）ときは、
+    // ストアの範囲が「真」＝削除/改名を反映して書き戻す。
+    // 新規スキャンの初回保存（未ロード）では、既存ファイルの範囲を消さないよう保持する。
+    selectionRanges: store.currentJsonFilePath
+      ? store.selectionRanges
+      : (existingData.presetData?.selectionRanges ?? store.selectionRanges),
     saveLocation: store.workInfo.label || undefined,
   };
 
-  // presetData の fontSizeStats/strokeSizes はエクスポート形式（je-nsonman互換）のため
+  // presetData の fontSizeStats/strokeSizes はエクスポート形式（外部スクリプト互換）のため
   // 内部型と異なる → Record<string, unknown> にキャスト
   const outputData = {
     ...existingData,
@@ -440,7 +446,7 @@ async function saveScandataLinked(store: ReturnType<typeof useScanPsdStore.getSt
 
 /**
  * textLogByFolderのリンクグループからルビを抽出して store.rubyList に追加
- * （je-nsonman appendRubyFromNewFolders 準拠）
+ * （外部スクリプト appendRubyFromNewFolders 準拠）
  * @param newFolderNames 新しくスキャンしたフォルダ名の配列
  */
 function appendRubiesFromFolders(newFolderNames: string[]): void {
@@ -501,7 +507,7 @@ function appendRubiesFromFolders(newFolderNames: string[]): void {
           const trimmedRuby = sorted[t].content.replace(/[\s\u3000]/g, "");
           if (/^[・･゛]+$/.test(trimmedRuby)) continue;
 
-          // 括弧形式かチェック（je-nsonman準拠）
+          // 括弧形式かチェック（外部スクリプト準拠）
           const bracketMatch = sorted[t].layerName.match(/^(.+?)[（(](.+?)[）)]$/);
           if (bracketMatch) {
             newRubies.push({
@@ -672,6 +678,13 @@ export async function performLoadPresetJson(filePath: string): Promise<void> {
   const data = JSON.parse(content) as PresetJsonData;
   store.loadFromPresetJson(data);
   store.setCurrentJsonFilePath(filePath);
+  // フォント帳・ガイド/断ち切りから読み込んだ場合でもスキャナーが「JSON編集」表示になり、
+  // 全タブで同じJSONを共有する（mode 未設定だとスキャナーがモード選択のままになる）。
+  store.setMode("edit");
+  // ガイド／断ち切りタブの保存先(cropSourceJsonPath)が前回読み込んだ別JSONのまま
+  // 残ると、保存が「今開いているJSON」ではなく古いJSONに書かれてしまう。
+  // 新しいJSONを開いた時点で解除し、保存先を currentJsonFilePath に揃える。
+  useTiffStore.getState().setCropSourceJsonPath(null);
 
   // リンクされたscandataを自動読み込み
   const pd = data.presetData;
@@ -967,7 +980,7 @@ export function useScanPsdProcessor() {
     freshState.setPhase("scanning");
     freshState.setProgress(0, 0, "Photoshopを起動中...");
 
-    // je-nsonman準拠: textLayersByDocはJSXに渡さない
+    // 外部スクリプト準拠: textLayersByDocはJSXに渡さない
     // JSXはファイル単位のスキップ検出をせず、指定フォルダの全ファイルをスキャンする
     // textLayersByDocのマージはTS側で行う（JSXのJSON肥大化防止も兼ねる）
     const existingForJsx = freshState.scanData
@@ -1033,7 +1046,7 @@ export function useScanPsdProcessor() {
         };
       }
 
-      // textLayersByDocをTS側でマージ（je-nsonman準拠: JSXには渡さずTS側で管理）
+      // textLayersByDocをTS側でマージ（外部スクリプト準拠: JSXには渡さずTS側で管理）
       // 新スキャン結果で上書き、既存データは保持
       if (freshState.scanData?.textLayersByDoc) {
         scanData.textLayersByDoc = {
@@ -1101,11 +1114,11 @@ export function useScanPsdProcessor() {
       store.setWorkInfo(mergedWorkInfo);
 
       if (scanData.editedRubyList) {
-        // je-nsonman互換: parent/ruby → parentText/rubyText, volume文字列→数値
+        // 外部スクリプト互換: parent/ruby → parentText/rubyText, volume文字列→数値
         store.setRubyList(normalizeRubyEntries(scanData.editedRubyList as unknown[]));
       }
 
-      // 新しくスキャンしたフォルダからルビを抽出して追加（je-nsonman appendRubyFromNewFolders 準拠）
+      // 新しくスキャンしたフォルダからルビを抽出して追加（外部スクリプト appendRubyFromNewFolders 準拠）
       // JSXの determineTargetFolders がサブフォルダに分解するため、
       // store.foldersの名前ではなく textLogByFolder のキー差分で新規フォルダを特定する
       const newTextLogKeys = Object.keys(scanData.textLogByFolder || {}).filter(
@@ -1121,7 +1134,7 @@ export function useScanPsdProcessor() {
         }
       }
 
-      // 検出フォントを自動的にプリセットに追加（je-nsonman準拠）
+      // 検出フォントを自動的にプリセットに追加（外部スクリプト準拠）
       autoRegisterDetectedFonts(scanData);
 
       // スキャン完了後に自動保存
@@ -1162,7 +1175,9 @@ export function useScanPsdProcessor() {
         pollingRef.current = null;
       }
       // スキャン完了後にフォルダリストをクリア（次回の追加スキャン時に重複しないように）
-      useScanPsdStore.getState().clearFolders();
+      if (scanResult?.success) {
+        useScanPsdStore.getState().clearFolders();
+      }
       useScanPsdStore.getState().setPhase("idle");
     }
     return scanResult;
@@ -1216,7 +1231,7 @@ export function useScanPsdProcessor() {
           if (sd.excludedGuideIndices) {
             store.setExcludedGuideIndices(new Set(sd.excludedGuideIndices));
           }
-          // scandataからルビリストを復元（je-nsonman互換: parent/ruby → parentText/rubyText）
+          // scandataからルビリストを復元（外部スクリプト互換: parent/ruby → parentText/rubyText）
           const rawRuby = scandataData.editedRubyList as unknown[] | undefined;
           if (rawRuby && rawRuby.length > 0) {
             store.setRubyList(normalizeRubyEntries(rawRuby));

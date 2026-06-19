@@ -89,7 +89,7 @@ export function usePhotoshopConverter() {
       });
 
       if (ngFiles.length === 0) {
-        console.log("No NG files to convert");
+        if (import.meta.env.DEV) console.log("No NG files to convert");
         return;
       }
 
@@ -165,7 +165,9 @@ export function usePhotoshopConverter() {
 
         // Reload converted files from disk to get actual metadata (Rust-native)
         if (successfulFiles.length > 0) {
-          console.log(`Reloading ${successfulFiles.length} converted files...`);
+          if (import.meta.env.DEV) {
+            console.log(`Reloading ${successfulFiles.length} converted files...`);
+          }
 
           try {
             const parseResults = await invoke<

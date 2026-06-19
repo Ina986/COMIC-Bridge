@@ -535,7 +535,7 @@ export function useLayerControl() {
     try {
       const filePaths = targetFiles.map((f) => f.filePath);
 
-      // 元フォルダパス（KENBAN diff用）
+      // 元フォルダパス（差分比較ツール diff用）
       const sourceFolder = filePaths[0]
         ? filePaths[0].replace(/\\/g, "/").split("/").slice(0, -1).join("/")
         : "";

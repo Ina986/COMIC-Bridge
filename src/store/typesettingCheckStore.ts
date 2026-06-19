@@ -3,9 +3,8 @@ import type { ParsedProofreadingData, CheckTabMode } from "../types/typesettingC
 import { usePsdStore } from "./psdStore";
 
 // --- デフォルトパス ---
-const DEFAULT_JSON_BASE_PATH =
-  "G:/共有ドライブ/CLLENN/編集部フォルダ/編集企画部/写植・校正用テキストログ";
-
+// 共有ドライブパスは直打ちせず、参照アドレスリストから実行時に注入する
+// (lib/initAddresses.ts → hydrateDefaultPath)。localStorage 上書き優先、未解決時は空。
 function loadPath(key: string, fallback: string): string {
   try {
     return localStorage.getItem(key) || fallback;
@@ -44,6 +43,8 @@ export interface TypesettingCheckState {
   setCheckData: (data: ParsedProofreadingData | null) => void;
   setCheckTabMode: (mode: CheckTabMode) => void;
   setJsonBasePath: (path: string) => void;
+  /** 参照アドレスリストから既定パスを注入(未設定時のみ。localStorage非永続)。 */
+  hydrateDefaultPath: (defaultPath: string) => void;
   setShowJsonBrowser: (show: boolean) => void;
   setViewerFileIndex: (index: number) => void;
   setSearchQuery: (query: string) => void;
@@ -55,7 +56,7 @@ export interface TypesettingCheckState {
 export const useTypesettingCheckStore = create<TypesettingCheckState>((set) => ({
   checkData: null,
   checkTabMode: "both",
-  jsonBasePath: loadPath("typesetting-json-base-path", DEFAULT_JSON_BASE_PATH),
+  jsonBasePath: loadPath("typesetting-json-base-path", ""),
   showJsonBrowser: false,
   viewerFileIndex: 0,
   searchQuery: "",
@@ -67,6 +68,8 @@ export const useTypesettingCheckStore = create<TypesettingCheckState>((set) => (
     savePath("typesetting-json-base-path", path);
     set({ jsonBasePath: path });
   },
+  hydrateDefaultPath: (defaultPath) =>
+    set((s) => (!s.jsonBasePath && defaultPath ? { jsonBasePath: defaultPath } : {})),
   setShowJsonBrowser: (showJsonBrowser) => set({ showJsonBrowser }),
   setViewerFileIndex: (viewerFileIndex) => set({ viewerFileIndex }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),

@@ -7,11 +7,15 @@ export function SplitResultDialog() {
   const results = useSplitStore((s) => s.results);
   const showResultDialog = useSplitStore((s) => s.showResultDialog);
   const setShowResultDialog = useSplitStore((s) => s.setShowResultDialog);
+  const reset = useSplitStore((s) => s.reset);
   const processingDurationMs = useSplitStore((s) => s.processingDurationMs);
   const lastOutputDir = useSplitStore((s) => s.lastOutputDir);
   const settings = useSplitStore((s) => s.settings);
 
-  const close = () => setShowResultDialog(false);
+  const close = () => {
+    setShowResultDialog(false);
+    reset();
+  };
 
   // ESC to close
   useEffect(() => {

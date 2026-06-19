@@ -69,6 +69,7 @@ export function ScanPsdEditView() {
   const selectedGuideIndex = useScanPsdStore((s) => s.selectedGuideIndex);
   const selectionRanges = useScanPsdStore((s) => s.selectionRanges);
   const rubyList = useScanPsdStore((s) => s.rubyList);
+  const setWorkInfo = useScanPsdStore((s) => s.setWorkInfo);
 
   const { savePresetJson, startScan, removeVolumeData } = useScanPsdProcessor();
 
@@ -88,6 +89,8 @@ export function ScanPsdEditView() {
 
   // 保存時の未記入警告ダイアログ
   const [showEmptyFieldsDialog, setShowEmptyFieldsDialog] = useState(false);
+  // 同名JSON（別作品）との衝突警告ダイアログ（衝突したタイトルを保持）
+  const [collisionTitle, setCollisionTitle] = useState<string | null>(null);
 
   // 追加スキャンダイアログ
   const [showScanDialog, setShowScanDialog] = useState(false);
@@ -115,7 +118,18 @@ export function ScanPsdEditView() {
 
   const fontCount = scanData?.fonts?.length ?? 0;
   const guideCount = scanData?.guideSets?.length ?? 0;
-  const docCount = scanData?.textLayersByDoc ? Object.keys(scanData.textLayersByDoc).length : 0;
+  // 保存されたテキスト（テキストログ）数 = 巻単位のテキストメモ数
+  const savedTextCount = (() => {
+    const tl = scanData?.textLogByFolder;
+    if (!tl) return 0;
+    const keys = Object.keys(tl);
+    const map = scanData?.folderVolumeMapping;
+    if (map) {
+      const vols = new Set(keys.map((k) => map[k]).filter((v) => v != null));
+      if (vols.size > 0) return vols.size;
+    }
+    return keys.length;
+  })();
   const baseSize = scanData?.sizeStats?.mostFrequent?.size ?? null;
   const selectedGuide =
     selectedGuideIndex != null ? scanData?.guideSets?.[selectedGuideIndex] : null;
@@ -156,8 +170,8 @@ export function ScanPsdEditView() {
       tab: 4 as ScanPsdTab,
       icon: "R",
       title: SCAN_EDIT_LABELS[4],
-      sub: `${rubyList.length} ruby / ${docCount} docs`,
-      value: rubyList.length ? `${rubyList.length}` : "0",
+      sub: `保存テキスト ${savedTextCount}件`,
+      value: savedTextCount ? `${savedTextCount}` : "0",
       tone: "sky",
     },
   ];
@@ -175,7 +189,7 @@ export function ScanPsdEditView() {
       case 3:
         return `${guideCount} sets`;
       case 4:
-        return `${rubyList.length} ruby / ${docCount} docs`;
+        return `保存テキスト ${savedTextCount}件`;
     }
   };
 
@@ -190,7 +204,7 @@ export function ScanPsdEditView() {
       case 3:
         return selectedGuide ? "選択中" : "未選択";
       case 4:
-        return rubyList.length ? `${rubyList.length}` : "0";
+        return savedTextCount ? `${savedTextCount}` : "0";
     }
   };
 
@@ -211,13 +225,40 @@ export function ScanPsdEditView() {
     }
   };
 
+  // 保存先パスを算出（performPresetJsonSave と同じ規則）
+  const titleToPath = (label: string, title: string) => {
+    const store = useScanPsdStore.getState();
+    const safeLabel = label.replace(/[\\/:*?"<>|]/g, "_");
+    const safeTitle = title.replace(/[\\/:*?"<>|]/g, "_");
+    return `${store.jsonFolderPath}/${safeLabel}/${safeTitle}.json`.replace(/\\/g, "/");
+  };
+
+  // 同名JSON（別作品）と衝突するか判定（現在編集中のファイル自身は衝突扱いしない）
+  const detectCollision = async (): Promise<boolean> => {
+    const store = useScanPsdStore.getState();
+    const { workInfo: wi } = store;
+    if (!wi.title || !wi.label) return false;
+    const target = titleToPath(wi.label, wi.title);
+    const norm = (p: string | null) => (p ?? "").replace(/\\/g, "/").toLowerCase();
+    if (norm(target) === norm(store.currentJsonFilePath)) return false; // 同一ファイル＝衝突でない
+    return await invoke<boolean>("path_exists", { path: target }).catch(() => false);
+  };
+
+  const doSave = async () => {
+    if (await detectCollision()) {
+      setCollisionTitle(workInfo.title);
+      return;
+    }
+    await savePresetJson();
+  };
+
   const handleSave = async () => {
     if (missingFields.length > 0) {
       setShowEmptyFieldsDialog(true);
       return;
     }
     try {
-      await savePresetJson();
+      await doSave();
     } catch (e) {
       console.error(e);
     }
@@ -225,6 +266,30 @@ export function ScanPsdEditView() {
 
   const handleForceSave = async () => {
     setShowEmptyFieldsDialog(false);
+    try {
+      await doSave();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // 同名衝突時：空き番号（_2, _3, …）を探してタイトルを変更し保存
+  const handleSaveWithNumbering = async () => {
+    const store = useScanPsdStore.getState();
+    const { workInfo: wi } = store;
+    let numbered = wi.title;
+    for (let n = 2; n < 1000; n++) {
+      const candidate = `${wi.title}_${n}`;
+      const exists = await invoke<boolean>("path_exists", {
+        path: titleToPath(wi.label, candidate),
+      }).catch(() => false);
+      if (!exists) {
+        numbered = candidate;
+        break;
+      }
+    }
+    setWorkInfo({ title: numbered }); // zustand は同期更新 → 直後の保存で新タイトルが使われる
+    setCollisionTitle(null);
     try {
       await savePresetJson();
     } catch (e) {
@@ -339,27 +404,33 @@ export function ScanPsdEditView() {
       <div className="h-full flex flex-col overflow-hidden bg-bg-primary">
         <div className="flex-1 min-h-0 grid grid-rows-[1fr] overflow-hidden bg-bg-primary">
           <div className="min-h-0 grid grid-cols-[260px_minmax(0,1fr)] gap-3 p-3 overflow-hidden">
-            <aside className="min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-rows-[auto_1fr_auto]">
-              <div className="p-3 border-b border-border-light">
+            <aside className="min-w-0 min-h-0 bg-white border border-border/80 rounded-lg shadow-card overflow-hidden grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto]">
+              <div className="min-w-0 p-3 border-b border-border-light">
                 <p className="text-[10px] font-black uppercase text-text-muted tracking-wide">
                   Current JSON
                 </p>
                 <div className="mt-2 flex items-center gap-2 min-w-0 rounded-lg bg-bg-tertiary border border-border-light p-2">
-                  <div className="w-7 h-7 rounded-lg grid place-items-center bg-accent/10 text-accent text-xs font-black">
+                  <div className="w-7 h-7 flex-shrink-0 rounded-lg grid place-items-center bg-accent/10 text-accent text-xs font-black">
                     J
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black text-text-primary truncate">
+                    <p
+                      className="text-xs font-black text-text-primary truncate"
+                      title={fileName || "untitled.json"}
+                    >
                       {fileName || "untitled.json"}
                     </p>
-                    <p className="text-[10px] text-text-muted mt-0.5 truncate">
+                    <p
+                      className="text-[10px] text-text-muted mt-0.5 truncate"
+                      title={`${workInfo.label || "label"} / ${workInfo.title || "title"}`}
+                    >
                       {workInfo.label || "label"} / {workInfo.title || "title"}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5">
+              <div className="min-w-0 min-h-0 overflow-y-auto p-2 flex flex-col gap-1.5">
                 {sectionMeta.map((section) => {
                   const missingCount = missingByTab.get(section.tab) ?? 0;
                   const isActive = activeTab === section.tab;
@@ -367,7 +438,7 @@ export function ScanPsdEditView() {
                     <button
                       key={section.tab}
                       onClick={() => setActiveTab(section.tab)}
-                      className={`grid grid-cols-[28px_1fr_auto] items-center gap-2 text-left min-h-[44px] rounded-lg border p-2 transition-all ${
+                      className={`grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 text-left min-h-[44px] rounded-lg border p-2 transition-all ${
                         isActive
                           ? "bg-accent/10 border-accent/25 text-text-primary"
                           : missingCount
@@ -573,6 +644,67 @@ export function ScanPsdEditView() {
                   }}
                 >
                   そのまま保存
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 同名JSON 衝突 警告ダイアログ */}
+        {collisionTitle && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setCollisionTitle(null);
+            }}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-xl w-[380px] overflow-hidden"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="px-6 pt-6 pb-4 text-center">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-warning/10 flex items-center justify-center mb-3">
+                  <svg
+                    className="w-6 h-6 text-warning"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-bold text-text-primary mb-2">
+                  同名のJSONが既に存在します
+                </h3>
+                <p className="text-[12px] text-text-secondary mb-1">
+                  「<span className="font-bold break-all">{collisionTitle}.json</span>」は別の作品で
+                  既に使われています。
+                </p>
+                <p className="text-[11px] text-text-muted">
+                  そのまま保存すると既存ファイルを上書きします。ナンバリング（例:{" "}
+                  <span className="font-mono">{collisionTitle}_2.json</span>）して保存できます。
+                </p>
+              </div>
+              <div className="px-6 pb-5 flex gap-2">
+                <button
+                  onClick={() => setCollisionTitle(null)}
+                  className="flex-1 px-4 py-2.5 text-xs font-medium text-text-secondary bg-bg-tertiary rounded-xl hover:bg-bg-tertiary/80 transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={handleSaveWithNumbering}
+                  className="flex-1 px-4 py-2.5 text-xs font-medium text-white rounded-xl transition-all"
+                  style={{
+                    background: "linear-gradient(135deg, #ff5a8a, #7c5cff)",
+                  }}
+                >
+                  ナンバリングして保存
                 </button>
               </div>
             </div>

@@ -1,4 +1,4 @@
-// merge_layers.jsx - Layer merge (text/background separation)
+﻿// merge_layers.jsx - Layer merge (text/background separation)
 // Separates text layers from background, merges background into single layer,
 // keeps both visible. Based on tiff_convert.jsx pipeline (steps 1-7).
 #target photoshop
@@ -7,8 +7,8 @@ app.displayDialogs = DialogModes.NO;
 var TEXT_GROUP_NAMES = ["#text#", "text", "\u5199\u690D", "\u30BB\u30EA\u30D5", "\u30C6\u30AD\u30B9\u30C8", "\u53F0\u8A5E"];
 
 function main() {
-    var tempFolder = Folder.temp;
-    var settingsFile = new File(tempFolder + "/psd_merge_layers_settings.json");
+    var tempFolder = new Folder(Folder.temp.fsName + "/COMIC-Bridge/convert"); if (!tempFolder.exists) { tempFolder.create(); }
+    var settingsFile = (typeof COMIC_BRIDGE_SETTINGS_PATH !== "undefined" && COMIC_BRIDGE_SETTINGS_PATH) ? new File(COMIC_BRIDGE_SETTINGS_PATH) : new File(tempFolder + "/psd_merge_layers_settings.json");
 
     settingsFile.open("r");
     settingsFile.encoding = "UTF-8";

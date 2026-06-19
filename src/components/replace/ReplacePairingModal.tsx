@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { getAddress } from "../../lib/addressRef";
 import { useReplaceStore } from "../../store/replaceStore";
 import { PairingAutoTab } from "./PairingAutoTab";
 import { PairingManualTab } from "./PairingManualTab";
@@ -108,7 +109,7 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
     setPairingDialogMode("manual");
   };
 
-  // バッチモード完了時: 出力サブフォルダを抽出（2つならKENBAN差分比較可能）
+  // バッチモード完了時: 出力サブフォルダを抽出（2つなら差分比較ツールで比較可能）
   const batchSubfolderDirs = useMemo(() => {
     if (settings.mode !== "batch" || phase !== "complete" || results.length === 0) return [];
     const firstSuccess = results.find((r) => r.success && r.outputFile);
@@ -132,7 +133,7 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
     return [...dirs].sort();
   }, [settings.mode, phase, results]);
 
-  // 画像差替えモード完了時: 出力フォルダを抽出してKENBAN差分比較用に使う
+  // 画像差替えモード完了時: 出力フォルダを抽出して差分比較ツール用に使う
   const imageOutputDir = useMemo(() => {
     if (settings.mode !== "image" || phase !== "complete" || results.length === 0) return null;
     if (!folders.targetFolder) return null;
@@ -151,7 +152,7 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
     return [...dirs][0];
   }, [settings.mode, phase, results, folders.targetFolder]);
 
-  // スイッチ差替えモード完了時: 出力フォルダを抽出してKENBAN差分比較用に使う
+  // スイッチ差替えモード完了時: 出力フォルダを抽出して差分比較ツール用に使う
   const switchOutputDir = useMemo(() => {
     if (settings.mode !== "switch" || phase !== "complete" || results.length === 0) return null;
     if (!folders.targetFolder) return null;
@@ -568,13 +569,13 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
                 <button
                   onClick={async () => {
                     try {
-                      await invoke("launch_kenban_diff", {
+                      await invoke("launch_diff_tool", {
                         folderA: folders.targetFolder,
                         folderB: imageOutputDir,
                         mode: "psd",
                       });
                     } catch (e) {
-                      alert(`KENBAN起動エラー: ${e}`);
+                      alert(`${getAddress("apps.diffTool.displayName")}起動エラー: ${e}`);
                     }
                   }}
                   className="px-4 py-2 text-sm font-medium rounded-xl text-accent bg-accent/10 border border-accent/30 hover:bg-accent/20 transition-colors flex items-center gap-1.5"
@@ -588,20 +589,20 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
-                  KENBANで差分比較
+                  {getAddress("apps.diffTool.displayName")}で差分比較
                 </button>
               )}
               {switchOutputDir && folders.targetFolder && (
                 <button
                   onClick={async () => {
                     try {
-                      await invoke("launch_kenban_diff", {
+                      await invoke("launch_diff_tool", {
                         folderA: folders.targetFolder,
                         folderB: switchOutputDir,
                         mode: "psd",
                       });
                     } catch (e) {
-                      alert(`KENBAN起動エラー: ${e}`);
+                      alert(`${getAddress("apps.diffTool.displayName")}起動エラー: ${e}`);
                     }
                   }}
                   className="px-4 py-2 text-sm font-medium rounded-xl text-accent bg-accent/10 border border-accent/30 hover:bg-accent/20 transition-colors flex items-center gap-1.5"
@@ -615,20 +616,20 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
-                  KENBANで差分比較
+                  {getAddress("apps.diffTool.displayName")}で差分比較
                 </button>
               )}
               {batchSubfolderDirs.length === 2 && (
                 <button
                   onClick={async () => {
                     try {
-                      await invoke("launch_kenban_diff", {
+                      await invoke("launch_diff_tool", {
                         folderA: batchSubfolderDirs[0],
                         folderB: batchSubfolderDirs[1],
                         mode: "psd",
                       });
                     } catch (e) {
-                      alert(`KENBAN起動エラー: ${e}`);
+                      alert(`${getAddress("apps.diffTool.displayName")}起動エラー: ${e}`);
                     }
                   }}
                   className="px-4 py-2 text-sm font-medium rounded-xl text-accent bg-accent/10 border border-accent/30 hover:bg-accent/20 transition-colors flex items-center gap-1.5"
@@ -642,7 +643,7 @@ export function ReplacePairingModal({ onExecute, onRescan }: Props) {
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
-                  KENBANで差分比較
+                  {getAddress("apps.diffTool.displayName")}で差分比較
                 </button>
               )}
               {(() => {

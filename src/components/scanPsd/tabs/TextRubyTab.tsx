@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useScanPsdStore } from "../../../store/scanPsdStore";
 import { useScanPsdProcessor } from "../../../hooks/useScanPsdProcessor";
 import type { RubyEntry } from "../../../types/scanPsd";
+import { TextMemoSection } from "./TextMemoSection";
 
 export function TextRubyTab() {
   const rubyList = useScanPsdStore((s) => s.rubyList);
@@ -15,7 +16,7 @@ export function TextRubyTab() {
   const setRubySortMode = useScanPsdStore((s) => s.setRubySortMode);
   const textLogFolderPath = useScanPsdStore((s) => s.textLogFolderPath);
   const workInfo = useScanPsdStore((s) => s.workInfo);
-  const { exportTextLog, saveRubyList } = useScanPsdProcessor();
+  const { saveRubyList } = useScanPsdProcessor();
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -153,47 +154,6 @@ export function TextRubyTab() {
     }
   };
 
-  const handleOpenTextLogFolder = async () => {
-    if (!workInfo.label || !workInfo.title) return;
-    const folderPath = `${textLogFolderPath}/${workInfo.label}/${workInfo.title}`.replace(
-      /\//g,
-      "\\",
-    );
-    try {
-      await invoke("open_folder_in_explorer", { folderPath });
-    } catch (e) {
-      console.error("Open folder failed:", e);
-    }
-  };
-
-  const handleCopyTextLog = async () => {
-    if (!scanData?.textLogByFolder) return;
-    const allLines: string[] = [];
-    for (const [folderKey, pages] of Object.entries(scanData.textLogByFolder)) {
-      const folderName = folderKey.split(/[\\/]/).pop() || folderKey;
-      allLines.push(`# テキストログ: ${workInfo.title || folderName}`);
-      allLines.push(`# 出力日時: ${new Date().toLocaleString("ja-JP")}`);
-      allLines.push("");
-      const sortedPages = Object.entries(pages).sort(([a], [b]) =>
-        a.localeCompare(b, "ja", { numeric: true }),
-      );
-      for (const [pageName, entries] of sortedPages) {
-        allLines.push(`## ${pageName}`);
-        const sorted = [...entries].sort((a, b) => a.yPos - b.yPos);
-        for (const entry of sorted) {
-          const prefix = entry.isLinked ? `[ルビ:${entry.linkGroupId}] ` : "";
-          allLines.push(`${prefix}${entry.content}`);
-        }
-        allLines.push("");
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(allLines.join("\n"));
-    } catch (e) {
-      console.error("Clipboard copy failed:", e);
-    }
-  };
-
   const textLayerCount = scanData?.textLayersByDoc
     ? Object.values(scanData.textLayersByDoc).reduce((sum, layers) => sum + layers.length, 0)
     : 0;
@@ -242,6 +202,9 @@ export function TextRubyTab() {
           </div>
         </div>
       )}
+
+      {/* テキストログ（巻/ルビボタン＋まとめてコピー＋フォルダ） */}
+      <TextMemoSection />
 
       {/* ルビ一覧 */}
       <div>
@@ -436,60 +399,6 @@ export function TextRubyTab() {
         >
           ルビ統一（重複削除）
         </button>
-
-        {/* テキストログ出力 + フォルダ開く + コピー */}
-        <div className="flex gap-1.5">
-          <button
-            onClick={exportTextLog}
-            disabled={!scanData}
-            className="flex-1 py-2 text-xs font-medium text-text-primary bg-bg-tertiary/60 rounded-xl border border-border/40
-              hover:bg-bg-tertiary hover:border-border disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            テキストログを出力
-          </button>
-          <button
-            onClick={handleOpenTextLogFolder}
-            disabled={!workInfo.label || !workInfo.title}
-            title="フォルダを開く"
-            className="w-8 py-2 flex items-center justify-center text-text-muted bg-bg-tertiary/60 rounded-xl border border-border/40
-              hover:bg-bg-tertiary hover:border-border hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            <svg
-              className="w-3.5 h-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-              />
-            </svg>
-          </button>
-          <button
-            onClick={handleCopyTextLog}
-            disabled={!scanData}
-            title="テキストログをコピー"
-            className="w-8 py-2 flex items-center justify-center text-text-muted bg-bg-tertiary/60 rounded-xl border border-border/40
-              hover:bg-bg-tertiary hover:border-border hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            <svg
-              className="w-3.5 h-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-              />
-            </svg>
-          </button>
-        </div>
 
         {/* ルビ保存・読込 */}
         <button

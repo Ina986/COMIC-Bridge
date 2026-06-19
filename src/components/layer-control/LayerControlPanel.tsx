@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useLayerStore,
   PRESET_CONDITIONS,
@@ -80,6 +80,7 @@ export function LayerControlPanel() {
   const customVisibilityOps = useLayerStore((state) => state.customVisibilityOps);
   const customMoveOps = useLayerStore((state) => state.customMoveOps);
   const clearCustomOps = useLayerStore((state) => state.clearCustomOps);
+  const pruneFileState = useLayerStore((state) => state.pruneFileState);
 
   const mergeReorganizeText = useLayerStore((state) => state.mergeReorganizeText);
   const setMergeReorganizeText = useLayerStore((state) => state.setMergeReorganizeText);
@@ -102,16 +103,22 @@ export function LayerControlPanel() {
   const isCustomMode = actionMode === "custom";
   const isLockMode = actionMode === "lock";
   const isMergeMode = actionMode === "merge";
+  const currentFileIds = useMemo(() => files.map((file) => file.id), [files]);
+  const currentFileIdSet = useMemo(() => new Set(currentFileIds), [currentFileIds]);
+  const customCountFileIds =
+    selectedFileIds.length > 0
+      ? selectedFileIds.filter((fileId) => currentFileIdSet.has(fileId))
+      : currentFileIds;
+
+  useEffect(() => {
+    pruneFileState(currentFileIds);
+  }, [currentFileIds, pruneFileState]);
 
   // カスタム操作のサマリー
-  const customVisCount = Array.from(customVisibilityOps.values()).reduce(
-    (acc, ops) => acc + ops.length,
-    0,
-  );
-  const customMoveCount = Array.from(customMoveOps.values()).reduce(
-    (acc, ops) => acc + ops.length,
-    0,
-  );
+  const countCustomOps = <T,>(opsByFile: Map<string, T[]>) =>
+    customCountFileIds.reduce((acc, fileId) => acc + (opsByFile.get(fileId)?.length ?? 0), 0);
+  const customVisCount = countCustomOps(customVisibilityOps);
+  const customMoveCount = countCustomOps(customMoveOps);
   const customTotalCount = customVisCount + customMoveCount;
 
   const hasAnyLayerMoveCondition =

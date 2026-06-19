@@ -1,16 +1,22 @@
 import { useState, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { JsonFileBrowser } from "../scanPsd/JsonFileBrowser";
 import { useGuideStore } from "../../store/guideStore";
 import { usePsdStore } from "../../store/psdStore";
+import { useScanPsdStore } from "../../store/scanPsdStore";
 import { useSpecStore } from "../../store/specStore";
 import { GuideCanvas } from "./GuideCanvas";
 import { GuideList } from "./GuideList";
 import { usePreparePsd } from "../../hooks/usePreparePsd";
 import { useHighResPreview } from "../../hooks/useHighResPreview";
+import type { ScanGuideSet } from "../../types/scanPsd";
+import { extractGuideSetsFromJson, guideSetToGuides } from "../../lib/guideJsonLoader";
 
 export function GuideEditorModal() {
   const closeEditor = useGuideStore((state) => state.closeEditor);
   const guides = useGuideStore((state) => state.guides);
   const clearGuides = useGuideStore((state) => state.clearGuides);
+  const setGuides = useGuideStore((state) => state.setGuides);
   const undo = useGuideStore((state) => state.undo);
   const redo = useGuideStore((state) => state.redo);
   const history = useGuideStore((state) => state.history);
@@ -19,12 +25,16 @@ export function GuideEditorModal() {
   const files = usePsdStore((state) => state.files);
   const selectedFileIds = usePsdStore((state) => state.selectedFileIds);
   const activeFile = usePsdStore((state) => state.getActiveFile());
+  const jsonFolderPath = useScanPsdStore((state) => state.jsonFolderPath);
 
   const { isProcessing, tasks, progress, prepareFiles, reset } = usePreparePsd();
   const activeSpecId = useSpecStore((state) => state.activeSpecId);
   const checkResults = useSpecStore((state) => state.checkResults);
 
   const [applyTarget, setApplyTarget] = useState<"selected" | "all">("all");
+  const [jsonGuideSets, setJsonGuideSets] = useState<ScanGuideSet[] | null>(null);
+  const [jsonLoading, setJsonLoading] = useState(false);
+  const [showJsonDialog, setShowJsonDialog] = useState(false);
 
   // Get high-resolution preview for the active file
   const activeFilePath = activeFile?.filePath || files[0]?.filePath;
@@ -88,6 +98,33 @@ export function GuideEditorModal() {
         : { width: 1920, height: 2716 }; // Default B5 at 350dpi
 
   const imageUrl = highResImageUrl;
+
+  // 固定リンク(JSON_BASE_PATH＝アドレスファイルの content.jsonFolder)から
+  // 選んだJSONのガイド線を読み込む（スキャナー/TIFFと同じ参照先）
+  const loadGuidesFromJsonPath = async (jsonPath?: string) => {
+    setShowJsonDialog(false);
+    if (!jsonPath) return;
+    try {
+      setJsonLoading(true);
+      const content = await invoke<string>("read_text_file", { filePath: jsonPath });
+      const sets = extractGuideSetsFromJson(content);
+      if (sets.length === 0) {
+        alert("このJSONにはガイドセットが見つかりませんでした。");
+        return;
+      }
+      setJsonGuideSets(sets);
+    } catch (e) {
+      console.error("Failed to load guide JSON:", e);
+    } finally {
+      setJsonLoading(false);
+    }
+  };
+
+  // 一覧から選択したガイドセットをキャンバスサイズに合わせて読み込む
+  const handlePickGuideSet = (gs: ScanGuideSet) => {
+    setGuides(guideSetToGuides(gs, canvasSize));
+    setJsonGuideSets(null);
+  };
 
   return (
     <div
@@ -164,6 +201,27 @@ export function GuideEditorModal() {
 
             {/* Actions */}
             <div className="p-4 border-t border-text-muted/10 space-y-3">
+              <button
+                className="w-full btn btn-secondary text-sm flex items-center justify-center gap-1.5"
+                onClick={() => setShowJsonDialog(true)}
+                disabled={jsonLoading}
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+                {jsonLoading ? "読込中..." : "JSONからガイドを読込"}
+              </button>
+
               <button
                 className="w-full btn btn-secondary text-sm"
                 onClick={clearGuides}
@@ -327,6 +385,92 @@ export function GuideEditorModal() {
             </div>
           </div>
         </div>
+
+        {/* JSON選択（JSONファイルを直接選択。範囲選択ラベルを介さずに選べる） */}
+        {showJsonDialog && (
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black/50"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setShowJsonDialog(false);
+            }}
+          >
+            <div
+              className="w-[460px] max-h-[80%] flex flex-col"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <JsonFileBrowser
+                basePath={jsonFolderPath}
+                mode="open"
+                onSelect={(filePath) => loadGuidesFromJsonPath(filePath)}
+                onCancel={() => setShowJsonDialog(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* JSONガイドセット選択オーバーレイ（手動選択） */}
+        {jsonGuideSets && (
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black/50"
+            onMouseDown={() => setJsonGuideSets(null)}
+          >
+            <div
+              className="bg-bg-secondary rounded-lg shadow-2xl w-[460px] max-h-[70vh] flex flex-col overflow-hidden border border-border"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-text-muted/10">
+                <h3 className="text-sm font-medium text-text-primary">
+                  ガイドセットを選択 ({jsonGuideSets.length})
+                </h3>
+                <button
+                  className="p-1 rounded hover:bg-bg-tertiary"
+                  onClick={() => setJsonGuideSets(null)}
+                  title="閉じる"
+                >
+                  <svg
+                    className="w-4 h-4 text-text-secondary"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto p-3 space-y-1.5">
+                {jsonGuideSets.map((gs, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handlePickGuideSet(gs)}
+                    className="w-full text-left rounded-xl px-3 py-2 border border-border/30 bg-bg-tertiary/40 hover:border-accent/40 hover:bg-bg-tertiary/70 transition-all"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-text-primary">
+                        ガイドセット {i + 1}
+                      </span>
+                      <span className="text-[10px] text-text-muted font-mono">
+                        H:{gs.horizontal.length} V:{gs.vertical.length}
+                      </span>
+                      {gs.docWidth > 0 && (
+                        <span className="text-[9px] text-text-muted font-mono">
+                          {gs.docWidth}×{gs.docHeight}
+                        </span>
+                      )}
+                      {gs.count > 0 && (
+                        <span className="ml-auto text-[9px] text-text-muted bg-bg-primary px-1.5 py-0.5 rounded">
+                          {gs.count}p
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -194,7 +194,10 @@ pub fn parse_psd_file(file_path: &str) -> Result<(PsdMetadata, Option<String>), 
     let has_tombo = detect_tombo(&layer_tree);
 
     // Thumbnail: encode JFIF as base64 (no temp file / asset protocol needed)
-    let thumb_base64 = resources.thumbnail_jfif.as_ref().map(|jfif| base64_encode(jfif));
+    let thumb_base64 = resources
+        .thumbnail_jfif
+        .as_ref()
+        .map(|jfif| base64_encode(jfif));
 
     // αチャンネル判定（参考リポ準拠）:
     //   - カラーモード別の標準チャンネル数を差し引いた extra_channels と
@@ -208,16 +211,17 @@ pub fn parse_psd_file(file_path: &str) -> Result<(PsdMetadata, Option<String>), 
     };
     let extra_channels = (total_channels as u32).saturating_sub(std_channels);
     let alpha_count = (resources.alpha_channel_names.len() as u32).max(extra_channels);
-    let alpha_names_final: Vec<String> = if (resources.alpha_channel_names.len() as u32) >= alpha_count {
-        resources.alpha_channel_names.clone()
-    } else {
-        // 名前リストが不足している分は "Alpha N" で補完
-        let mut names = resources.alpha_channel_names.clone();
-        for i in (names.len() as u32)..alpha_count {
-            names.push(format!("Alpha {}", i + 1));
-        }
-        names
-    };
+    let alpha_names_final: Vec<String> =
+        if (resources.alpha_channel_names.len() as u32) >= alpha_count {
+            resources.alpha_channel_names.clone()
+        } else {
+            // 名前リストが不足している分は "Alpha N" で補完
+            let mut names = resources.alpha_channel_names.clone();
+            for i in (names.len() as u32)..alpha_count {
+                names.push(format!("Alpha {}", i + 1));
+            }
+            names
+        };
     let has_only_transparency = alpha_count > 0
         && alpha_names_final.iter().all(|n| {
             let t = n.trim();
@@ -250,7 +254,8 @@ pub fn parse_psd_file(file_path: &str) -> Result<(PsdMetadata, Option<String>), 
 
 fn read_header<R: Read + Seek>(r: &mut R) -> Result<(u16, u16, u32, u32, u16, u16), String> {
     let mut sig = [0u8; 4];
-    r.read_exact(&mut sig).map_err(|e| format!("ヘッダー読み取りエラー: {}", e))?;
+    r.read_exact(&mut sig)
+        .map_err(|e| format!("ヘッダー読み取りエラー: {}", e))?;
     if &sig != b"8BPS" {
         return Err("PSDファイルではありません".to_string());
     }
@@ -261,7 +266,8 @@ fn read_header<R: Read + Seek>(r: &mut R) -> Result<(u16, u16, u32, u32, u16, u1
     }
 
     // Reserved 6 bytes
-    r.seek(SeekFrom::Current(6)).map_err(|e| format!("Seek error: {}", e))?;
+    r.seek(SeekFrom::Current(6))
+        .map_err(|e| format!("Seek error: {}", e))?;
 
     let channels = read_u16(r)?;
     let height = read_u32(r)?;
@@ -269,6 +275,7 @@ fn read_header<R: Read + Seek>(r: &mut R) -> Result<(u16, u16, u32, u32, u16, u1
     let depth = read_u16(r)?;
     let color_mode = read_u16(r)?;
 
+    crate::psd_safety::validate_psd_dimensions(width, height)?;
     Ok((version, channels, height, width, depth, color_mode))
 }
 
@@ -283,7 +290,10 @@ struct ImageResources {
     thumbnail_jfif: Option<Vec<u8>>,
 }
 
-fn parse_image_resources<R: Read + Seek>(r: &mut R, section_len: u64) -> Result<ImageResources, String> {
+fn parse_image_resources<R: Read + Seek>(
+    r: &mut R,
+    section_len: u64,
+) -> Result<ImageResources, String> {
     let mut result = ImageResources {
         dpi: None,
         guides: Vec::new(),
@@ -315,7 +325,11 @@ fn parse_image_resources<R: Read + Seek>(r: &mut R, section_len: u64) -> Result<
         let name_len = read_u8(r)? as u64;
         // Total bytes for pascal string: 1 (length byte) + name_len, padded to even
         let pascal_total = 1 + name_len;
-        let padded = if pascal_total % 2 != 0 { pascal_total + 1 } else { pascal_total };
+        let padded = if pascal_total % 2 != 0 {
+            pascal_total + 1
+        } else {
+            pascal_total
+        };
         // We already read 1 byte (name_len), skip the rest
         let skip = padded - 1;
         if skip > 0 {
@@ -358,7 +372,11 @@ fn parse_image_resources<R: Read + Seek>(r: &mut R, section_len: u64) -> Result<
         }
 
         // Advance to end of this resource data (padded to even)
-        let padded_len = if data_len % 2 != 0 { data_len + 1 } else { data_len };
+        let padded_len = if data_len % 2 != 0 {
+            data_len + 1
+        } else {
+            data_len
+        };
         let _ = seek_to(r, data_start + padded_len);
     }
 
@@ -370,8 +388,8 @@ fn parse_resolution_info<R: Read>(r: &mut R) -> Result<u32, String> {
     // hRes: Fixed 16.16 (4 bytes) = integer part is the DPI
     let h_res_fixed = read_u32(r)?;
     let dpi = h_res_fixed >> 16; // integer part
-    // Skip: hResUnit(2), widthUnit(2), vRes(4), vResUnit(2), heightUnit(2) = 12 bytes
-    // (caller will seek past the full resource anyway)
+                                 // Skip: hResUnit(2), widthUnit(2), vRes(4), vResUnit(2), heightUnit(2) = 12 bytes
+                                 // (caller will seek past the full resource anyway)
     Ok(if dpi == 0 { 72 } else { dpi })
 }
 
@@ -382,7 +400,8 @@ fn parse_guides<R: Read>(r: &mut R, data_len: u64) -> Result<Vec<Guide>, String>
     }
     // Version (4), grid spacing H (4), grid spacing V (4)
     let mut _skip = [0u8; 12];
-    r.read_exact(&mut _skip).map_err(|e| format!("Guide read error: {}", e))?;
+    r.read_exact(&mut _skip)
+        .map_err(|e| format!("Guide read error: {}", e))?;
 
     // Number of guides (4 bytes)
     let count = read_u32(r)?;
@@ -394,7 +413,11 @@ fn parse_guides<R: Read>(r: &mut R, data_len: u64) -> Result<Vec<Guide>, String>
         let position = pos_raw / 32;
         // Direction: 0 = vertical, 1 = horizontal
         let dir_byte = read_u8(r)?;
-        let direction = if dir_byte == 0 { "vertical" } else { "horizontal" };
+        let direction = if dir_byte == 0 {
+            "vertical"
+        } else {
+            "horizontal"
+        };
         guides.push(Guide {
             direction: direction.to_string(),
             position,
@@ -421,12 +444,15 @@ fn parse_alpha_channel_names<R: Read>(r: &mut R, data_len: u64) -> Result<Vec<St
             break;
         }
         let mut buf = vec![0u8; len as usize];
-        r.read_exact(&mut buf).map_err(|e| format!("Alpha name read error: {}", e))?;
+        r.read_exact(&mut buf)
+            .map_err(|e| format!("Alpha name read error: {}", e))?;
         consumed += len;
         // Try UTF-8 first, then Shift-JIS fallback
         let name = String::from_utf8(buf.clone()).unwrap_or_else(|_| {
             // Simple fallback: replace invalid bytes with ?
-            buf.iter().map(|&b| if b.is_ascii() { b as char } else { '?' }).collect()
+            buf.iter()
+                .map(|&b| if b.is_ascii() { b as char } else { '?' })
+                .collect()
         });
         names.push(name);
     }
@@ -443,7 +469,8 @@ fn parse_thumbnail_resource<R: Read>(r: &mut R, data_len: u64) -> Result<Vec<u8>
     let format = read_u32(r)?;
     // Skip width(4), height(4), widthBytes(4), totalSize(4), compressedSize(4), bitsPerPixel(2), numPlanes(2)
     let mut _skip = [0u8; 24];
-    r.read_exact(&mut _skip).map_err(|e| format!("Thumbnail header read error: {}", e))?;
+    r.read_exact(&mut _skip)
+        .map_err(|e| format!("Thumbnail header read error: {}", e))?;
 
     let jfif_len = data_len - 28;
     if format != 1 || jfif_len == 0 {
@@ -451,7 +478,8 @@ fn parse_thumbnail_resource<R: Read>(r: &mut R, data_len: u64) -> Result<Vec<u8>
     }
 
     let mut jfif = vec![0u8; jfif_len as usize];
-    r.read_exact(&mut jfif).map_err(|e| format!("Thumbnail data read error: {}", e))?;
+    r.read_exact(&mut jfif)
+        .map_err(|e| format!("Thumbnail data read error: {}", e))?;
 
     Ok(jfif)
 }
@@ -513,16 +541,20 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
     let channel_count = read_u16(r)? as u64;
     // Channel info: each is (2 bytes ID + 4/8 bytes data length)
     let channel_entry_size = if version == 2 { 2 + 8 } else { 2 + 4 };
-    r.seek(SeekFrom::Current((channel_count * channel_entry_size) as i64))
-        .map_err(|e| format!("Seek error: {}", e))?;
+    r.seek(SeekFrom::Current(
+        (channel_count * channel_entry_size) as i64,
+    ))
+    .map_err(|e| format!("Seek error: {}", e))?;
 
     // Blend mode signature: "8BIM" (4 bytes)
     let mut blend_sig = [0u8; 4];
-    r.read_exact(&mut blend_sig).map_err(|e| format!("Blend sig read error: {}", e))?;
+    r.read_exact(&mut blend_sig)
+        .map_err(|e| format!("Blend sig read error: {}", e))?;
 
     // Blend mode key (4 bytes)
     let mut blend_key = [0u8; 4];
-    r.read_exact(&mut blend_key).map_err(|e| format!("Blend mode read error: {}", e))?;
+    r.read_exact(&mut blend_key)
+        .map_err(|e| format!("Blend mode read error: {}", e))?;
     let blend_mode = blend_mode_to_string(&blend_key);
 
     // Opacity (1 byte, 0-255)
@@ -532,7 +564,8 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
     // Flags (1 byte)
     let flags = read_u8(r)?;
     // Filler (1 byte)
-    r.seek(SeekFrom::Current(1)).map_err(|e| format!("Seek error: {}", e))?;
+    r.seek(SeekFrom::Current(1))
+        .map_err(|e| format!("Seek error: {}", e))?;
 
     let transparency_protected = (flags & 0x01) != 0; // bit 0: transparency protected
     let visible = (flags & 0x02) == 0; // bit 1: 0=visible, 1=hidden
@@ -571,10 +604,14 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
     let name_byte_len = read_u8(r)? as u64;
     if name_byte_len > 0 {
         let mut name_buf = vec![0u8; name_byte_len as usize];
-        r.read_exact(&mut name_buf).map_err(|e| format!("Name read error: {}", e))?;
+        r.read_exact(&mut name_buf)
+            .map_err(|e| format!("Name read error: {}", e))?;
         name = String::from_utf8(name_buf.clone()).unwrap_or_else(|_| {
             // Try Shift-JIS fallback for Japanese names (simple lossy)
-            name_buf.iter().map(|&b| if b.is_ascii() { b as char } else { '?' }).collect()
+            name_buf
+                .iter()
+                .map(|&b| if b.is_ascii() { b as char } else { '?' })
+                .collect()
         });
     }
     // Pad to multiple of 4
@@ -653,17 +690,20 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
                 is_shape = true;
             }
             // Adjustment layers
-            b"brit" | b"levl" | b"curv" | b"expA" | b"vibA"
-            | b"hue " | b"hue2" | b"blnc" | b"blwh" | b"phfl"
-            | b"mixr" | b"clrL" | b"nvrt" | b"post" | b"thrs"
-            | b"grdm" | b"selc" | b"CgEd" => {
+            b"brit" | b"levl" | b"curv" | b"expA" | b"vibA" | b"hue " | b"hue2" | b"blnc"
+            | b"blwh" | b"phfl" | b"mixr" | b"clrL" | b"nvrt" | b"post" | b"thrs" | b"grdm"
+            | b"selc" | b"CgEd" => {
                 is_adjustment = true;
             }
             _ => {}
         }
 
         // Padded to even
-        let padded_len = if tag_data_len % 2 != 0 { tag_data_len + 1 } else { tag_data_len };
+        let padded_len = if tag_data_len % 2 != 0 {
+            tag_data_len + 1
+        } else {
+            tag_data_len
+        };
         let _ = seek_to(r, tag_data_start + padded_len);
     }
 
@@ -671,7 +711,11 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
     let _ = seek_to(r, extra_start + extra_len);
 
     Ok(RawLayer {
-        name: if name.is_empty() { "Unnamed Layer".to_string() } else { name },
+        name: if name.is_empty() {
+            "Unnamed Layer".to_string()
+        } else {
+            name
+        },
         visible,
         opacity: opacity_raw,
         blend_mode,
@@ -697,9 +741,21 @@ fn parse_layer_record<R: Read + Seek>(r: &mut R, version: u16) -> Result<RawLaye
 fn is_psb_long_key(key: &[u8; 4]) -> bool {
     matches!(
         key,
-        b"LMsk" | b"Lr16" | b"Lr32" | b"Layr" | b"Mt16" | b"Mt32"
-        | b"Mtrn" | b"Alph" | b"FMsk" | b"lnk2" | b"FEid" | b"FXid"
-        | b"PxSD" | b"cinf" | b"lnkE"
+        b"LMsk"
+            | b"Lr16"
+            | b"Lr32"
+            | b"Layr"
+            | b"Mt16"
+            | b"Mt32"
+            | b"Mtrn"
+            | b"Alph"
+            | b"FMsk"
+            | b"lnk2"
+            | b"FEid"
+            | b"FXid"
+            | b"PxSD"
+            | b"cinf"
+            | b"lnkE"
     )
 }
 
@@ -740,7 +796,9 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                 // Group END — pop and create group node with the group's name from this record
                 let children = std::mem::take(&mut root);
                 root = stack.pop().unwrap_or_default();
-                let path = path_stack.pop().unwrap_or_else(|| format!("{}", index_counter));
+                let path = path_stack
+                    .pop()
+                    .unwrap_or_else(|| format!("{}", index_counter));
 
                 let node = LayerNode {
                     id: format!("layer-{}", path),
@@ -752,9 +810,17 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                     has_mask: raw.has_mask,
                     has_vector_mask: raw.has_vector_mask,
                     clipping: raw.clipping,
-                    locked: if raw.transparency_protected { Some(true) } else { None },
+                    locked: if raw.transparency_protected {
+                        Some(true)
+                    } else {
+                        None
+                    },
                     text_info: None,
-                    children: if children.is_empty() { None } else { Some(children) },
+                    children: if children.is_empty() {
+                        None
+                    } else {
+                        Some(children)
+                    },
                     bounds: None, // Groups don't have meaningful bounds
                 };
                 root.push(node);
@@ -825,7 +891,12 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                         let right = (td.tx + bb_r).round() as i32;
                         let bottom = (td.ty + bb_b).round() as i32;
                         if right > left && bottom > top {
-                            bounds = Some(LayerBounds { top, left, bottom, right });
+                            bounds = Some(LayerBounds {
+                                top,
+                                left,
+                                bottom,
+                                right,
+                            });
                         }
                     }
                 }
@@ -840,7 +911,11 @@ fn build_layer_tree(raw_layers: &[RawLayer], dpi: u32) -> Vec<LayerNode> {
                     has_mask: raw.has_mask,
                     has_vector_mask: raw.has_vector_mask,
                     clipping: raw.clipping,
-                    locked: if raw.transparency_protected { Some(true) } else { None },
+                    locked: if raw.transparency_protected {
+                        Some(true)
+                    } else {
+                        None
+                    },
                     text_info,
                     children: None,
                     bounds,
@@ -901,7 +976,11 @@ fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
     let m_d = read_f64(&mut r).ok()?;
     let m_tx = read_f64(&mut r).ok()?;
     let m_ty = read_f64(&mut r).ok()?;
-    let y_scale = if m_d.is_finite() && m_d > 0.0 { m_d } else { 1.0 };
+    let y_scale = if m_d.is_finite() && m_d > 0.0 {
+        m_d
+    } else {
+        1.0
+    };
 
     // Text data version (2 bytes)
     let _text_version = read_u16(&mut r).ok()?;
@@ -935,18 +1014,32 @@ fn parse_tysh_data(data: &[u8]) -> Option<TyShData> {
 /// Parse a Photoshop descriptor, extracting "Txt " (text content),
 /// "EngineData" (raw blob for font extraction), "AntA" (anti-aliasing enum),
 /// and "bounds"/"boundingBox" (text frame bounds for overflow detection).
-fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Option<Vec<u8>>, Option<String>, Option<(f64, f64, f64, f64)>)> {
+fn parse_ps_descriptor_for_text<R: Read + Seek>(
+    r: &mut R,
+) -> Option<(
+    String,
+    Option<Vec<u8>>,
+    Option<String>,
+    Option<(f64, f64, f64, f64)>,
+)> {
     // Unicode class name (length-prefixed, UTF-16BE)
     let name_len = read_u32(r).ok()? as i64;
     r.seek(SeekFrom::Current(name_len * 2)).ok()?;
 
     // Class ID (length-prefixed; if length=0, read 4 bytes)
     let class_id_len = read_u32(r).ok()?;
-    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 {
+        4
+    } else {
+        class_id_len as i64
+    }))
+    .ok()?;
 
     // Item count
     let count = read_u32(r).ok()?;
-    if count > 200 { return None; }
+    if count > 200 {
+        return None;
+    }
 
     let mut text: Option<String> = None;
     let mut engine_data: Option<Vec<u8>> = None;
@@ -964,11 +1057,15 @@ fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Op
         match &tt {
             b"TEXT" => {
                 let s = read_ps_text(r)?;
-                if key == b"Txt " { text = Some(s); }
+                if key == b"Txt " {
+                    text = Some(s);
+                }
             }
             b"tdta" => {
                 let data_len = read_u32(r).ok()? as usize;
-                if data_len > 50_000_000 { return None; }
+                if data_len > 50_000_000 {
+                    return None;
+                }
                 if key.starts_with(b"Engin") {
                     let mut buf = vec![0u8; data_len];
                     r.read_exact(&mut buf).ok()?;
@@ -980,13 +1077,18 @@ fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Op
             b"enum" if key == b"AntA" => {
                 // Read enum type ID (skip)
                 let t = read_u32(r).ok()?;
-                r.seek(SeekFrom::Current(if t == 0 { 4 } else { t as i64 })).ok()?;
+                r.seek(SeekFrom::Current(if t == 0 { 4 } else { t as i64 }))
+                    .ok()?;
                 // Read enum value (4-byte OSType)
                 let v = read_u32(r).ok()?;
                 let actual = if v == 0 { 4 } else { v as usize };
                 let mut val_buf = vec![0u8; actual];
                 r.read_exact(&mut val_buf).ok()?;
-                anti_alias = Some(String::from_utf8_lossy(&val_buf).trim_end_matches('\0').to_string());
+                anti_alias = Some(
+                    String::from_utf8_lossy(&val_buf)
+                        .trim_end_matches('\0')
+                        .to_string(),
+                );
             }
             b"Objc" if key == b"bounds" || key == b"boundingBox" => {
                 // bounds/boundingBox は Objc で内側に Left/Top/Rght/Btom (UntF) を持つ
@@ -998,12 +1100,19 @@ fn parse_ps_descriptor_for_text<R: Read + Seek>(r: &mut R) -> Option<(String, Op
                 }
             }
             _ => {
-                if skip_ps_value(r, &tt).is_none() { break; }
+                if skip_ps_value(r, &tt).is_none() {
+                    break;
+                }
             }
         }
     }
 
-    Some((text.unwrap_or_default(), engine_data, anti_alias, bounding_box))
+    Some((
+        text.unwrap_or_default(),
+        engine_data,
+        anti_alias,
+        bounding_box,
+    ))
 }
 
 /// "bounds"/"boundingBox" Objc descriptor: Left/Top/Rght/Btom(UntF) の値だけを取り出す
@@ -1014,11 +1123,18 @@ fn read_bounds_objc<R: Read + Seek>(r: &mut R) -> Option<(f64, f64, f64, f64)> {
 
     // Class ID (length-prefixed; if length=0, read 4 bytes)
     let class_id_len = read_u32(r).ok()?;
-    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 {
+        4
+    } else {
+        class_id_len as i64
+    }))
+    .ok()?;
 
     // Item count
     let count = read_u32(r).ok()?;
-    if count > 50 { return None; }
+    if count > 50 {
+        return None;
+    }
 
     let mut left: Option<f64> = None;
     let mut top: Option<f64> = None;
@@ -1033,10 +1149,15 @@ fn read_bounds_objc<R: Read + Seek>(r: &mut R) -> Option<(f64, f64, f64, f64)> {
             // UntF = unit(4 bytes) + double(8 bytes)
             r.seek(SeekFrom::Current(4)).ok()?;
             let v = read_f64(r).ok()?;
-            if k == b"Left" { left = Some(v); }
-            else if k == b"Top " { top = Some(v); }
-            else if k == b"Rght" { right = Some(v); }
-            else if k == b"Btom" { bottom = Some(v); }
+            if k == b"Left" {
+                left = Some(v);
+            } else if k == b"Top " {
+                top = Some(v);
+            } else if k == b"Rght" {
+                right = Some(v);
+            } else if k == b"Btom" {
+                bottom = Some(v);
+            }
         } else {
             skip_ps_value(r, &tt)?;
         }
@@ -1060,11 +1181,16 @@ fn read_ps_key<R: Read>(r: &mut R) -> Option<Vec<u8>> {
 /// Read a Unicode TEXT value from a Photoshop descriptor
 fn read_ps_text<R: Read>(r: &mut R) -> Option<String> {
     let char_count = read_u32(r).ok()? as usize;
-    if char_count == 0 { return Some(String::new()); }
-    if char_count > 10_000_000 { return None; }
+    if char_count == 0 {
+        return Some(String::new());
+    }
+    if char_count > 10_000_000 {
+        return None;
+    }
     let mut buf = vec![0u8; char_count * 2];
     r.read_exact(&mut buf).ok()?;
-    let utf16: Vec<u16> = buf.chunks_exact(2)
+    let utf16: Vec<u16> = buf
+        .chunks_exact(2)
         .map(|c| u16::from_be_bytes([c[0], c[1]]))
         .collect();
     let end = utf16.iter().position(|&c| c == 0).unwrap_or(utf16.len());
@@ -1074,32 +1200,57 @@ fn read_ps_text<R: Read>(r: &mut R) -> Option<String> {
 /// Skip a typed Photoshop descriptor value (for types we don't need)
 fn skip_ps_value<R: Read + Seek>(r: &mut R, tt: &[u8; 4]) -> Option<()> {
     match tt {
-        b"TEXT" => { let n = read_u32(r).ok()? as i64; r.seek(SeekFrom::Current(n * 2)).ok()?; }
-        b"tdta" | b"alis" | b"Pth " => { let n = read_u32(r).ok()? as i64; r.seek(SeekFrom::Current(n)).ok()?; }
-        b"Objc" | b"GlbO" => { skip_ps_descriptor(r)?; }
+        b"TEXT" => {
+            let n = read_u32(r).ok()? as i64;
+            r.seek(SeekFrom::Current(n * 2)).ok()?;
+        }
+        b"tdta" | b"alis" | b"Pth " => {
+            let n = read_u32(r).ok()? as i64;
+            r.seek(SeekFrom::Current(n)).ok()?;
+        }
+        b"Objc" | b"GlbO" => {
+            skip_ps_descriptor(r)?;
+        }
         b"VlLs" => {
             let count = read_u32(r).ok()?;
-            for _ in 0..count { skip_ps_typed_value(r)?; }
+            for _ in 0..count {
+                skip_ps_typed_value(r)?;
+            }
         }
         b"enum" => {
             let t = read_u32(r).ok()?;
-            r.seek(SeekFrom::Current(if t == 0 { 4 } else { t as i64 })).ok()?;
+            r.seek(SeekFrom::Current(if t == 0 { 4 } else { t as i64 }))
+                .ok()?;
             let v = read_u32(r).ok()?;
-            r.seek(SeekFrom::Current(if v == 0 { 4 } else { v as i64 })).ok()?;
+            r.seek(SeekFrom::Current(if v == 0 { 4 } else { v as i64 }))
+                .ok()?;
         }
-        b"long" => { r.seek(SeekFrom::Current(4)).ok()?; }
-        b"doub" => { r.seek(SeekFrom::Current(8)).ok()?; }
-        b"bool" => { r.seek(SeekFrom::Current(1)).ok()?; }
-        b"UntF" => { r.seek(SeekFrom::Current(12)).ok()?; } // unit(4) + double(8)
-        b"comp" => { r.seek(SeekFrom::Current(8)).ok()?; }
+        b"long" => {
+            r.seek(SeekFrom::Current(4)).ok()?;
+        }
+        b"doub" => {
+            r.seek(SeekFrom::Current(8)).ok()?;
+        }
+        b"bool" => {
+            r.seek(SeekFrom::Current(1)).ok()?;
+        }
+        b"UntF" => {
+            r.seek(SeekFrom::Current(12)).ok()?;
+        } // unit(4) + double(8)
+        b"comp" => {
+            r.seek(SeekFrom::Current(8)).ok()?;
+        }
         b"type" | b"GlbC" => {
             // Class reference: name + classID
             let n = read_u32(r).ok()? as i64;
             r.seek(SeekFrom::Current(n * 2)).ok()?;
             let c = read_u32(r).ok()?;
-            r.seek(SeekFrom::Current(if c == 0 { 4 } else { c as i64 })).ok()?;
+            r.seek(SeekFrom::Current(if c == 0 { 4 } else { c as i64 }))
+                .ok()?;
         }
-        _ => { return None; } // Unknown type — bail
+        _ => {
+            return None;
+        } // Unknown type — bail
     }
     Some(())
 }
@@ -1109,13 +1260,21 @@ fn skip_ps_descriptor<R: Read + Seek>(r: &mut R) -> Option<()> {
     let name_len = read_u32(r).ok()? as i64;
     r.seek(SeekFrom::Current(name_len * 2)).ok()?;
     let class_id_len = read_u32(r).ok()?;
-    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 {
+        4
+    } else {
+        class_id_len as i64
+    }))
+    .ok()?;
     let count = read_u32(r).ok()?;
-    if count > 200 { return None; }
+    if count > 200 {
+        return None;
+    }
     for _ in 0..count {
         // Key
         let kl = read_u32(r).ok()?;
-        r.seek(SeekFrom::Current(if kl == 0 { 4 } else { kl as i64 })).ok()?;
+        r.seek(SeekFrom::Current(if kl == 0 { 4 } else { kl as i64 }))
+            .ok()?;
         // Typed value
         skip_ps_typed_value(r)?;
     }
@@ -1151,10 +1310,17 @@ fn parse_lfx2_stroke_size(data: &[u8]) -> Option<f64> {
     r.seek(SeekFrom::Current(name_len * 2)).ok()?;
     // Class ID
     let class_id_len = read_u32(&mut r).ok()?;
-    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 {
+        4
+    } else {
+        class_id_len as i64
+    }))
+    .ok()?;
 
     let count = read_u32(&mut r).ok()?;
-    if count > 100 { return None; }
+    if count > 100 {
+        return None;
+    }
 
     for _ in 0..count {
         let key = read_ps_key(&mut r)?;
@@ -1178,10 +1344,17 @@ fn parse_frfx_descriptor<R: Read + Seek>(r: &mut R) -> Option<f64> {
     r.seek(SeekFrom::Current(name_len * 2)).ok()?;
     // Class ID
     let class_id_len = read_u32(r).ok()?;
-    r.seek(SeekFrom::Current(if class_id_len == 0 { 4 } else { class_id_len as i64 })).ok()?;
+    r.seek(SeekFrom::Current(if class_id_len == 0 {
+        4
+    } else {
+        class_id_len as i64
+    }))
+    .ok()?;
 
     let count = read_u32(r).ok()?;
-    if count > 100 { return None; }
+    if count > 100 {
+        return None;
+    }
 
     let mut enabled = true;
     let mut size: Option<f64> = None;
@@ -1205,7 +1378,11 @@ fn parse_frfx_descriptor<R: Read + Seek>(r: &mut R) -> Option<f64> {
         }
     }
 
-    if enabled { size } else { None }
+    if enabled {
+        size
+    } else {
+        None
+    }
 }
 
 /// Extract font PostScript names and font sizes from EngineData blob.
@@ -1246,7 +1423,7 @@ fn extract_from_engine_data(data: &[u8]) -> (Vec<String>, Vec<f64>, Vec<f64>) {
         if let Some(offset) = find_subsequence(&data[pos..font_scan_end], b"/Font") {
             let abs = pos + offset;
             let after_key = abs + 5; // position after "/Font"
-            // Ensure it's exactly "/Font" followed by whitespace, not "/FontSize" etc.
+                                     // Ensure it's exactly "/Font" followed by whitespace, not "/FontSize" etc.
             if after_key < font_scan_end && is_ed_whitespace(data[after_key]) {
                 if let Some(idx) = read_number_after_whitespace(data, after_key) {
                     used_indices.insert(idx as usize);
@@ -1261,13 +1438,15 @@ fn extract_from_engine_data(data: &[u8]) -> (Vec<String>, Vec<f64>, Vec<f64>) {
     // 3. Map indices to names, filtering internal fonts
     let fonts: Vec<String> = if used_indices.is_empty() {
         // Fallback: return all non-internal fonts from FontSet
-        font_index.iter()
+        font_index
+            .iter()
             .filter(|f| !f.is_empty() && !is_internal_font(f))
             .cloned()
             .collect()
     } else {
         let mut seen = std::collections::HashSet::new();
-        used_indices.iter()
+        used_indices
+            .iter()
             .filter_map(|&idx| font_index.get(idx).cloned())
             .filter(|f| !f.is_empty() && !is_internal_font(f) && seen.insert(f.clone()))
             .collect()
@@ -1339,27 +1518,36 @@ fn find_byte(data: &[u8], byte: u8) -> Option<usize> {
 fn read_paren_string(data: &[u8], start: usize) -> Option<String> {
     let mut i = start;
     // Skip whitespace
-    while i < data.len() && (data[i] == b' ' || data[i] == b'\t' || data[i] == b'\n' || data[i] == b'\r') {
+    while i < data.len()
+        && (data[i] == b' ' || data[i] == b'\t' || data[i] == b'\n' || data[i] == b'\r')
+    {
         i += 1;
     }
-    if i >= data.len() || data[i] != b'(' { return None; }
+    if i >= data.len() || data[i] != b'(' {
+        return None;
+    }
     i += 1; // skip '('
     let str_start = i;
     let mut depth = 1u32;
     while i < data.len() && depth > 0 {
         match data[i] {
-            b'\\' => { i += 1; } // skip escaped char
+            b'\\' => {
+                i += 1;
+            } // skip escaped char
             b'(' => depth += 1,
             b')' => depth -= 1,
             _ => {}
         }
-        if depth > 0 { i += 1; }
+        if depth > 0 {
+            i += 1;
+        }
     }
     // Handle potential UTF-16BE encoding (starts with \xfe\xff BOM)
     let raw = &data[str_start..i];
     if raw.len() >= 2 && raw[0] == 0xFE && raw[1] == 0xFF {
         // UTF-16BE: decode skipping BOM
-        let utf16: Vec<u16> = raw[2..].chunks_exact(2)
+        let utf16: Vec<u16> = raw[2..]
+            .chunks_exact(2)
             .map(|c| u16::from_be_bytes([c[0], c[1]]))
             .collect();
         let end = utf16.iter().position(|&c| c == 0).unwrap_or(utf16.len());
@@ -1373,16 +1561,22 @@ fn read_paren_string(data: &[u8], start: usize) -> Option<String> {
 /// Read a number (int or float) after skipping whitespace
 fn read_number_after_whitespace(data: &[u8], start: usize) -> Option<f64> {
     let mut i = start;
-    while i < data.len() && (data[i] == b' ' || data[i] == b'\t' || data[i] == b'\n' || data[i] == b'\r') {
+    while i < data.len()
+        && (data[i] == b' ' || data[i] == b'\t' || data[i] == b'\n' || data[i] == b'\r')
+    {
         i += 1;
     }
     let num_start = i;
     // Allow leading minus
-    if i < data.len() && data[i] == b'-' { i += 1; }
+    if i < data.len() && data[i] == b'-' {
+        i += 1;
+    }
     while i < data.len() && (data[i].is_ascii_digit() || data[i] == b'.') {
         i += 1;
     }
-    if i == num_start { return None; }
+    if i == num_start {
+        return None;
+    }
     let s = std::str::from_utf8(&data[num_start..i]).ok()?;
     s.parse::<f64>().ok()
 }
@@ -1422,52 +1616,61 @@ pub fn base64_encode(data: &[u8]) -> String {
 
 fn read_u8<R: Read>(r: &mut R) -> Result<u8, String> {
     let mut buf = [0u8; 1];
-    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Read error: {}", e))?;
     Ok(buf[0])
 }
 
 fn read_u16<R: Read>(r: &mut R) -> Result<u16, String> {
     let mut buf = [0u8; 2];
-    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Read error: {}", e))?;
     Ok(u16::from_be_bytes(buf))
 }
 
 fn read_i16<R: Read>(r: &mut R) -> Result<i16, String> {
     let mut buf = [0u8; 2];
-    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Read error: {}", e))?;
     Ok(i16::from_be_bytes(buf))
 }
 
 fn read_i32<R: Read>(r: &mut R) -> Result<i32, String> {
     let mut buf = [0u8; 4];
-    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Read error: {}", e))?;
     Ok(i32::from_be_bytes(buf))
 }
 
 fn read_u32<R: Read>(r: &mut R) -> Result<u32, String> {
     let mut buf = [0u8; 4];
-    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Read error: {}", e))?;
     Ok(u32::from_be_bytes(buf))
 }
 
 fn read_u64<R: Read>(r: &mut R) -> Result<u64, String> {
     let mut buf = [0u8; 8];
-    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Read error: {}", e))?;
     Ok(u64::from_be_bytes(buf))
 }
 
 fn read_f64<R: Read>(r: &mut R) -> Result<f64, String> {
     let mut buf = [0u8; 8];
-    r.read_exact(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Read error: {}", e))?;
     Ok(f64::from_be_bytes(buf))
 }
 
 fn stream_pos<R: Seek>(r: &mut R) -> Result<u64, String> {
-    r.stream_position().map_err(|e| format!("Stream position error: {}", e))
+    r.stream_position()
+        .map_err(|e| format!("Stream position error: {}", e))
 }
 
 fn seek_to<R: Seek>(r: &mut R, pos: u64) -> Result<u64, String> {
-    r.seek(SeekFrom::Start(pos)).map_err(|e| format!("Seek error: {}", e))
+    r.seek(SeekFrom::Start(pos))
+        .map_err(|e| format!("Seek error: {}", e))
 }
 
 fn skip_section_u32<R: Read + Seek>(r: &mut R) -> Result<(), String> {
@@ -1484,7 +1687,8 @@ fn read_unicode_string<R: Read>(r: &mut R) -> Result<String, String> {
         return Ok(String::new());
     }
     let mut buf = vec![0u8; char_count * 2];
-    r.read_exact(&mut buf).map_err(|e| format!("Unicode read error: {}", e))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("Unicode read error: {}", e))?;
 
     let utf16: Vec<u16> = buf
         .chunks_exact(2)

@@ -192,7 +192,7 @@ export function ReplacePanel() {
               mode="text"
               currentMode={settings.mode}
               label="テキスト差替え"
-              description="植字データ → 画像データ"
+              description="テキストを差替える"
               icon={<TextIcon />}
               color="accent"
               tooltip="植字データのテキストを、画像データ側の同じページへまとめて差し替えます。"
@@ -275,7 +275,7 @@ export function ReplacePanel() {
               mode="image"
               currentMode={settings.mode}
               label="画像差替え"
-              description="画像データ → 植字データ"
+              description="画像を差替える（白消し、棒消し）"
               icon={<ImageIcon />}
               color="accent-secondary"
               tooltip="画像データの背景や指定レイヤーを、植字データ側へまとめて差し替えます。"
@@ -296,7 +296,7 @@ export function ReplacePanel() {
                   checked={settings.imageSettings.replaceSpecialLayer}
                   onChange={(v) => setImageSettings({ replaceSpecialLayer: v })}
                 >
-                  <span className="text-xs text-text-primary">特定名レイヤー差替え</span>
+                  <span className="text-xs text-text-primary">特定名レイヤー差替え（白消し）</span>
                 </CheckBox>
                 {settings.imageSettings.replaceSpecialLayer && (
                   <div className="ml-6 space-y-1.5">
@@ -354,7 +354,7 @@ export function ReplacePanel() {
                   checked={settings.imageSettings.replaceNamedGroup}
                   onChange={(v) => setImageSettings({ replaceNamedGroup: v })}
                 >
-                  <span className="text-xs text-text-primary">特定名グループ差替え</span>
+                  <span className="text-xs text-text-primary">特定名グループ差替え（棒消し）</span>
                 </CheckBox>
                 {settings.imageSettings.replaceNamedGroup && (
                   <div className="ml-6 space-y-1.5">

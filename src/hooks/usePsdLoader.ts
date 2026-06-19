@@ -22,6 +22,7 @@ interface PsdParseResult {
 
 export function usePsdLoader() {
   const setFiles = usePsdStore((state) => state.setFiles);
+  const addFiles = usePsdStore((state) => state.addFiles);
   const updateFile = usePsdStore((state) => state.updateFile);
   const batchUpdateFiles = usePsdStore((state) => state.batchUpdateFiles);
   const replaceFile = usePsdStore((state) => state.replaceFile);
@@ -155,7 +156,7 @@ export function usePsdLoader() {
   );
 
   const loadFilesInternal = useCallback(
-    async (filePaths: string[], subfolderNames?: string[]) => {
+    async (filePaths: string[], subfolderNames?: string[], append = false) => {
       // replace タブ時はスキップ（ReplaceDropZone が独自に処理する）
       if (useViewStore.getState().activeView === "replace") return;
 
@@ -164,11 +165,14 @@ export function usePsdLoader() {
         filePaths.sort((a, b) => naturalCompare(a, b));
       }
 
+      // 追加(append)時は既存IDと衝突しないよう一意な接頭辞を付ける
+      const idBase = `file-${Date.now()}${append ? `-a${Math.round(Math.random() * 1e6)}` : ""}`;
+
       // Create initial file entries
       const initialFiles: PsdFile[] = filePaths.map((filePath, index) => {
         const fileName = filePath.split(/[/\\]/).pop() || "unknown.psd";
         return {
-          id: `file-${Date.now()}-${index}`,
+          id: `${idBase}-${index}`,
           filePath,
           fileName,
           fileSize: 0,
@@ -178,7 +182,8 @@ export function usePsdLoader() {
         };
       });
 
-      setFiles(initialFiles);
+      if (append) addFiles(initialFiles);
+      else setFiles(initialFiles);
       setLoadingStatus("idle");
 
       // Load metadata and thumbnails in parallel (with limit)
@@ -341,8 +346,78 @@ export function usePsdLoader() {
 
       // 仕様チェックはSpecCheckViewでのみ実行される（useSpecCheckerが自動検出）
     },
-    [setFiles, updateFile, batchUpdateFiles, replaceFile, setLoadingStatus],
+    [setFiles, addFiles, updateFile, batchUpdateFiles, replaceFile, setLoadingStatus],
   );
 
-  return { loadFolder, loadFolderWithSubfolders, loadFiles };
+  // --- 既存リストへ追加（D&Dで「どんどん追加」用） ---
+  const appendFiles = useCallback(
+    async (filePaths: string[]) => {
+      if (filePaths.length === 0) return;
+      try {
+        await loadFilesInternal(filePaths, undefined, true);
+      } catch (error) {
+        console.error("Failed to append files:", error);
+      }
+    },
+    [loadFilesInternal],
+  );
+
+  // サブフォルダ込みで既存リストへ追加（各サブフォルダ = 別フォルダとして巻分け可能）
+  const appendFolderWithSubfolders = useCallback(
+    async (folderPaths: string[]) => {
+      try {
+        type FileWithSub = { path: string; subfolderName: string };
+        const collected: FileWithSub[] = [];
+        for (const folderPath of folderPaths) {
+          const entries = await readDir(folderPath);
+          for (const entry of entries) {
+            if (entry.isFile && entry.name && isSupportedFile(entry.name)) {
+              collected.push({ path: `${folderPath}\\${entry.name}`, subfolderName: "" });
+            }
+          }
+          for (const entry of entries) {
+            if (!entry.isFile && entry.name) {
+              try {
+                const subPath = `${folderPath}\\${entry.name}`;
+                const subEntries = await readDir(subPath);
+                for (const subEntry of subEntries) {
+                  if (subEntry.isFile && subEntry.name && isSupportedFile(subEntry.name)) {
+                    collected.push({
+                      path: `${subPath}\\${subEntry.name}`,
+                      subfolderName: entry.name,
+                    });
+                  }
+                }
+              } catch {
+                /* サブフォルダ読み込みエラーは無視 */
+              }
+            }
+          }
+        }
+        if (collected.length === 0) return;
+        collected.sort((a, b) => {
+          if (a.subfolderName !== b.subfolderName) {
+            return naturalCompare(a.subfolderName, b.subfolderName);
+          }
+          return naturalCompare(a.path, b.path);
+        });
+        await loadFilesInternal(
+          collected.map((f) => f.path),
+          collected.map((f) => f.subfolderName),
+          true,
+        );
+      } catch (error) {
+        console.error("Failed to append folder with subfolders:", error);
+      }
+    },
+    [loadFilesInternal],
+  );
+
+  return {
+    loadFolder,
+    loadFolderWithSubfolders,
+    loadFiles,
+    appendFiles,
+    appendFolderWithSubfolders,
+  };
 }

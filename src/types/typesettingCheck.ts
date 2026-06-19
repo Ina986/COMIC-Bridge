@@ -1,4 +1,4 @@
-/** 校正チェック項目 (MojiQ JSON構造準拠) */
+/** 校正チェック項目 (外部校正ツール JSON構造準拠) */
 export interface ProofreadingCheckItem {
   picked: boolean;
   category: string;
