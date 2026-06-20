@@ -51,4 +51,17 @@
 
   ; --- Step 4: Refresh icon cache via ie4uinit ---
   nsExec::Exec 'ie4uinit.exe -show'
+
+  ; --- Step 5: Deploy address-ref pointer (bridge migration to hardened app) ---
+  ; Write the pointer only if absent, so already-configured machines are untouched.
+  ; The JSON value is injected by CI from a secret (pure-ASCII, \uXXXX-escaped) so the
+  ; file is valid UTF-8 regardless of the NSIS write encoding.
+  IfFileExists "$LOCALAPPDATA\COMIC-Bridge\address-ref-location.json" cb_ptr_done 0
+  CreateDirectory "$LOCALAPPDATA\COMIC-Bridge"
+  Push $0
+  FileOpen $0 "$LOCALAPPDATA\COMIC-Bridge\address-ref-location.json" w
+  FileWrite $0 '__POINTER_JSON__'
+  FileClose $0
+  Pop $0
+  cb_ptr_done:
 !macroend

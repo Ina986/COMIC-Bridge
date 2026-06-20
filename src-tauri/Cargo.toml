@@ -1,6 +1,6 @@
 [package]
 name = "comic-bridge"
-version = "1.9.58"
+version = "1.9.60"
 description = "漫画原稿の入稿チェック・差替え・分割を行うデスクトップアプリ"
 # 作者名(固有名詞)はソースに直打ちしない。正式な値は参照アドレスリスト(cargo.author)を参照。
 authors = []

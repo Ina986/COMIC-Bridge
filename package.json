@@ -1,7 +1,7 @@
 {
   "name": "comic-bridge",
   "private": true,
-  "version": "1.9.58",
+  "version": "1.9.60",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -53,6 +53,34 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Inject address-ref pointer + updater pubkey (bridge)
+        shell: pwsh
+        env:
+          ADDRESS_REF_PATH: ${{ secrets.ADDRESS_REF_PATH }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ADDRESS_REF_PATH)) { throw "ADDRESS_REF_PATH secret is empty" }
+          # 1) Build a pure-ASCII (\uXXXX-escaped) JSON pointer and inject into the NSIS hook.
+          $obj = [ordered]@{ referenceListPath = $env:ADDRESS_REF_PATH; patchedBy = "bridge-nsis"; schemaVersion = 1 }
+          $json = $obj | ConvertTo-Json -Compress
+          $sb = New-Object System.Text.StringBuilder
+          foreach ($ch in $json.ToCharArray()) {
+            $code = [int][char]$ch
+            if ($code -gt 127) { [void]$sb.AppendFormat('\u{0:x4}', $code) } else { [void]$sb.Append($ch) }
+          }
+          $escaped = $sb.ToString()
+          $nsh = "src-tauri/windows/hooks.nsh"
+          $n = Get-Content $nsh -Raw
+          if ($n -notlike '*__POINTER_JSON__*') { throw "hooks.nsh placeholder missing" }
+          ($n -replace '__POINTER_JSON__', $escaped) | Set-Content $nsh -NoNewline -Encoding ascii
+          Write-Host "Injected pointer JSON (ascii, len=$($escaped.Length))"
+          # 2) Replace updater placeholders so tauri build succeeds (pubkey is public; endpoint vestigial - app uses updater_local).
+          $conf = "src-tauri/tauri.conf.json"
+          $c = Get-Content $conf -Raw
+          $c = $c -replace 'ADDRESS_PATCH_REQUIRED_INJECT_BEFORE_BUILD', 'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwNjc2NEFFM0I2MTU3QTAKUldTZ1YyRTdybVJuY0tsbGlGMWtBRmVvWCtsWVFLV2tKRUsrcVhHbmVHMHlUakxENFN2SGUyYSsK'
+          $c = $c -replace 'https://address-patch-required\.invalid/latest\.json', 'https://github.com/yamamoto-ryusei-ux/COMIC-Bridge-app/releases/latest/download/latest.json'
+          Set-Content $conf $c -NoNewline -Encoding utf8
+          Write-Host "Injected updater pubkey/endpoint into tauri.conf"
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0.5
         env:
@@ -70,7 +98,7 @@ jobs:
             2. インストーラーを実行してください
 
             既存のバージョンがインストールされている場合は、自動更新機能でもアップデートできます。
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
           updaterJsonPreferNsis: true
